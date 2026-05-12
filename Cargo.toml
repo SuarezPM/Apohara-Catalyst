@@ -1,0 +1,14 @@
+[workspace]
+members = [
+    "isolation-engine",
+    "crates/apohara-sandbox",
+    "crates/apohara-indexer",
+    "packages/desktop/src-tauri",
+]
+resolver = "3"
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true
+panic = "abort"

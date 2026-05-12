@@ -1,0 +1,7 @@
+# Cargo config - static linking configuration
+# Note: Full static linking requires musl target with cross-compiler
+
+[env]
+# Belt-and-suspenders with serial_test and the inter-process flock in shared_model().
+# Prevents in-process parallel model loads across test threads.
+RUST_TEST_THREADS = "1"

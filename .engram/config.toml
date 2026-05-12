@@ -1,0 +1,11 @@
+[memory]
+storage = ".engram/memory.db"
+max_entries = 1000
+prune_after_days = 90
+
+[search]
+layers = ["project", "action", "detail"]
+fuzzy_threshold = 0.7
+
+[security]
+auto_private = true

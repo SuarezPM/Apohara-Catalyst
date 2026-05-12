@@ -1,0 +1,23 @@
+{
+	"name": "@apohara/tui",
+	"version": "0.1.0",
+	"type": "module",
+	"private": true,
+	"scripts": {
+		"test": "bunx vitest run",
+		"dev": "bun run cli.tsx"
+	},
+	"dependencies": {
+		"ink": "^7.0.1",
+		"react": "^19.2.5"
+	},
+	"devDependencies": {
+		"@testing-library/react": "^16.3.2",
+		"@types/react": "^19.2.14",
+		"jsdom": "^29.1.1",
+		"vitest": "^4.1.5"
+	},
+	"peerDependencies": {
+		"typescript": "^5"
+	}
+}

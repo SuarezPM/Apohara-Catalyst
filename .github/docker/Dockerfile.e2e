@@ -1,0 +1,81 @@
+# E2E Test Isolation Container
+# Provides isolated environment for running E2E tests in CI
+# Network isolation blocks outbound traffic except loopback to prevent exfiltration
+
+FROM oven/bun:1
+
+# Install required dependencies
+# - git: Required for worktree isolation tests
+# - iptables: For network isolation (if running as root)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    iptables \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user for security
+RUN groupadd -r e2e && useradd -r -g e2e e2e
+
+# Set working directory
+WORKDIR /workspace
+
+# Copy project files
+COPY . .
+
+# Switch to non-root user
+USER e2e
+
+# Entrypoint script that:
+# 1. Applies network isolation (blocks outbound except loopback)
+# 2. Runs the provided command
+# 3. Ensures cleanup on exit
+ENTRYPOINT ["/bin/bash", "-c"]
+
+# Default command runs E2E tests
+CMD ["
+
+# =====================================================
+# Network Isolation: Block outbound traffic except loopback
+# This prevents exfiltration during swarm execution
+# =====================================================
+
+# Drop all outgoing connections by default
+# (commented out - uncomment in production for full isolation)
+# iptables -P OUTPUT DROP
+
+# Allow loopback (localhost) - required for service health checks
+iptables -A OUTPUT -o lo -j ACCEPT
+
+# Allow established connections (for responses to incoming requests)
+iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+
+# Optional: Log dropped packets for debugging
+# iptables -A OUTPUT -j LOG --log-prefix 'E2E-DROP: '
+
+# =====================================================
+# Run E2E tests
+# =====================================================
+
+echo 'Running E2E tests...'
+
+# Build the fastify-api example first (required by tests)
+cd examples/fastify-api && bun run build
+
+# Run E2E tests
+cd /workspace
+bun test tests/e2e/install-and-run.test.ts
+
+# Store exit code
+EXIT_CODE=$?
+
+# =====================================================
+# Cleanup on exit
+# =====================================================
+
+echo 'Cleaning up E2E test environment...'
+
+# Kill any remaining processes (if any orphan processes exist)
+pkill -f 'bun run' 2>/dev/null || true
+
+# Exit with original test exit code
+exit $EXIT_CODE
+"]

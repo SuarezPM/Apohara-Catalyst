@@ -1,0 +1,22 @@
+{
+	"permissions": {
+		"allow": [
+			"Bash(gh search *)",
+			"Bash(cargo check *)",
+			"Bash(bunx tsc *)",
+			"Bash(git fetch *)",
+			"mcp__engram__mem_search",
+			"mcp__engram__mem_get_observation",
+			"mcp__engram__mem_context",
+			"mcp__engram__mem_save",
+			"mcp__lean-ctx__ctx_read",
+			"mcp__lean-ctx__ctx_tree",
+			"mcp__lean-ctx__ctx_search",
+			"mcp__gitnexus__query",
+			"mcp__gitnexus__context",
+			"mcp__gitnexus__impact",
+			"mcp__gitnexus__detect_changes",
+			"mcp__gsd-workflow__gsd_milestone_status"
+		]
+	}
+}

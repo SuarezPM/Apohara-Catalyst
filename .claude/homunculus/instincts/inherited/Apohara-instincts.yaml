@@ -1,0 +1,773 @@
+# Instincts generated from https://github.com/SuarezPM/Apohara
+# Generated: 2026-05-12T03:09:41.674Z
+# Version: 2.0
+# NOTE: This file supplements (does not replace) any existing curated instincts.
+# High-confidence manually curated instincts should be preserved alongside these.
+
+---
+id: Apohara-commit-conventional
+trigger: "when writing a commit message"
+confidence: 0.85
+domain: git
+source: repo-analysis
+source_repo: https://github.com/SuarezPM/Apohara
+---
+
+# Apohara Commit Conventional
+
+## Action
+
+Use conventional commit format with prefixes: docs, feat, fix, chore
+
+## Evidence
+
+- 15 commits analyzed
+- Detected conventional commit pattern
+- Examples: chore: remove mem0 client, retire manifesto docs, refresh project identity, fix(indexer): harden test isolation to prevent system-wide OOM
+
+---
+id: Apohara-commit-length
+trigger: "when writing a commit message"
+confidence: 0.6
+domain: git
+source: repo-analysis
+source_repo: https://github.com/SuarezPM/Apohara
+---
+
+# Apohara Commit Length
+
+## Action
+
+Write moderate-length commit messages (~67 characters)
+
+## Evidence
+
+- Average commit message length: 67 chars
+- Based on 15 commits
+
+---
+id: Apohara-naming-files
+trigger: "when creating a new file"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/SuarezPM/Apohara
+---
+
+# Apohara Naming Files
+
+## Action
+
+Use camelCase naming convention
+
+## Evidence
+
+- Analyzed file naming patterns in repository
+- Dominant pattern: camelCase
+
+---
+id: Apohara-import-relative
+trigger: "when importing modules"
+confidence: 0.75
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/SuarezPM/Apohara
+---
+
+# Apohara Import Relative
+
+## Action
+
+Use relative imports for project files
+
+## Evidence
+
+- Import analysis shows relative import pattern
+- Example: import { x } from '../lib/x'
+
+---
+id: Apohara-export-style
+trigger: "when exporting from a module"
+confidence: 0.7
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/SuarezPM/Apohara
+---
+
+# Apohara Export Style
+
+## Action
+
+Prefer named exports
+
+## Evidence
+
+- Export pattern analysis
+- Dominant style: named
+
+---
+id: Apohara-arch-type-based
+trigger: "when adding new code"
+confidence: 0.8
+domain: architecture
+source: repo-analysis
+source_repo: https://github.com/SuarezPM/Apohara
+---
+
+# Apohara Arch Type Based
+
+## Action
+
+Place code in the appropriate type folder (components/, services/, utils/, etc.)
+
+## Evidence
+
+- Type-based module organization detected
+- Folders: commands, core, lib, providers
+
+---
+id: Apohara-test-separate
+trigger: "when writing tests"
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/SuarezPM/Apohara
+---
+
+# Apohara Test Separate
+
+## Action
+
+Place tests in the tests/ or __tests__/ directory, mirroring src structure
+
+## Evidence
+
+- Separate test directory pattern detected
+- Tests live in dedicated test folders
+
+---
+id: Apohara-test-framework
+trigger: "when writing tests"
+confidence: 0.9
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/SuarezPM/Apohara
+---
+
+# Apohara Test Framework
+
+## Action
+
+Use vitest as the test framework
+
+## Evidence
+
+- Test framework detected: vitest
+- File pattern: *.test.ts
+
+---
+id: Apohara-test-naming
+trigger: "when creating a test file"
+confidence: 0.85
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/SuarezPM/Apohara
+---
+
+# Apohara Test Naming
+
+## Action
+
+Name test files using the pattern: *.test.ts
+
+## Evidence
+
+- File pattern: *.test.ts
+- Consistent across test files
+
+---
+id: Apohara-test-types
+trigger: "when planning tests for a feature"
+confidence: 0.7
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/SuarezPM/Apohara
+---
+
+# Apohara Test Types
+
+## Action
+
+Write unit, integration, e2e tests to match project standards
+
+## Evidence
+
+- Test types detected: unit, integration, e2e
+- Coverage config: no
+
+---
+id: Apohara-workflow-feature-development
+trigger: "when implementing a new feature"
+confidence: 0.9
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/SuarezPM/Apohara
+---
+
+# Apohara Workflow Feature Development
+
+## Action
+
+Follow the feature-development workflow:
+1. Add feature implementation
+2. Add tests for feature
+3. Update documentation
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~12x per month
+- Files: src/core/*, src/lib/*, tests/*
+
+---
+id: Apohara-workflow-refactoring
+trigger: "when refactoring code"
+confidence: 0.9
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/SuarezPM/Apohara
+---
+
+# Apohara Workflow Refactoring
+
+## Action
+
+Follow the refactoring workflow:
+1. Ensure tests pass before refactor
+2. Refactor code structure
+3. Verify tests still pass
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~18x per month
+- Files: src/**/*
+
+---
+id: Apohara-workflow-test-audit-and-classification
+trigger: "when doing test audit and classification"
+confidence: 0.55
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/SuarezPM/Apohara
+---
+
+# Apohara Workflow Test Audit And Classification
+
+## Action
+
+Follow the test-audit-and-classification workflow:
+1. Run static audit on batches of test files, classifying each as KEEP_GREEN, KEEP_REFACTOR, INVESTIGATE, or KILL.
+2. Write per-batch audit results to .claude/specs/tests/PHASE_5_2_AUDIT_BATCH{N}.md.
+3. Update or create .claude/specs/tests/PHASE_5_2_AUDIT_SUMMARY.md with overall tallies and recommendations.
+4. Empirically run the KEEP_GREEN and KEEP_REFACTOR cohorts, updating the summary with pass/fail counts.
+5. Repeat for additional batches until all test files are covered.
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~1x per month
+- Files: .claude/specs/tests/PHASE_5_2_AUDIT_BATCH1.md, .claude/specs/tests/PHASE_5_2_AUDIT_BATCH2.md, .claude/specs/tests/PHASE_5_2_AUDIT_BATCH3.md
+
+---
+id: Apohara-workflow-roadmap-and-docs-update
+trigger: "when doing roadmap and docs update"
+confidence: 0.6
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/SuarezPM/Apohara
+---
+
+# Apohara Workflow Roadmap And Docs Update
+
+## Action
+
+Follow the roadmap-and-docs-update workflow:
+1. Edit ROADMAP.md to mark phases as complete, add new milestones, or clarify direction.
+2. Edit CLAUDE.md and AGENTS.md to reconcile naming, stack, or protocol changes.
+3. Remove or retire superseded documentation files.
+4. Commit with a message referencing the relevant phase or milestone.
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~2x per month
+- Files: ROADMAP.md, CLAUDE.md, AGENTS.md
+
+---
+id: Apohara-workflow-parallel-work-coordination
+trigger: "when doing parallel work coordination"
+confidence: 0.55
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/SuarezPM/Apohara
+---
+
+# Apohara Workflow Parallel Work Coordination
+
+## Action
+
+Follow the parallel-work-coordination workflow:
+1. Assign distinct but related tasks to different agents (e.g., one audits tests, one scaffolds code, one runs code indexer).
+2. Document the parallel work protocol and bridge scripts (e.g., tmux-minimax.sh) in CLAUDE.md.
+3. Reference parallel work in commit messages and documentation.
+4. Aggregate results from all agents into summary docs or audit batches.
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~1x per month
+- Files: .claude/scripts/tmux-minimax.sh, .claude/CLAUDE.md, .claude/specs/tests/PHASE_5_2_AUDIT_BATCH{N}.md
+
+---
+id: Apohara-workflow-scaffold-new-rust-crate
+trigger: "when doing scaffold new rust crate"
+confidence: 0.55
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/SuarezPM/Apohara
+---
+
+# Apohara Workflow Scaffold New Rust Crate
+
+## Action
+
+Follow the scaffold-new-rust-crate workflow:
+1. Create crates/new-crate-name/ with Cargo.toml and src/ directory.
+2. Add initial dependencies and set up main.rs or lib.rs with public API skeleton.
+3. Implement minimal structs/enums and error handling.
+4. Write initial unit tests for core types or functions.
+5. Verify build and test pass.
+6. Integrate with orchestrator or TypeScript wrapper as needed.
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~1x per month
+- Files: crates/{crate-name}/Cargo.toml, crates/{crate-name}/src/lib.rs, crates/{crate-name}/src/main.rs
+
+---
+id: Apohara-workflow-ci-unblock-and-package-lock-maintenance
+trigger: "when doing ci unblock and package lock maintenance"
+confidence: 0.55
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/SuarezPM/Apohara
+---
+
+# Apohara Workflow Ci Unblock And Package Lock Maintenance
+
+## Action
+
+Follow the ci-unblock-and-package-lock-maintenance workflow:
+1. Identify and remove invalid or platform-incompatible files (e.g., file:/... artifacts).
+2. Edit package.json to remove or fix problematic dependencies.
+3. Regenerate bun.lock or other lockfiles.
+4. Verify that CI passes on all platforms.
+5. Document the fix in commit message.
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~1x per month
+- Files: package.json, bun.lock, file:/home/linconx/Apohara/binaries/.npm-package
+
+---
+id: apohara-camelcase-files
+trigger: "When creating or renaming a source file"
+confidence: 0.85
+domain: code-style
+source: repo-analysis
+source_repo: SuarezPM/Apohara
+---
+
+# Apohara Camelcase Files
+
+## Action
+
+Name the file using camelCase (e.g., myModule.rs)
+
+## Evidence
+
+- Pattern in codeStyle.namingConventions.files
+- Consistent with srcLayout and examples
+
+---
+id: apohara-camelcase-functions
+trigger: "When defining a function"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: SuarezPM/Apohara
+---
+
+# Apohara Camelcase Functions
+
+## Action
+
+Name the function using camelCase (e.g., processEvent)
+
+## Evidence
+
+- Pattern in codeStyle.namingConventions.functions
+
+---
+id: apohara-pascalcase-classes
+trigger: "When defining a class or struct"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: SuarezPM/Apohara
+---
+
+# Apohara Pascalcase Classes
+
+## Action
+
+Name the class/struct using PascalCase (e.g., EventLedger)
+
+## Evidence
+
+- Pattern in codeStyle.namingConventions.classes
+
+---
+id: apohara-screaming-snake-constants
+trigger: "When defining a constant"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: SuarezPM/Apohara
+---
+
+# Apohara Screaming Snake Constants
+
+## Action
+
+Name the constant using SCREAMING_SNAKE_CASE (e.g., MAX_RETRIES)
+
+## Evidence
+
+- Pattern in codeStyle.namingConventions.constants
+
+---
+id: apohara-relative-imports
+trigger: "When importing modules in code"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: SuarezPM/Apohara
+---
+
+# Apohara Relative Imports
+
+## Action
+
+Use relative import paths
+
+## Evidence
+
+- Pattern in codeStyle.importStyle
+
+---
+id: apohara-named-exports
+trigger: "When exporting modules or functions"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: SuarezPM/Apohara
+---
+
+# Apohara Named Exports
+
+## Action
+
+Use named exports
+
+## Evidence
+
+- Pattern in codeStyle.exportStyle
+
+---
+id: apohara-vitest-pattern
+trigger: "When writing a test file"
+confidence: 0.9
+domain: testing
+source: repo-analysis
+source_repo: SuarezPM/Apohara
+---
+
+# Apohara Vitest Pattern
+
+## Action
+
+Use Vitest as the testing framework and name the file with the pattern *.test.ts
+
+## Evidence
+
+- Pattern in testing.framework and testing.filePattern
+
+---
+id: apohara-test-types
+trigger: "When planning tests for a feature"
+confidence: 0.85
+domain: testing
+source: repo-analysis
+source_repo: SuarezPM/Apohara
+---
+
+# Apohara Test Types
+
+## Action
+
+Include unit, integration, and e2e tests as appropriate
+
+## Evidence
+
+- Pattern in testing.testTypes
+
+---
+id: apohara-no-coverage-config
+trigger: "When setting up test configuration"
+confidence: 0.7
+domain: testing
+source: repo-analysis
+source_repo: SuarezPM/Apohara
+---
+
+# Apohara No Coverage Config
+
+## Action
+
+Do not enforce test coverage configuration
+
+## Evidence
+
+- Pattern in testing.coverageConfig = false
+
+---
+id: apohara-try-catch-errors
+trigger: "When handling errors in code"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: SuarezPM/Apohara
+---
+
+# Apohara Try Catch Errors
+
+## Action
+
+Use try-catch blocks for error handling
+
+## Evidence
+
+- Pattern in errorHandling.style
+
+---
+id: apohara-no-custom-error-classes
+trigger: "When designing error handling"
+confidence: 0.7
+domain: code-style
+source: repo-analysis
+source_repo: SuarezPM/Apohara
+---
+
+# Apohara No Custom Error Classes
+
+## Action
+
+Do not create custom error classes; use standard error types
+
+## Evidence
+
+- Pattern in errorHandling.customErrorClasses = false
+
+---
+id: apohara-conventional-commits
+trigger: "When writing a commit message"
+confidence: 0.9
+domain: git
+source: repo-analysis
+source_repo: SuarezPM/Apohara
+---
+
+# Apohara Conventional Commits
+
+## Action
+
+Use conventional commit prefixes (docs, feat, fix, chore) and scope if applicable
+
+## Evidence
+
+- Pattern in commits.prefixes
+- Examples in commits.examples
+
+---
+id: apohara-commit-length
+trigger: "When composing a commit message"
+confidence: 0.8
+domain: git
+source: repo-analysis
+source_repo: SuarezPM/Apohara
+---
+
+# Apohara Commit Length
+
+## Action
+
+Keep the commit message concise (average length ~67 characters)
+
+## Evidence
+
+- Pattern in commits.averageLength
+
+---
+id: apohara-feature-workflow
+trigger: "When implementing a new feature"
+confidence: 0.9
+domain: workflow
+source: repo-analysis
+source_repo: SuarezPM/Apohara
+---
+
+# Apohara Feature Workflow
+
+## Action
+
+Follow the sequence: implement feature → add tests → update documentation
+
+## Evidence
+
+- feature-development workflow
+- commitSequence and examples
+
+---
+id: apohara-refactor-workflow
+trigger: "When refactoring code"
+confidence: 0.9
+domain: workflow
+source: repo-analysis
+source_repo: SuarezPM/Apohara
+---
+
+# Apohara Refactor Workflow
+
+## Action
+
+Ensure tests pass before refactor → refactor code → verify tests still pass
+
+## Evidence
+
+- refactoring workflow
+- commitSequence and examples
+
+---
+id: apohara-test-audit-workflow
+trigger: "When reviewing or validating the health of all test files (e.g., after major refactors or before a release)"
+confidence: 0.98
+domain: workflow
+source: repo-analysis
+source_repo: SuarezPM/Apohara
+---
+
+# Apohara Test Audit Workflow
+
+## Action
+
+Audit, classify, and empirically validate all test files, producing batch and summary reports
+
+## Evidence
+
+- test-audit-and-classification workflow
+- WORKFLOWS[0]
+
+---
+id: apohara-roadmap-docs-update
+trigger: "When documenting completed phases, updating project direction, or reconciling naming/stack changes"
+confidence: 0.95
+domain: workflow
+source: repo-analysis
+source_repo: SuarezPM/Apohara
+---
+
+# Apohara Roadmap Docs Update
+
+## Action
+
+Update ROADMAP.md and key docs, retire superseded files, and reference phases/milestones in commits
+
+## Evidence
+
+- roadmap-and-docs-update workflow
+- WORKFLOWS[1]
+
+---
+id: apohara-parallel-work-coordination
+trigger: "When coordinating parallel work between multiple agents for audits, research, or code generation"
+confidence: 0.9
+domain: workflow
+source: repo-analysis
+source_repo: SuarezPM/Apohara
+---
+
+# Apohara Parallel Work Coordination
+
+## Action
+
+Assign tasks to agents, document protocols/scripts, aggregate results in summary docs
+
+## Evidence
+
+- parallel-work-coordination workflow
+- WORKFLOWS[2]
+
+---
+id: apohara-scaffold-rust-crate
+trigger: "When adding a new Rust subsystem or binary"
+confidence: 0.92
+domain: workflow
+source: repo-analysis
+source_repo: SuarezPM/Apohara
+---
+
+# Apohara Scaffold Rust Crate
+
+## Action
+
+Create a new crate with Cargo.toml, src/, minimal code/tests, and verify build/test pass
+
+## Evidence
+
+- scaffold-new-rust-crate workflow
+- WORKFLOWS[3]
+
+---
+id: apohara-ci-unblock
+trigger: "When CI fails on multiple OSes due to invalid paths, missing packages, or lockfile issues"
+confidence: 0.85
+domain: workflow
+source: repo-analysis
+source_repo: SuarezPM/Apohara
+---
+
+# Apohara Ci Unblock
+
+## Action
+
+Remove invalid files, fix package.json, regenerate lockfiles, and verify CI passes
+
+## Evidence
+
+- ci-unblock-and-package-lock-maintenance workflow
+- WORKFLOWS[4]
+
