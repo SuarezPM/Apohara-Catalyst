@@ -36,11 +36,21 @@ test("inject codex writes .codex/config.toml with sections", async () => {
   expect(raw).toContain("command = \"apohara\"");
 });
 
-test("inject opencode writes .opencode/settings.json with type:local", async () => {
+test("inject opencode writes opencode.jsonc at workspace root with type:local", async () => {
   const r = await injectMcpConfig("opencode-go", sample, workspace);
+  // opencode discovers `opencode.jsonc` at workspace root, NOT
+  // `.opencode/settings.json` (which the upstream binary never reads).
+  expect(r.configPath).toContain("opencode.jsonc");
+  expect(r.configPath).not.toContain(".opencode/");
   const raw = await readFile(r.configPath, "utf-8");
   const parsed = JSON.parse(raw);
-  expect(parsed.mcp["apohara.ledger"].type).toBe("local");
+  const server = parsed.mcp["apohara.ledger"];
+  expect(server.type).toBe("local");
+  // command is ONE array with the binary as the first element + args appended.
+  expect(server.command).toEqual(["apohara", "mcp", "serve", "ledger"]);
+  // env field is `environment`, NOT `env`, per upstream schema.
+  expect(server.environment).toEqual({ TOK: "x" });
+  expect(server.env).toBeUndefined();
 });
 
 test("buildCanonicalFromEndpoint builds 4 servers from endpoint descriptor", () => {

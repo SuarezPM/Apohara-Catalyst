@@ -58,16 +58,24 @@ export const AGENT_CONFIG: Record<ProviderId, AgentConfig> = {
   },
   "opencode-go": {
     binary: "opencode",
-    args: ["--pure"],
-    promptInjectionMode: "stdin-after-start",
+    // `opencode run --format json <prompt>` is the non-interactive
+    // CLI entry point. The previous `--pure` flag never existed
+    // upstream; we were spawning the binary with an unknown arg.
+    args: ["run", "--format", "json"],
+    promptInjectionMode: "argv",
     draftPromptFlag: null,
     draftPromptEnvVar: null,
     draftPasteReadySignal: null,
     preflightTrust: null,
-    hookConfigPath: "~/.opencode/settings.json",
+    // Per upstream config discovery (`reference/opencode/packages/
+    // opencode/src/config/config.ts:340`), opencode reads its config
+    // from the workspace root file `opencode.jsonc` first, then
+    // `$XDG_CONFIG_HOME/opencode/opencode.{json,jsonc}`. The previous
+    // `~/.opencode/settings.json` path is not in the lookup chain.
+    hookConfigPath: "~/.config/opencode/opencode.jsonc",
     hookConfigShape: "json",
     hookScriptName: "apohara-opencode-hook",
-    verifiedAgainst: "opencode (Bun) latest",
+    verifiedAgainst: "opencode (Bun) 1.15.x",
   },
 };
 

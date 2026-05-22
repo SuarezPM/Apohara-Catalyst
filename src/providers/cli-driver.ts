@@ -136,7 +136,66 @@ export const BUILTIN_CLI_DRIVERS: CliDriverConfig[] = [
 		cleanOutput: (raw) => stripAnsi(raw).trim(),
 		defaultModel: "gemini-via-cli",
 	},
+	{
+		// opencode is the upstream CLI from sst/opencode (TypeScript/Bun,
+		// not Go — the provider id is historical). We invoke its
+		// non-interactive `run --format json` mode so stdout is a stream
+		// of NDJSON events; `extractTextFromOpencodeNdjson` concatenates
+		// every `type:"text"` part into the final assistant content.
+		// System prompt is folded in front because `opencode run` does
+		// not take a separate system flag.
+		id: "opencode-go",
+		label: "opencode (multi-vendor CLI)",
+		binary: "opencode",
+		args: ({ prompt, system }) => [
+			"run",
+			"--format",
+			"json",
+			system ? `[system] ${system}\n\n[user] ${prompt}` : prompt,
+		],
+		cleanOutput: extractTextFromOpencodeNdjson,
+		defaultModel: "opencode-via-cli",
+	},
 ];
+
+/**
+ * Parse opencode's `--format json` NDJSON stream and return the final
+ * assistant text. Each stdout line is a JSON object of the shape
+ *   { type, timestamp, sessionID, ...data }
+ * with `type ∈ {tool_use, step_start, step_finish, text, reasoning}`.
+ * We collect `text` events in order and concatenate their `part.text`
+ * fields; everything else (tool calls, step transitions, reasoning)
+ * is intentionally dropped here — the streaming surface will surface
+ * them via the bus event bridge.
+ *
+ * Lines that don't parse as JSON are also concatenated as-is so that
+ * a CLI version drift that drops out of NDJSON mode degrades to plain
+ * stdout instead of producing an empty Enhanced block.
+ */
+export function extractTextFromOpencodeNdjson(raw: string): string {
+	const lines = stripAnsi(raw).split(/\r?\n/);
+	const out: string[] = [];
+	let sawAnyJson = false;
+	for (const line of lines) {
+		const trimmed = line.trim();
+		if (!trimmed) continue;
+		try {
+			const ev = JSON.parse(trimmed) as {
+				type?: string;
+				part?: { text?: string };
+			};
+			sawAnyJson = true;
+			if (ev.type === "text" && typeof ev.part?.text === "string") {
+				out.push(ev.part.text);
+			}
+		} catch {
+			// Non-JSON line — only keep when the rest of the stream
+			// wasn't NDJSON either (graceful fallback for version drift).
+			if (!sawAnyJson) out.push(trimmed);
+		}
+	}
+	return out.join("").trim();
+}
 
 /**
  * Resolve the active driver registry — built-ins plus any user-defined

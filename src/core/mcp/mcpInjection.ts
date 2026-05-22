@@ -102,15 +102,34 @@ async function injectOpenCode(
 	c: McpCanonical,
 	workspace: string,
 ): Promise<InjectionResult> {
-	const configPath = join(workspace, ".opencode", "settings.json");
+	// opencode discovers its config from (in order) `opencode.jsonc` /
+	// `opencode.json` / `config.json` at the workspace root, then
+	// `$XDG_CONFIG_HOME/opencode/opencode.{json,jsonc}`. The previous
+	// `.opencode/settings.json` path was never read by the upstream
+	// binary — our config injection landed in /dev/null.
+	//
+	// Schema per `reference/opencode/packages/opencode/src/config/mcp.ts`:
+	//   { type: "local", command: string[], environment?: Record<string,string>, enabled?, timeout? }
+	// (note: `command` is ONE array, not separate command + args; and
+	//  the env field is `environment`, not `env`)
+	const configPath = join(workspace, "opencode.jsonc");
 	const mcp: Record<string, unknown> = {};
 	for (const s of c.servers) {
-		mcp[s.name] = {
-			type: s.type,
-			command: s.command,
-			args: s.args ?? [],
-			env: s.env ?? {},
-		};
+		const fullCommand = [s.command, ...(s.args ?? [])];
+		mcp[s.name] =
+			s.type === "local"
+				? {
+						type: "local",
+						command: fullCommand,
+						...(s.env && Object.keys(s.env).length > 0
+							? { environment: s.env }
+							: {}),
+					}
+				: {
+						// `Remote` (rare for our use case) — kept future-proof.
+						type: "remote",
+						command: fullCommand,
+					};
 	}
 	const content = `${JSON.stringify({ mcp }, null, 2)}\n`;
 	await atomicWriteFile(configPath, content, { ensureParentDir: true });
