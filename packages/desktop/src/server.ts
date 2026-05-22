@@ -12,15 +12,67 @@
  */
 
 import { existsSync, watch as fsWatch } from "node:fs";
-import { mkdir, open, stat, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, open, stat } from "node:fs/promises";
+import { dirname, join, resolve, sep } from "node:path";
+import { atomicWriteFile } from "../../../src/core/persistence/atomicWrite";
 import type { LLMMessage } from "../../../src/providers/router";
 import { ProviderRouter } from "../../../src/providers/router";
 import index from "../index.html";
 
 const PORT = Number(process.env.APOHARA_DESKTOP_PORT ?? 7331);
-const REPO_ROOT = process.env.APOHARA_REPO_ROOT ?? process.cwd();
-const EVENTS_DIR = join(REPO_ROOT, ".events");
+
+/**
+ * Walk upward from `process.cwd()` until we find a directory that looks
+ * like the workspace root (the one carrying `Cargo.toml` + `packages/`).
+ * Without this the dev server uses its own working directory (typically
+ * `packages/desktop/`) as the repo root and the ledger files land under
+ * `packages/desktop/.events/` instead of the workspace `.events/` —
+ * scheduler-driven runs and SSE replays then look at different files.
+ *
+ * `APOHARA_REPO_ROOT` always wins so production deployments / tests can
+ * override explicitly.
+ */
+function findRepoRoot(): string {
+	if (process.env.APOHARA_REPO_ROOT) return process.env.APOHARA_REPO_ROOT;
+	let dir = process.cwd();
+	for (let i = 0; i < 8; i++) {
+		if (existsSync(resolve(dir, "Cargo.toml")) && existsSync(resolve(dir, "packages"))) {
+			return dir;
+		}
+		const parent = dirname(dir);
+		if (parent === dir) break;
+		dir = parent;
+	}
+	return process.cwd();
+}
+const REPO_ROOT = findRepoRoot();
+const EVENTS_DIR = resolve(REPO_ROOT, ".events");
+// Hard cap on accepted body bytes for the JSON endpoints. Big enough for
+// reasonable prompts + roster envelopes, small enough that a hostile
+// client can't OOM the dev server with a single request.
+const MAX_BODY_BYTES = 256 * 1024;
+// SSE max delta per watch event — caps the allocation when a writer
+// appends a huge chunk between two ticks.
+const MAX_DELTA_BYTES = 1 * 1024 * 1024;
+// Allowed sessionId shape. Restrictive on purpose: no `..`, no slashes,
+// no shell metacharacters, no NUL. Any deviation rejects the request
+// before the path even reaches `join(EVENTS_DIR, ...)`.
+const SESSION_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
+
+function isSafeSessionPath(id: string): string | null {
+	if (!SESSION_ID_RE.test(id)) return null;
+	const candidate = resolve(EVENTS_DIR, `run-${id}.jsonl`);
+	if (!candidate.startsWith(EVENTS_DIR + sep)) return null;
+	return candidate;
+}
+
+async function readBoundedJson<T>(req: Request): Promise<T> {
+	const buf = await req.arrayBuffer();
+	if (buf.byteLength > MAX_BODY_BYTES) {
+		throw new Error("body too large");
+	}
+	return JSON.parse(Buffer.from(buf).toString("utf-8")) as T;
+}
 
 // Single shared router for /api/enhance. The ProviderRouter holds long-lived
 // state (cooldown timers, ContextForge client) so re-instantiating per request
@@ -112,7 +164,11 @@ async function readDelta(
 	const st = await stat(filePath).catch(() => null);
 	if (!st || st.size <= offset) return { lines: [], nextOffset: offset };
 
-	const length = st.size - offset;
+	// Cap the per-read delta: a writer that appends hundreds of MB
+	// between two `fsWatch` events would otherwise allocate the entire
+	// gap in one shot. The next watch tick (or the next poll inside the
+	// stream loop) picks up the rest.
+	const length = Math.min(st.size - offset, MAX_DELTA_BYTES);
 	const fh = await open(filePath, "r");
 	try {
 		const buf = Buffer.alloc(length);
@@ -149,19 +205,23 @@ const server = Bun.serve({
 				let bodyMode: RoutingMode | undefined;
 				let roster: Set<string> = providerRoster;
 				try {
-					const body = (await req.json()) as {
+					const body = await readBoundedJson<{
 						prompt?: string;
 						mode?: unknown;
 						roster?: unknown;
-					};
+					}>(req);
 					prompt = (body.prompt ?? "").trim();
 					bodyMode = readMode(req, body);
 					roster = readRoster(req, body);
-				} catch {
-					return new Response("invalid JSON body", { status: 400 });
+				} catch (err) {
+					const msg = (err as Error).message;
+					if (msg === "body too large") {
+						return Response.json({ error: msg }, { status: 413 });
+					}
+					return Response.json({ error: "invalid JSON body" }, { status: 400 });
 				}
 				if (!prompt) {
-					return new Response("prompt is required", { status: 400 });
+					return Response.json({ error: "prompt is required" }, { status: 400 });
 				}
 
 				const messages: LLMMessage[] = [
@@ -212,14 +272,19 @@ const server = Bun.serve({
 			POST: async (req) => {
 				let body: { mode?: unknown } = {};
 				try {
-					body = (await req.json()) as { mode?: unknown };
-				} catch {
-					return new Response("invalid JSON body", { status: 400 });
+					body = await readBoundedJson<{ mode?: unknown }>(req);
+				} catch (err) {
+					const msg = (err as Error).message;
+					if (msg === "body too large") {
+						return Response.json({ error: msg }, { status: 413 });
+					}
+					return Response.json({ error: "invalid JSON body" }, { status: 400 });
 				}
 				if (body.mode !== "gpu" && body.mode !== "cloud") {
-					return new Response("mode must be 'gpu' or 'cloud'", {
-						status: 400,
-					});
+					return Response.json(
+						{ error: "mode must be 'gpu' or 'cloud'" },
+						{ status: 400 },
+					);
 				}
 				routingMode = body.mode;
 				return Response.json({ mode: routingMode });
@@ -235,14 +300,19 @@ const server = Bun.serve({
 			POST: async (req) => {
 				let body: { providers?: unknown } = {};
 				try {
-					body = (await req.json()) as { providers?: unknown };
-				} catch {
-					return new Response("invalid JSON body", { status: 400 });
+					body = await readBoundedJson<{ providers?: unknown }>(req);
+				} catch (err) {
+					const msg = (err as Error).message;
+					if (msg === "body too large") {
+						return Response.json({ error: msg }, { status: 413 });
+					}
+					return Response.json({ error: "invalid JSON body" }, { status: 400 });
 				}
 				if (!Array.isArray(body.providers)) {
-					return new Response("providers must be an array of strings", {
-						status: 400,
-					});
+					return Response.json(
+						{ error: "providers must be an array of strings" },
+						{ status: 400 },
+					);
 				}
 				providerRoster = new Set(
 					body.providers.filter((x): x is string => typeof x === "string"),
@@ -273,21 +343,30 @@ const server = Bun.serve({
 				let mode: RoutingMode = routingMode;
 				let roster: Set<string> = providerRoster;
 				try {
-					const body = (await req.json()) as {
+					const body = await readBoundedJson<{
 						prompt?: string;
 						mode?: unknown;
 						roster?: unknown;
-					};
+					}>(req);
 					prompt = (body.prompt ?? "").trim();
 					mode = readMode(req, body);
 					roster = readRoster(req, body);
-				} catch {
-					return new Response("invalid JSON body", { status: 400 });
+				} catch (err) {
+					const msg = (err as Error).message;
+					if (msg === "body too large") {
+						return Response.json({ error: msg }, { status: 413 });
+					}
+					return Response.json({ error: "invalid JSON body" }, { status: 400 });
 				}
 
-				const sessionId = `desktop-${Date.now().toString(36)}-${Math.random()
-					.toString(36)
-					.slice(2, 8)}`;
+				// `crypto.randomUUID()` (~122 bits) replaces the old
+				// `Math.random()` + `Date.now()` slug. `Math.random` is
+				// not cryptographically secure and the slug was only ~30
+				// bits, predictable enough that a client guessing ids
+				// could tail another session via the SSE endpoint
+				// (combined with the path-traversal fix on
+				// `/api/session/:id/events`, this closes that surface).
+				const sessionId = `desktop-${crypto.randomUUID().replace(/-/g, "")}`;
 				await mkdir(EVENTS_DIR, { recursive: true });
 				const ledgerPath = join(EVENTS_DIR, `run-${sessionId}.jsonl`);
 				const event = {
@@ -302,7 +381,11 @@ const server = Bun.serve({
 						roster: [...roster],
 					},
 				};
-				await writeFile(ledgerPath, `${JSON.stringify(event)}\n`, "utf-8");
+				// §0.8 atomic write — even though this is the first write
+				// of a new file, an SSE consumer connecting while the
+				// initial write is in flight previously saw an empty
+				// replay because `existsSync` could pass before flush.
+				await atomicWriteFile(ledgerPath, `${JSON.stringify(event)}\n`);
 				return Response.json({
 					sessionId,
 					ledger: ledgerPath,
@@ -318,7 +401,15 @@ const server = Bun.serve({
 		// every 15 s so proxies don't drop the connection.
 		"/api/session/:id/events": (req) => {
 			const id = req.params.id;
-			const filePath = join(EVENTS_DIR, `run-${id}.jsonl`);
+			const filePath = isSafeSessionPath(id);
+			if (!filePath) {
+				// Reject path-traversal / malformed ids up-front. The
+				// validation regex + `startsWith(EVENTS_DIR + sep)` check
+				// closes the `req.params.id === ".."` style escape that
+				// would otherwise let a client tail arbitrary
+				// `run-*.jsonl` files (or escape `.events/` entirely).
+				return new Response("invalid session id", { status: 400 });
+			}
 			if (!existsSync(filePath)) {
 				return new Response("ledger not found", { status: 404 });
 			}
@@ -328,25 +419,24 @@ const server = Bun.serve({
 					const encoder = new TextEncoder();
 					let offset = 0;
 					let closed = false;
-
+					// Single-flight readDelta chain. `fsWatch` fires
+					// synchronously on every append and the old code
+					// kicked off a new `readDelta` per tick — two
+					// overlapping reads both observed the same `offset`,
+					// both read the same byte range, and both advanced
+					// `offset = delta.nextOffset` — duplicating lines on
+					// rapid bursts. Serializing through `pending` makes
+					// every read see the prior read's advanced offset.
+					let pending: Promise<void> = Promise.resolve();
 					const send = (data: string) => {
 						if (closed) return;
 						try {
 							controller.enqueue(encoder.encode(data));
 						} catch {
-							closed = true;
+							teardown();
 						}
 					};
-
-					// 1) Replay historical lines and prime the offset.
-					const initial = await readDelta(filePath, 0);
-					for (const line of initial.lines) {
-						send(`data: ${line}\n\n`);
-					}
-					offset = initial.nextOffset;
-
-					// 2) Watch the file for new appends.
-					const watcher = fsWatch(filePath, async () => {
+					const drainOnce = async () => {
 						const delta = await readDelta(filePath, offset).catch(() => ({
 							lines: [],
 							nextOffset: offset,
@@ -355,6 +445,14 @@ const server = Bun.serve({
 							send(`data: ${line}\n\n`);
 						}
 						offset = delta.nextOffset;
+					};
+
+					// 1) Replay historical lines and prime the offset.
+					await drainOnce();
+
+					// 2) Watch the file for new appends.
+					const watcher = fsWatch(filePath, () => {
+						pending = pending.then(drainOnce, drainOnce);
 					});
 
 					// 3) Heartbeat — SSE comment, ignored by clients, keeps the
@@ -363,17 +461,24 @@ const server = Bun.serve({
 						send(`: heartbeat ${Date.now()}\n\n`);
 					}, 15_000);
 
-					// 4) Clean up on client disconnect.
-					req.signal.addEventListener("abort", () => {
+					const teardown = () => {
+						if (closed) return;
 						closed = true;
 						clearInterval(heartbeat);
-						watcher.close();
+						try {
+							watcher.close();
+						} catch {
+							/* ignore */
+						}
 						try {
 							controller.close();
 						} catch {
 							/* already closed */
 						}
-					});
+					};
+
+					// 4) Clean up on client disconnect OR on any send error.
+					req.signal.addEventListener("abort", teardown);
 				},
 			});
 
