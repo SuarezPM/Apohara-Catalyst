@@ -135,28 +135,49 @@ export class LedgerWatcher {
 	}
 
 	private async readUnsafe(filePath: string): Promise<void> {
-		let stats: { size: number; mtimeMs: number };
-		try {
-			const s = await stat(filePath);
-			stats = { size: s.size, mtimeMs: s.mtimeMs };
-		} catch (err) {
-			this.emitError(err as Error);
+		// Loop instead of recursing on truncation. A writer that keeps
+		// truncating the file between our reads would otherwise grow the
+		// call stack until it blew up. The loop handles the same case in
+		// constant stack space.
+		// eslint-disable-next-line no-constant-condition
+		while (true) {
+			let stats: { size: number; mtimeMs: number };
+			try {
+				const s = await stat(filePath);
+				stats = { size: s.size, mtimeMs: s.mtimeMs };
+			} catch (err) {
+				this.emitError(err as Error);
+				return;
+			}
+
+			const state = this.fileStates.get(filePath);
+			const start = state ? state.size : 0;
+
+			if (stats.size < start) {
+				// Truncated — reset our cursor and re-read from byte 0
+				// on the next iteration of this same loop.
+				this.fileStates.set(filePath, { size: 0, mtimeMs: stats.mtimeMs });
+				continue;
+			}
+
+			if (stats.size === start) {
+				this.fileStates.set(filePath, stats);
+				return;
+			}
+
+			// Append-only path falls through to the read+parse block
+			// below. The original control flow assumed a single read per
+			// call; the helper closure below preserves that.
+			await this.readAppend(filePath, start, stats);
 			return;
 		}
+	}
 
-		const state = this.fileStates.get(filePath);
-		const start = state ? state.size : 0;
-
-		if (stats.size < start) {
-			this.fileStates.set(filePath, { size: 0, mtimeMs: stats.mtimeMs });
-			await this.readUnsafe(filePath);
-			return;
-		}
-
-		if (stats.size === start) {
-			this.fileStates.set(filePath, stats);
-			return;
-		}
+	private async readAppend(
+		filePath: string,
+		start: number,
+		stats: { size: number; mtimeMs: number },
+	): Promise<void> {
 
 		const stream = createReadStream(filePath, { start, encoding: "utf-8" });
 		const rl = createInterface({ input: stream, crlfDelay: Infinity });
