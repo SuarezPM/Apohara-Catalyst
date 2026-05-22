@@ -50,3 +50,28 @@ async fn cleanup_failed_is_noop_preserves_directory() {
     cleanup("task-1", CleanupReason::Failed, repo.path()).await.unwrap();
     assert!(path.exists(), "Failed cleanup must preserve worktree for inspection");
 }
+
+use apohara_worktree::lifecycle::{merge, preserve_on_fail, MergeResult, FailureReason};
+
+#[tokio::test]
+async fn merge_succeeds_for_non_conflicting_branch() {
+    let repo = tempdir().unwrap();
+    init_git_repo(repo.path());
+    let wt_path = create("task-1", repo.path()).await.unwrap();
+    std::fs::write(wt_path.join("new.txt"), "content\n").unwrap();
+    Command::new("git").args(["add", "."]).current_dir(&wt_path).output().unwrap();
+    Command::new("git").args(["commit", "-m", "add new"]).current_dir(&wt_path).output().unwrap();
+
+    let result = merge("task-1", repo.path()).await.unwrap();
+    match result { MergeResult::Success => (), other => panic!("expected Success, got {:?}", other), }
+}
+
+#[tokio::test]
+async fn preserve_on_fail_creates_failed_branch_and_keeps_worktree() {
+    let repo = tempdir().unwrap();
+    init_git_repo(repo.path());
+    let wt_path = create("task-1", repo.path()).await.unwrap();
+    let branch = preserve_on_fail("task-1", FailureReason::MergeConflict, repo.path()).await.unwrap();
+    assert!(branch.contains("apohara/task-task-1-failed"));
+    assert!(wt_path.exists());
+}
