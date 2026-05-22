@@ -58,3 +58,17 @@ apohara-*.tgz
 # Symlink/backup artifacts from agent-managed dotfile migrations
 CLAUDE.md.bak.*
 
+# Apohara runtime state — NEVER commit (Task 1.16, §7.5)
+.apohara/snapshots/
+.apohara/orchestration.db
+.apohara/orchestration.db-wal
+.apohara/orchestration.db-shm
+.apohara/sockets/
+.apohara/audit/
+
+# ts-rs auto-generated bindings (regenerated via `bun run generate-types`)
+crates/*/bindings/
+
+# Local development data
+dev_assets/
+
