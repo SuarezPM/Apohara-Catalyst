@@ -1,0 +1,36 @@
+{
+  "servers": [
+    {
+      "name": "apohara.ledger",
+      "meta": { "category": "apohara-internal" },
+      "command": "${APOHARA_BIN}",
+      "args": ["mcp", "serve", "ledger"],
+      "env": { "APOHARA_MCP_TOKEN": "${APOHARA_MCP_TOKEN}" },
+      "type": "local"
+    },
+    {
+      "name": "apohara.runs",
+      "meta": { "category": "apohara-internal" },
+      "command": "${APOHARA_BIN}",
+      "args": ["mcp", "serve", "runs"],
+      "env": { "APOHARA_MCP_TOKEN": "${APOHARA_MCP_TOKEN}" },
+      "type": "local"
+    },
+    {
+      "name": "apohara.indexer",
+      "meta": { "category": "apohara-internal" },
+      "command": "${APOHARA_BIN}",
+      "args": ["mcp", "serve", "indexer"],
+      "env": { "APOHARA_MCP_TOKEN": "${APOHARA_MCP_TOKEN}" },
+      "type": "local"
+    },
+    {
+      "name": "apohara.settings",
+      "meta": { "category": "apohara-internal" },
+      "command": "${APOHARA_BIN}",
+      "args": ["mcp", "serve", "settings"],
+      "env": { "APOHARA_MCP_TOKEN": "${APOHARA_MCP_TOKEN}" },
+      "type": "local"
+    }
+  ]
+}
