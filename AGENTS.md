@@ -110,4 +110,49 @@ Highlights:
 
 ---
 
+## Past incidents (rules earned the hard way)
+
+Each rule below cost real time / money / trust to find. Treat them as load-bearing — breaking one regresses Apohara, and the audit history is recorded so the *why* survives even when the original engineer doesn't. (Nimbalyst's CLAUDE.md inspired this section — their published incident write-ups cited real session IDs and dollar costs; ours cite the commit + the symptom.)
+
+### **NEVER pass `process.env` to a CLI subprocess unsanitized**
+
+**Why:** The pre-`33d6901` `src/providers/cli-driver.ts` did `env: { ...process.env }` on every spawn. That leaked `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, AWS / GCP / Azure creds, `GITHUB_TOKEN`, etc. into every wrapped CLI. Two compound failures from this:
+
+  1. **The "wrong account billed" trap** (nimbalyst's published incident): the CLI sees a key in its env and routes to *that* account instead of the user's logged-in CLI session — surprise billing on someone else's plan.
+  2. **The claude CLI hang at 120 s**: two concurrent `claude` invocations from the same Bun process both inherited the same `~/.claude/` paths via env + got the same workspace state, then contended on the CLI's internal file locks. The second one hung until our 120 s SIGKILL.
+
+**The rule:** ALL spawns route env through `sanitizeEnv()` from `src/core/persistence/envSanitizer.ts`. Allowlist only `APOHARA_*` and known-safe vars (`PATH`, `HOME`, `USER`, `LANG`, `TERM`, `TMPDIR`). The Rust sandbox runner does the equivalent in `crates/apohara-sandbox/src/runner/imp.rs::build_sanitized_env()`. Adding a new spawn site? Use `sanitizeEnv` or it gets caught in code review.
+
+### **`fs.watch` on Linux only fires for the TEMP filename when the writer does atomic-rename**
+
+**Why:** The first cut of `src/core/dispatch/result-watcher.ts` listened for `fs.watch` events naming `<taskId>.json`. The dispatcher writes results via `atomicWriteFile` (tmp + rename). Linux's inotify reports the event for the **tmp filename**, not the renamed target. Result: the watcher heard the rename but matched on the wrong filename and ignored it. The UI saw "Done (0)" forever even though the result file existed on disk.
+
+**The rule:** Watchers on directories where atomic writes land MUST treat every event as "something changed, rescan" — not "the named file appeared". Use `readdir` on every watch tick. Pair fs.watch with a 1-second polling backup so flaky inotify (NFS, FUSE, some Bun versions) never strands a result. See `result-watcher.ts:80-110` for the pattern.
+
+### **Every spawn site must serialize per-binary OR contend on CLI-internal locks**
+
+**Why:** Pablo hit `claude-code-cli: CLI driver timed out after 120000 ms` once per UI run. Root cause: `claude` keeps per-process state under `~/.claude/` (auth tokens, history, session locks). Two concurrent `claude` children from the same Bun process contended on those locks and the second one blocked until 120 s timeout SIGKILLed it.
+
+**The rule:** `src/providers/cli-driver.ts::runSerialized(binary, task)` queues calls FIFO per binary name. Any new CLI you add via `BUILTIN_CLI_DRIVERS` inherits the queue automatically. Do not bypass it.
+
+### **`bash -c "echo X"` does NOT reliably flush stdout through a PTY**
+
+**Why:** When wiring T2.1 (PTY embedding), the tests using `sh -c "sleep 0.05 && echo replay-test"` exited cleanly with code 0 but produced ZERO bytes in the replay buffer. Verified empirically against node-pty 1.1 + Bun 1.3: `bash -c "echo X"` exits before flushing; `/bin/echo X` is the stable case.
+
+**The rule:** Tests that need to observe PTY output use `/bin/echo` directly or write to a long-running child via `writePty`. The PTY data path itself works (production `/api/run` flows through it just fine) — the issue is exclusively bash startup + immediate-exit timing.
+
+### **opencode reads `opencode.jsonc` at the workspace root, NEVER `.opencode/settings.json`**
+
+**Why:** The pre-T2.4 `mcpInjection.ts::injectOpenCode` wrote `<workspace>/.opencode/settings.json` because that's where Apohara's `agent-config.ts::hookConfigPath` (also wrong) pointed. opencode 1.15+ doesn't look at that path. Our MCP injection landed in `/dev/null` for the entire opencode-go provider.
+
+**The rule:** Provider config paths come from the UPSTREAM CLI's source, not from convention. Verify against the reference repo each release: `reference/opencode/packages/opencode/src/config/config.ts:340` for opencode, `reference/orca/src/main/agent-trust-presets.ts` for cursor / copilot / codex. When the CLI changes its config discovery, our injection must follow.
+
+### **Generated files MUST come back through `bun run generate-types` after every Rust schema change**
+
+**Why:** Pre-`dfad239`, `crates/apohara-types/src/bin/generate_types.rs` was a stub that only wrote a header. Every `bun run generate-types` invocation silently overwrote `packages/apohara-shared/types.ts` with the stub — the §0.7 SSoT was a no-op, and Rust↔TS drift was undetectable. CI's `generate-types:check` only proved the stub matched itself.
+
+**The rule:** When you add `#[derive(TS)]` anywhere, run `bun run generate-types` and commit the regenerated `packages/apohara-shared/types.ts` in the SAME commit. Do not hand-edit the generated file. The CI check will block merges that drift.
+
+---
+
 *This document is auto-loaded by Claude Code / Codex / OpenCode via `CLAUDE.md` symlink.*
