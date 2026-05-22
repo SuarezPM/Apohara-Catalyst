@@ -133,6 +133,34 @@ fn build_sanitized_env() -> Vec<CString> {
 pub fn run_linux(req: SandboxRequest) -> Result<SandboxResult> {
     let started = Instant::now();
 
+    // §3.1 — refuse early when `workdir` escapes the user's declared
+    // workspace_root. We resolve symlinks via `canonicalize` so the
+    // check sees the real on-disk path, then verify it stays under the
+    // canonicalized root. Callers that don't pass a `workspace_root`
+    // (older code) skip this validation — defence in depth via the
+    // seccomp + namespace bundle still applies.
+    if let Some(root) = &req.workspace_root {
+        let root_canon = std::fs::canonicalize(root).map_err(|e| {
+            SandboxError::NamespaceError(format!(
+                "workspace_root canonicalize({}): {e}",
+                root.display()
+            ))
+        })?;
+        let workdir_canon = std::fs::canonicalize(&req.workdir).map_err(|e| {
+            SandboxError::NamespaceError(format!(
+                "workdir canonicalize({}): {e}",
+                req.workdir.display()
+            ))
+        })?;
+        if !workdir_canon.starts_with(&root_canon) {
+            return Err(SandboxError::NamespaceError(format!(
+                "workdir {} escapes workspace_root {}",
+                workdir_canon.display(),
+                root_canon.display(),
+            )));
+        }
+    }
+
     // Pipes for the grandchild's stdout, stderr, and exec-error channel.
     // Each pair is (read_end, write_end). CLOEXEC on the exec-error pipe
     // so a successful execvp closes it automatically.
