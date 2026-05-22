@@ -162,6 +162,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "apohara-coordinator"
+version = "1.0.0-dev"
+dependencies = [
+ "apohara-types",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "ts-rs",
+]
+
+[[package]]
 name = "apohara-desktop"
 version = "0.0.1-alpha"
 dependencies = [
