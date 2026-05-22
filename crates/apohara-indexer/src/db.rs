@@ -1,7 +1,7 @@
-/// Database persistence layer using redb (embedded key-value store).
-///
-/// Provides durable storage for the vector index metadata and serialized index state.
-/// The database file is stored at ~/.apohara/index.redb
+//! Database persistence layer using redb (embedded key-value store).
+//!
+//! Provides durable storage for the vector index metadata and serialized index state.
+//! The database file is stored at ~/.apohara/index.redb
 
 use anyhow::{Context, Result};
 use redb::{Database, ReadableTable, ReadableTableMetadata, TableDefinition};

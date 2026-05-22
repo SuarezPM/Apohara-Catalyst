@@ -774,6 +774,10 @@ fn parse_typescript_import_clause_with_source(node: &Node, source: &str, source_
 }
 
 /// Parse a TypeScript import clause (from import_statement)
+///
+/// Partial implementation reserved for Stage 5+ symbol resolution (currently unused;
+/// `parse_typescript_import` covers the active import-statement path).
+#[allow(dead_code)]
 fn parse_typescript_import_clause(node: &Node, source: &str) -> Option<ImportStatement> {
     let start_position = node.start_position();
     let line = start_position.row + 1;
@@ -805,7 +809,7 @@ fn parse_typescript_import_clause(node: &Node, source: &str) -> Option<ImportSta
             if kind == "import_specifier" {
                 // Get the name from the specifier
                 if let Some(name_node) = child.child_by_field_name("name") {
-                    if let Some(name) = name_node.utf8_text(source.as_bytes()).ok() {
+                    if let Ok(name) = name_node.utf8_text(source.as_bytes()) {
                         names.push(name.to_string());
                     }
                 }
@@ -821,6 +825,9 @@ fn parse_typescript_import_clause(node: &Node, source: &str) -> Option<ImportSta
 }
 
 /// Find the import source (module path) from an import node
+///
+/// Helper for `parse_typescript_import_clause`; kept for Stage 5+ symbol resolution.
+#[allow(dead_code)]
 fn find_import_source(node: &Node, source: &str) -> Option<String> {
     // Look for string literal children
     let mut cursor = node.walk();
@@ -927,16 +934,11 @@ fn parse_typescript_export(node: &Node, source: &str) -> Option<ExportStatement>
     if let Some(decl) = declaration_node {
         let decl_text = decl.utf8_text(source.as_bytes()).ok()?.to_string();
         
-        // Check if it's a function or class declaration
-        if decl.kind() == "function_declaration" {
+        // Check if it's a function or class declaration (both extract by `name` field).
+        if matches!(decl.kind(), "function_declaration" | "class_declaration") {
             if let Some(name) = decl.child_by_field_name("name") {
-                let fn_name = name.utf8_text(source.as_bytes()).ok()?.to_string();
-                return Some(ExportStatement::new(ExportKind::Default(fn_name)).with_line(line));
-            }
-        } else if decl.kind() == "class_declaration" {
-            if let Some(name) = decl.child_by_field_name("name") {
-                let class_name = name.utf8_text(source.as_bytes()).ok()?.to_string();
-                return Some(ExportStatement::new(ExportKind::Default(class_name)).with_line(line));
+                let ident = name.utf8_text(source.as_bytes()).ok()?.to_string();
+                return Some(ExportStatement::new(ExportKind::Default(ident)).with_line(line));
             }
         }
         return Some(ExportStatement::new(ExportKind::Default(decl_text)).with_line(line));
@@ -1368,7 +1370,7 @@ import * as Utils from './utils';
 "#;
         let (imports, _) = parse_source_imports_exports(source, Language::TypeScript).unwrap();
         
-        assert!(imports.len() >= 1, "Expected at least 1 import");
+        assert!(!imports.is_empty(), "Expected at least 1 import");
         
         let first = &imports[0];
         assert!(first.source.contains("utils"));
@@ -1381,7 +1383,7 @@ import 'polyfills';
 "#;
         let (imports, _) = parse_source_imports_exports(source, Language::TypeScript).unwrap();
         
-        assert!(imports.len() >= 1, "Expected at least 1 import");
+        assert!(!imports.is_empty(), "Expected at least 1 import");
     }
 
     #[test]
@@ -1389,11 +1391,9 @@ import 'polyfills';
         let source = r#"
 const fs = require('fs');
 "#;
-        let (imports, _) = parse_source_imports_exports(source, Language::TypeScript).unwrap();
-        
-        // May or may not parse require depending on tree structure
-        // Just verify the function runs without error
-        assert!(imports.len() >= 0);
+        let (_imports, _) = parse_source_imports_exports(source, Language::TypeScript).unwrap();
+        // May or may not parse require depending on tree structure;
+        // successful unwrap above is enough to assert the parser ran without error.
     }
 
     #[test]
@@ -1403,7 +1403,7 @@ export function namedExport() {}
 "#;
         let (_, exports) = parse_source_imports_exports(source, Language::TypeScript).unwrap();
         
-        assert!(exports.len() >= 1, "Expected at least 1 export");
+        assert!(!exports.is_empty(), "Expected at least 1 export");
     }
 
     #[test]
@@ -1414,7 +1414,7 @@ export { a, b } from './module-a';
         let (_, exports) = parse_source_imports_exports(source, Language::TypeScript).unwrap();
         
         // Should parse as re-export
-        assert!(exports.len() >= 1, "Expected at least 1 export");
+        assert!(!exports.is_empty(), "Expected at least 1 export");
     }
 
     #[test]
@@ -1426,7 +1426,7 @@ use std::fmt::Debug;
         let (imports, _) = parse_source_imports_exports(source, Language::Rust).unwrap();
         
         // We should get at least some imports
-        assert!(imports.len() >= 1, "Expected at least 1 import, got {}", imports.len());
+        assert!(!imports.is_empty(), "Expected at least 1 import, got {}", imports.len());
     }
 
     #[test]
@@ -1441,7 +1441,7 @@ mod inline_module {
         let (imports, _) = parse_source_imports_exports(source, Language::Rust).unwrap();
         
         // Should have 2 modules
-        assert!(imports.len() >= 1, "Expected at least 1 module, got {}", imports.len());
+        assert!(!imports.is_empty(), "Expected at least 1 module, got {}", imports.len());
     }
 
     #[test]
@@ -1452,7 +1452,7 @@ pub use crate::reexport::Item;
         let (_, exports) = parse_source_imports_exports(source, Language::Rust).unwrap();
         
         // pub use should appear as an export
-        assert!(exports.len() >= 1, "Expected at least 1 export from pub use");
+        assert!(!exports.is_empty(), "Expected at least 1 export from pub use");
     }
 
     #[test]
@@ -1461,8 +1461,8 @@ pub use crate::reexport::Item;
         let (imports, exports) = parse_imports_exports(path).unwrap();
         
         // Should have imports and exports
-        assert!(imports.len() >= 1, "Expected at least 1 import, got {}", imports.len());
-        assert!(exports.len() >= 1, "Expected at least 1 export, got {}", exports.len());
+        assert!(!imports.is_empty(), "Expected at least 1 import, got {}", imports.len());
+        assert!(!exports.is_empty(), "Expected at least 1 export, got {}", exports.len());
     }
 
     #[test]
@@ -1471,6 +1471,6 @@ pub use crate::reexport::Item;
         let (imports, _) = parse_imports_exports(path).unwrap();
         
         // Should have at least some imports
-        assert!(imports.len() >= 1, "Expected at least 1 import, got {}", imports.len());
+        assert!(!imports.is_empty(), "Expected at least 1 import, got {}", imports.len());
     }
 }

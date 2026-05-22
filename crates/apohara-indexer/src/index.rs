@@ -1,9 +1,9 @@
-/// HNSW-style vector index for nearest neighbor search.
-/// 
-/// Provides an in-memory vector index that stores embeddings and supports
-/// fast similarity search. Supports serialization for persistence.
-/// 
-/// Note: Uses cosine similarity for nearest neighbor search.
+//! HNSW-style vector index for nearest neighbor search.
+//!
+//! Provides an in-memory vector index that stores embeddings and supports
+//! fast similarity search. Supports serialization for persistence.
+//!
+//! Note: Uses cosine similarity for nearest neighbor search.
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -313,7 +313,7 @@ mod tests {
         let mut index = VectorIndex::new(config);
 
         // Try to insert vector with wrong dimension
-        let result = index.insert(1, &vec![1.0, 2.0]); // Only 2 elements
+        let result = index.insert(1, &[1.0, 2.0]); // Only 2 elements
         assert!(result.is_err());
     }
 
@@ -326,7 +326,7 @@ mod tests {
         index.insert(1, &[1.0, 0.0, 0.0]).unwrap();
 
         // Now search with wrong dimension
-        let result = index.search(&vec![1.0, 2.0], 5);
+        let result = index.search(&[1.0, 2.0], 5);
         assert!(result.is_err());
     }
 
@@ -336,11 +336,11 @@ mod tests {
         let mut index = VectorIndex::new(config);
 
         // Insert vector with NaN
-        let result = index.insert(1, &vec![1.0, std::f32::NAN, 0.0]);
+        let result = index.insert(1, &[1.0, f32::NAN, 0.0]);
         assert!(result.is_err());
 
         // Insert vector with Inf
-        let result = index.insert(2, &vec![1.0, std::f32::INFINITY, 0.0]);
+        let result = index.insert(2, &[1.0, f32::INFINITY, 0.0]);
         assert!(result.is_err());
     }
 
@@ -350,10 +350,10 @@ mod tests {
         let mut index = VectorIndex::new(config);
 
         // Insert valid vector first
-        index.insert(1, &vec![1.0, 0.0, 0.0]).unwrap();
+        index.insert(1, &[1.0, 0.0, 0.0]).unwrap();
 
         // Search with NaN query
-        let result = index.search(&vec![std::f32::NAN, 0.0, 0.0], 1);
+        let result = index.search(&[f32::NAN, 0.0, 0.0], 1);
         assert!(result.is_err());
     }
 

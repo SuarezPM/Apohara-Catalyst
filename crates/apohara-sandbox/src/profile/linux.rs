@@ -145,7 +145,7 @@ impl LinuxProfile {
                             "index": 1,
                             "type": "dword",
                             "op": "eq",
-                            "val": req as u64,
+                            "val": req,
                         }]
                     }));
                 }
