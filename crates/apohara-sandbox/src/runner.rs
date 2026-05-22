@@ -22,6 +22,17 @@ pub struct SandboxRequest {
     pub timeout: Option<Duration>,
     #[serde(default)]
     pub task_id: Option<String>,
+    /// Optional canonical workspace root. When set, the runner
+    /// canonicalizes `workdir` before `chdir` and refuses to start if
+    /// the resolved path is not a strict descendant of
+    /// `workspace_root`. Without this guard a `workdir` symlinked to
+    /// `/` (or to any path outside the user's project) puts the
+    /// seccomp filter as the only remaining defense, and the agent
+    /// has visibility into everything its tier's allowlist permits
+    /// to read. Default `None` keeps the previous behavior for
+    /// callers that haven't been updated.
+    #[serde(default)]
+    pub workspace_root: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -111,11 +122,23 @@ mod tests {
             permission: PermissionTier::ReadOnly,
             timeout: Some(Duration::from_millis(5000)),
             task_id: Some("t-1".into()),
+            workspace_root: Some(PathBuf::from("/tmp")),
         };
         let json = serde_json::to_string(&req).unwrap();
         let back: SandboxRequest = serde_json::from_str(&json).unwrap();
         assert_eq!(req.command, back.command);
         assert_eq!(req.permission, back.permission);
         assert_eq!(req.timeout, back.timeout);
+        assert_eq!(req.workspace_root, back.workspace_root);
+    }
+
+    #[test]
+    fn workspace_root_defaults_to_none_for_legacy_payloads() {
+        // Older callers that don't set `workspace_root` must still
+        // serialize/deserialize cleanly so this struct stays
+        // forward-compatible until every caller is updated.
+        let json = r#"{"command":["echo"],"workdir":"/tmp","permission":"read_only"}"#;
+        let req: SandboxRequest = serde_json::from_str(json).unwrap();
+        assert!(req.workspace_root.is_none());
     }
 }

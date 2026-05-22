@@ -33,6 +33,13 @@ struct Args {
     #[arg(long)]
     task_id: Option<String>,
 
+    /// Optional workspace root. When set, the runner canonicalizes
+    /// `--workdir` and refuses to start if the resolved path escapes
+    /// this root (defends against `workdir = symlink → /`). Leave
+    /// unset to keep the legacy behavior.
+    #[arg(long)]
+    workspace_root: Option<PathBuf>,
+
     /// The command to run (everything after `--`)
     #[arg(trailing_var_arg = true, required = true)]
     command: Vec<String>,
@@ -52,6 +59,7 @@ fn main() -> anyhow::Result<()> {
         permission,
         timeout: args.timeout_ms.map(Duration::from_millis),
         task_id: args.task_id,
+        workspace_root: args.workspace_root,
     };
 
     let runner = SandboxRunner::new();
