@@ -35,16 +35,100 @@
 use nix::fcntl::OFlag;
 use nix::sys::wait::{waitpid, WaitStatus};
 use nix::unistd::{
-    chdir, dup2_stderr, dup2_stdin, dup2_stdout, execvp, fork, pipe2, read,
+    chdir, dup2_stderr, dup2_stdin, dup2_stdout, execvpe, fork, pipe2, read,
     write, ForkResult,
 };
 use std::ffi::CString;
 use std::os::fd::{AsFd, OwnedFd};
+use std::thread;
 use std::time::Instant;
 
 use crate::error::{Result, SandboxError};
 use crate::namespace::enter_isolated_namespaces;
 use crate::runner::{SandboxRequest, SandboxResult};
+
+/// Hard cap on the bytes we'll buffer from the grandchild's stdout/stderr.
+/// A runaway or hostile child can otherwise write gigabytes and OOM the
+/// orchestrator before the parent decides to terminate it.
+const MAX_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
+
+/// Env vars that survive the §0.4 sanitization pass and are passed
+/// through to the sandboxed child. Keep this list as small as possible —
+/// every variable here is something the child can READ. The list deliberately
+/// excludes every credential / token / API-key shape.
+const ENV_ALLOW_NAMES: &[&str] = &[
+    "PATH", "HOME", "USER", "LOGNAME", "SHELL", "TERM", "LANG", "TMPDIR",
+    "PWD", "DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR",
+];
+
+/// Patterns (substring match, uppercased name) that ALWAYS strip the
+/// variable. Mirrors the TypeScript `src/core/persistence/envSanitizer.ts`
+/// blocklist: `*_API_KEY`, `*_TOKEN`, `*_SECRET`, AWS_*, ANTHROPIC_*, etc.
+fn is_secret_env_name(name: &str) -> bool {
+    let up = name.to_ascii_uppercase();
+    const SUFFIXES: &[&str] = &[
+        "_API_KEY", "_KEY", "_TOKEN", "_SECRET", "_PASSWORD", "_PASSWD",
+    ];
+    const PREFIXES: &[&str] = &[
+        "ANTHROPIC_", "OPENAI_", "GROQ_", "TOGETHER_", "MISTRAL_",
+        "OPENROUTER_", "GEMINI_", "GOOGLE_", "COHERE_", "XAI_", "DEEPSEEK_",
+        "PERPLEXITY_", "FIREWORKS_", "PINECONE_", "VOYAGE_", "REPLICATE_",
+        "HUGGINGFACE_", "AWS_", "GCP_", "GCLOUD_", "AZURE_", "CLOUDFLARE_",
+        "DIGITALOCEAN_", "VERCEL_", "NETLIFY_", "HEROKU_", "RENDER_",
+        "SUPABASE_", "STRIPE_", "SENTRY_", "CIRCLE_", "GITLAB_", "BITBUCKET_",
+    ];
+    if PREFIXES.iter().any(|p| up.starts_with(p)) {
+        return true;
+    }
+    if SUFFIXES.iter().any(|s| up.ends_with(s)) {
+        return true;
+    }
+    matches!(
+        up.as_str(),
+        "HF_TOKEN"
+            | "GITHUB_TOKEN"
+            | "GH_TOKEN"
+            | "FLY_API_TOKEN"
+            | "RAILWAY_TOKEN"
+            | "NPM_TOKEN"
+            | "DATABASE_URL"
+            | "MONGODB_URI"
+            | "MYSQL_URL"
+            | "POSTGRES_URL"
+            | "REDIS_URL"
+            | "NOTION_TOKEN"
+            | "SLACK_TOKEN"
+            | "SLACK_BOT_TOKEN"
+            | "DISCORD_TOKEN"
+            | "TELEGRAM_TOKEN"
+            | "LINEAR_API_KEY"
+    )
+}
+
+/// Build the env we'll hand to the grandchild. Only the explicit
+/// allowlist + non-secret-looking variables survive. Returns the env as
+/// a `Vec<CString>` ready to feed to `execve(2)`.
+fn build_sanitized_env() -> Vec<CString> {
+    let mut env: Vec<CString> = Vec::new();
+    for (key, value) in std::env::vars_os() {
+        let Some(key_str) = key.to_str() else { continue };
+        let Some(value_str) = value.to_str() else { continue };
+        let is_allowed = ENV_ALLOW_NAMES.iter().any(|n| *n == key_str);
+        if !is_allowed && is_secret_env_name(key_str) {
+            continue;
+        }
+        // Drop env names containing `=` or NUL — they can't be encoded
+        // in the KEY=VALUE wire format anyway.
+        if key_str.contains('=') || key_str.contains('\0') {
+            continue;
+        }
+        let combined = format!("{key_str}={value_str}");
+        if let Ok(c) = CString::new(combined) {
+            env.push(c);
+        }
+    }
+    env
+}
 
 pub fn run_linux(req: SandboxRequest) -> Result<SandboxResult> {
     let started = Instant::now();
@@ -77,8 +161,20 @@ pub fn run_linux(req: SandboxRequest) -> Result<SandboxResult> {
             drop(stderr_w);
             drop(exec_err_w);
 
-            let stdout = read_to_string(&stdout_r)?;
-            let stderr = read_to_string(&stderr_r)?;
+            // Drain both pipes concurrently so a grandchild that fills
+            // the stderr pipe (~64 KiB) while we're still blocked reading
+            // stdout can't deadlock the parent. Each pipe gets its own
+            // thread that reads up to MAX_OUTPUT_BYTES before truncating.
+            let stdout_handle =
+                thread::spawn(move || read_bounded(&stdout_r, MAX_OUTPUT_BYTES));
+            let stderr_handle =
+                thread::spawn(move || read_bounded(&stderr_r, MAX_OUTPUT_BYTES));
+            let stdout = stdout_handle
+                .join()
+                .map_err(|_| SandboxError::NamespaceError("stdout drain panic".into()))??;
+            let stderr = stderr_handle
+                .join()
+                .map_err(|_| SandboxError::NamespaceError("stderr drain panic".into()))??;
 
             // Drain the exec-error pipe. Empty = exec succeeded; 4 bytes
             // = errno from a failed execvp.
@@ -178,11 +274,19 @@ fn run_grandchild(
         unsafe { libc::_exit(83) };
     }
 
-    // Final hop. If execvp returns, it failed — write the errno to the
-    // exec-error pipe and exit. The parent reads the errno to surface a
-    // clean violation rather than guessing from the exit code.
-    let err = match execvp(&argv[0], argv) {
-        Ok(_inf) => unreachable!("execvp returned Ok"),
+    // §0.4 — pass a sanitized env to the grandchild. The orchestrator's
+    // own env (API keys, OAuth tokens, runner credentials) would
+    // otherwise be inherited straight into an untrusted agent. The
+    // sanitizer keeps PATH/HOME/USER/LANG/etc and strips every secret-
+    // looking name (mirrors src/core/persistence/envSanitizer.ts).
+    let env = build_sanitized_env();
+
+    // Final hop. If execvpe returns, it failed — write the errno to
+    // the exec-error pipe and exit. The parent reads the errno to
+    // surface a clean violation rather than guessing from the exit
+    // code.
+    let err = match execvpe(&argv[0], argv, &env) {
+        Ok(_inf) => unreachable!("execvpe returned Ok"),
         Err(e) => e,
     };
     let raw = err as i32;
@@ -211,18 +315,38 @@ fn make_pipe(cloexec: bool) -> Result<(OwnedFd, OwnedFd)> {
     Ok((r, w))
 }
 
-fn read_to_string(fd: &OwnedFd) -> Result<String> {
+/// Read from `fd` until EOF, capping the buffer at `max_bytes`. Anything
+/// beyond the cap is silently discarded — a runaway child can no longer
+/// OOM the orchestrator by spewing gigabytes into the pipe. Returns the
+/// captured prefix as UTF-8 (lossy on invalid sequences, matching the
+/// previous behavior).
+fn read_bounded(fd: &OwnedFd, max_bytes: usize) -> Result<String> {
     let mut out = Vec::new();
     let mut buf = [0u8; 4096];
+    let mut overflow = false;
     loop {
         match read(fd.as_fd(), &mut buf) {
             Ok(0) => break,
-            Ok(n) => out.extend_from_slice(&buf[..n]),
+            Ok(n) => {
+                if out.len() + n <= max_bytes {
+                    out.extend_from_slice(&buf[..n]);
+                } else if out.len() < max_bytes {
+                    let take = max_bytes - out.len();
+                    out.extend_from_slice(&buf[..take]);
+                    overflow = true;
+                } else {
+                    overflow = true;
+                }
+            }
             Err(nix::errno::Errno::EINTR) => continue,
             Err(e) => return Err(io_err(e)),
         }
     }
-    Ok(String::from_utf8_lossy(&out).into_owned())
+    let mut s = String::from_utf8_lossy(&out).into_owned();
+    if overflow {
+        s.push_str("\n... [output truncated]\n");
+    }
+    Ok(s)
 }
 
 /// Drain the exec-error pipe. Returns `Some(errno)` if the grandchild

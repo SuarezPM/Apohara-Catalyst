@@ -93,12 +93,26 @@ pub const WORKSPACE_WRITE_ADDITIONS_PURE_ALLOW: &[&str] = &[
     // Process startup + spawn — required so the grandchild can transfer
     // control to the target binary and so that binary can in turn run
     // its build tools.
+    //
+    // `clone` is intentionally NOT in this pure-allow list because it
+    // accepts namespace-creation flags (CLONE_NEWUSER, CLONE_NEWNS,
+    // CLONE_NEWPID, CLONE_NEWNET, CLONE_NEWUTS, CLONE_NEWCGROUP,
+    // CLONE_NEWIPC). An unfiltered `clone(CLONE_NEWUSER | CLONE_NEWNS)`
+    // moves the child into a nested user namespace where it has fake
+    // "root" — from there it can mount `/proc`, bind-mount the host
+    // root, and pivot out of the sandbox. We add `clone` as a
+    // CONDITIONAL syscall below with the namespace bits masked off.
+    //
+    // `clone3` is denied entirely. We can't inspect its `struct
+    // clone_args` pointer from a seccomp filter, so allowing it would
+    // bypass the flag-mask check. Modern glibc (>= 2.34) detects the
+    // EPERM and falls back to `clone(2)`, which our conditional rule
+    // does filter — so `fork()` continues to work via the fallback
+    // path even though clone3 itself is blocked.
     "execve",
     "execveat",
     "wait4",
     "waitid",
-    "clone",
-    "clone3",
     "set_robust_list",
     "rseq",
     "set_tid_address",
@@ -159,6 +173,10 @@ pub const WORKSPACE_WRITE_ADDITIONS_CONDITIONAL: &[(&str, &str)] = &[
     (
         "ioctl",
         "request must be TIOCGWINSZ|FIOCLEX|FIONCLEX (block FIBMAP, TUNSET*, SIOCSIFADDR)",
+    ),
+    (
+        "clone",
+        "flags MUST NOT include any CLONE_NEW* namespace bit (escape vector via nested userns)",
     ),
 ];
 
