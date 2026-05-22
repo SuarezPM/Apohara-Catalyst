@@ -14,6 +14,7 @@ import {
 } from "./components/RosterPicker.js";
 import { SwarmCanvas } from "./components/SwarmCanvas.js";
 import { TaskBoard } from "./components/TaskBoard/TaskBoard.js";
+import { TerminalView } from "./components/TerminalView.js";
 import { VerificationTimeline } from "./components/VerificationTimeline.js";
 import { ViewToggle } from "./components/ViewToggle.js";
 import { useLedgerStream } from "./hooks/useLedgerStream.js";
@@ -337,7 +338,13 @@ export function App() {
 						rosterCsv={rosterCsv}
 					/>
 					<div style={{ flex: 1, overflow: "hidden", borderTop: "1px solid #30363d" }}>
-						{viewMode === "board" ? <TaskBoard /> : <SwarmCanvas events={ledger.events} />}
+						{viewMode === "board" ? (
+						<TaskBoard />
+					) : viewMode === "terminal" ? (
+						<TerminalView />
+					) : (
+						<SwarmCanvas events={ledger.events} />
+					)}
 					</div>
 				</section>
 

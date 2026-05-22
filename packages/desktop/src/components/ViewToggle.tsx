@@ -4,6 +4,7 @@ import { viewModeAtom, setViewModeAtom, type ViewMode } from "../store/viewStore
 const VIEWS: { key: ViewMode; label: string; icon: string }[] = [
   { key: "graph", label: "Graph", icon: "⊟" },
   { key: "board", label: "Board", icon: "▤" },
+  { key: "terminal", label: "Terminal", icon: "⌨" },
 ];
 
 export function ViewToggle() {

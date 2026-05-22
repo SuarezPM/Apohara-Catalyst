@@ -19,7 +19,7 @@
  * `apohara://hook-event` so PreToolUse / PostToolUse / Stop hits land
  * in the React store live.
  */
-import { appendFile, mkdir } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -125,11 +125,19 @@ export async function startHooksServer(
 		},
 	});
 
+	// Bun.serve's port is typed `number | undefined` but is always set
+	// after a successful bind (port 0 → kernel-assigned). Narrow with a
+	// runtime guard so the rest of the function can rely on a number.
+	if (typeof server.port !== "number") {
+		throw new Error("hooks-server: Bun.serve returned no bound port");
+	}
+	const boundPort = server.port;
+
 	let publishedEndpointFile: string | null = null;
 	try {
 		await mkdir(dirname(endpointFile), { recursive: true });
 		await atomicWriteJson(endpointFile, {
-			port: server.port,
+			port: boundPort,
 			token,
 			started_at: Math.floor(Date.now() / 1000),
 		});
@@ -141,7 +149,7 @@ export async function startHooksServer(
 	}
 
 	return {
-		port: server.port,
+		port: boundPort,
 		token,
 		endpointFile: publishedEndpointFile,
 		async stop() {
