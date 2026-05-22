@@ -1,5 +1,5 @@
 [package]
-name = "apohara-notifications"
+name = "apohara-persistence"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
@@ -7,8 +7,6 @@ authors.workspace = true
 repository.workspace = true
 
 [dependencies]
-serde.workspace = true
+thiserror.workspace = true
 tracing.workspace = true
-
-[target.'cfg(target_os = "linux")'.dependencies]
-notify-rust = "4.11"
+dirs.workspace = true
