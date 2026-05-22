@@ -29,7 +29,7 @@ export function PlansPanel({ onSelectPlan }: PlansPanelProps) {
       style={{
         width: 320,
         background: "#0d1117",
-        borderLeft: "1px solid #30363d",
+        borderRight: "1px solid #30363d",
         display: "flex",
         flexDirection: "column",
         height: "100%",

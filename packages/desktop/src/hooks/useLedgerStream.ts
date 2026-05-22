@@ -11,10 +11,10 @@ export function useLedgerStream(sessionId: string | null) {
 	const [events, setEvents] = useState<EventLog[]>([]);
 
 	useEffect(() => {
-		if (!sessionId) {
-			setEvents([]);
-			return;
-		}
+		// Reset on every sessionId change so the new session never inherits
+		// the previous run's events until its first SSE message lands.
+		setEvents([]);
+		if (!sessionId) return;
 
 		const url = `/api/session/${encodeURIComponent(sessionId)}/events`;
 		const src = new EventSource(url);

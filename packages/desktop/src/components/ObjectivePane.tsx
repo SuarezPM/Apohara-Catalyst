@@ -31,11 +31,24 @@ export function ObjectivePane({
 				},
 				body: JSON.stringify({ prompt, mode }),
 			});
-			const data = (await r.json()) as { enhanced: string; error?: string };
-			if (data.error) setError(data.error);
-			setEnhanced(data.enhanced);
+			// Server may return JSON even on 5xx; tolerate a non-JSON body too.
+			const data = (await r.json().catch(() => ({}))) as {
+				enhanced?: string;
+				error?: string;
+				fallback?: boolean;
+			};
+			if (!r.ok || data.error) {
+				setError(data.error ?? `Enhance failed (HTTP ${r.status})`);
+				// When the server returns the original prompt as a "fallback"
+				// it adds noise — hide the Enhanced block so the user only
+				// sees the actual error.
+				setEnhanced(data.fallback ? null : (data.enhanced ?? null));
+				return;
+			}
+			setEnhanced(data.enhanced ?? null);
 		} catch (err) {
 			setError((err as Error).message);
+			setEnhanced(null);
 		} finally {
 			setBusy(false);
 		}
