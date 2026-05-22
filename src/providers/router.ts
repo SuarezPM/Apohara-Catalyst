@@ -877,8 +877,6 @@ export class ProviderRouter {
 	): Promise<LLMResponse> {
 		await this.logLLMRequest(provider, messages);
 		switch (provider) {
-			case "opencode-go":
-				return this.callOpenCode(messages);
 			case "anthropic-api":
 				return this.callAnthropicApi(messages);
 			case "gemini-api":
@@ -924,6 +922,13 @@ export class ProviderRouter {
 			case "claude-code-cli":
 			case "codex-cli":
 			case "gemini-cli":
+			case "opencode-go":
+				// `opencode-go` is intentionally on the CLI-wrapper path
+				// (not the api.opencode.ai REST path). Per CLAUDE.md hard
+				// rule: "CLI wrappers only — no API keys, no OAuth".
+				// `callOpenCode` (the REST variant below) is retained for
+				// backwards compatibility under
+				// `APOHARA_LEGACY_PROVIDERS=1` only.
 				return this.callCliDriver(provider, messages);
 			default:
 				throw new Error(`Unknown provider: ${provider}`);
