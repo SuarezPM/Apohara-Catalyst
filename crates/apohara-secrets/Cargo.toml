@@ -16,5 +16,6 @@ keyring = { version = "3.6", features = [
 ] }
 thiserror.workspace = true
 tracing.workspace = true
+zeroize.workspace = true
 
 [dev-dependencies]

@@ -143,21 +143,43 @@ async fn rotate_with_suffix(base: &Path) -> PathBuf {
 async fn open_with_0600(path: &Path) -> std::io::Result<File> {
     #[cfg(unix)]
     {
-        // Trait import enables `.mode(0o600)` on the OpenOptions builder.
+        // Trait import enables `.mode(0o600)` and `.custom_flags(...)`
+        // on the OpenOptions builder, and `.as_raw_fd()` on the File.
         #[allow(unused_imports)]
         use std::os::unix::fs::OpenOptionsExt;
+        #[allow(unused_imports)]
+        use std::os::unix::io::AsRawFd;
+        // O_NOFOLLOW prevents an attacker who pre-created the path as
+        // a symlink from redirecting the audit writes elsewhere. The
+        // file's first opener still sees 0o600 via .mode(...).
         let f = OpenOptions::new()
             .create(true)
             .append(true)
             .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW)
             .open(path)
             .await?;
-        // Force-update perms even on existing files (could be created with different perms before).
-        let std_file = f.try_clone().await?.into_std().await;
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = std_file.metadata()?.permissions();
-        perms.set_mode(0o600);
-        std::fs::set_permissions(path, perms)?;
+        // Belt-and-braces: also tighten perms on the EXISTING fd via
+        // fchmod (NOT path-based chmod). The previous implementation
+        // used `std::fs::set_permissions(path, ...)` which is a
+        // path-based syscall — racy against a swap-the-file attack
+        // (between the create-with-mode and the set_permissions call
+        // an attacker could replace the inode). fchmod operates on
+        // the open file descriptor itself so the race window
+        // closes entirely.
+        let fd = f.as_raw_fd();
+        // SAFETY: `fd` comes from a tokio File we still hold; the
+        // libc call is a simple syscall with no UB.
+        let rc = unsafe { libc::fchmod(fd, 0o600) };
+        if rc != 0 {
+            // Non-fatal: the file already opened with 0o600 via
+            // .mode(...). The fchmod call here only re-enforces it
+            // on a pre-existing path; failure means the existing
+            // file's perms remain whatever they were. Log at warn
+            // and continue so audit writing isn't blocked by a
+            // permission tweak.
+            tracing::warn!(?path, errno = std::io::Error::last_os_error().raw_os_error(), "fchmod 0600 failed on audit log");
+        }
         Ok(f)
     }
     #[cfg(not(unix))]
