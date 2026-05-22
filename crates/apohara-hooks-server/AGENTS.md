@@ -12,20 +12,31 @@ opencode), normalize them to ApoharaEvent JSONL, and:
 - Persist to orchestration DB (Stage 2.2+)
 - Broadcast to tokio channel (Stage 2.2+)
 - Audit-log per §0.4 (apohara-audit integration in Stage 2.2)
+- Publish loopback endpoint metadata to `~/.apohara/sockets/hooks-endpoint.json`
+  on start, delete on shutdown (Stage 2.3)
 
 ## Security model
 
 - 127.0.0.1-only bind (configurable via ServerConfig::bind_addr; never wildcard)
 - Bearer token auth, constant-time comparison (mitigates timing oracles)
-- Token rotation hook in Stage 2.3
+- Endpoint file is mode 0600, atomically written (NamedTempFile + rename in
+  same parent dir; fchmod-style permissions set on the fd before persist —
+  no world-readable window). See `src/endpoint_file.rs`.
+- Token rotation: `HooksServer::rotate_token` rewrites the endpoint file
+  atomically. v1.0 does NOT mutate the in-memory `AuthState` — Stage 2.6
+  adds live token rollover (dual-accept window).
 - All requests logged via tracing (no token in logs)
 
 ## Public API
 
 - `ServerConfig { bearer_token, bind_addr }` — construction config
-- `HooksServer::start(Arc<ServerConfig>) -> Result<Self, HooksError>` — bind + spawn
+- `HooksServer::start(Arc<ServerConfig>) -> Result<Self, HooksError>` — bind + spawn + publish endpoint file
 - `HooksServer::bound_addr() -> SocketAddr` — useful when binding to :0
-- `HooksServer::shutdown(self)` — graceful via oneshot
+- `HooksServer::endpoint_file_path() -> Option<&Path>` — path of published file (None if HOME unset / write failed)
+- `HooksServer::rotate_token(&mut self, new_token: String) -> io::Result<()>` — rewrites endpoint file (v1.0)
+- `HooksServer::shutdown(self)` — graceful via oneshot + best-effort delete of endpoint file
+- `endpoint_file::EndpointDescriptor { port, token, started_at }` — JSON schema written to disk
+- `endpoint_file::write_atomic(path, desc)` / `delete_if_exists(path)` / `endpoint_file_path()` — module-level helpers
 
 ## Routes
 
@@ -56,10 +67,32 @@ the tagged `HookEventPayload` enum. Unknown `type` or malformed payload →
 Stage 2.3 will forward accepted events to the orchestration DB + a tokio
 broadcast channel; today the handler only validates and `tracing::info!`s.
 
+## Endpoint file (`~/.apohara/sockets/hooks-endpoint.json`)
+
+Per spec §3.5 + §0.8:
+
+```json
+{
+  "port": 49234,
+  "token": "<bearer>",
+  "started_at": 1737562800
+}
+```
+
+Hook scripts re-read this on every event POST so they survive server restarts
+without needing process-tree env propagation. The write is atomic
+(`NamedTempFile::new_in(parent) → fchmod 0o600 → persist(path)`), so a hook
+script reading concurrently always sees either the old or new file in full —
+never a partial write.
+
+On `HooksServer::shutdown` the file is best-effort deleted; absence is not
+an error and shutdown still completes even if the file system is read-only.
+
 ## Tests
 
 `cargo test -p apohara-hooks-server --test auth` — 2 tests (unauthorized rejection + port-0 binding).
 `cargo test -p apohara-hooks-server --test event` — 2 tests (valid pre_tool_use accepted + unknown type → 422).
+`cargo test -p apohara-hooks-server --test endpoint_file` — 4 tests (0600 perms, atomic replace, idempotent delete, server-integration writes + deletes).
 
 ## What this crate is NOT
 
