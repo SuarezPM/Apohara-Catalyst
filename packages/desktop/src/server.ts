@@ -21,6 +21,10 @@ import {
 	type Disposable,
 } from "../../../src/core/dispatch/result-watcher";
 import { dispatchPaths } from "../../../src/core/dispatch/types";
+import {
+	startHooksServer,
+	type RunningHooksServer,
+} from "../../../src/core/hooks-server/server";
 import { atomicWriteFile } from "../../../src/core/persistence/atomicWrite";
 import type { ProviderId } from "../../../src/core/providers/agent-config";
 import type { LLMMessage } from "../../../src/providers/router";
@@ -142,6 +146,60 @@ if (RECONCILER_INTERVAL_MS > 0) {
 		}
 	}, RECONCILER_INTERVAL_MS);
 	tick.unref?.();
+}
+
+// T2.3 — Hooks sidecar boot. Started lazily on first /api/run so we
+// don't open a port for clients that only hit /api/enhance. Each
+// incoming hook event is forwarded as a `hook_event` ledger line to
+// every active session — the UI bus bridge picks it up and re-emits
+// onto `apohara://hook-event`.
+//
+// `APOHARA_HOOKS_DISABLED=1` skips boot entirely (tests / CI).
+let hooksServer: RunningHooksServer | null = null;
+async function ensureHooksServer(): Promise<RunningHooksServer | null> {
+	if (process.env.APOHARA_HOOKS_DISABLED === "1") return null;
+	if (hooksServer) return hooksServer;
+	try {
+		hooksServer = await startHooksServer({
+			onEvent: async (event) => {
+				const line = `${JSON.stringify({
+					id: crypto.randomUUID(),
+					timestamp: new Date().toISOString(),
+					type: "hook_event",
+					severity: "info",
+					payload: event,
+				})}\n`;
+				// Best-effort fan-out to every active session ledger.
+				// Hooks fire while the CLI is mid-run — the right home
+				// is whichever session currently owns the worker.
+				// Without a precise correlation key we broadcast and
+				// let consumers filter by `payload.session_id` (which
+				// claude / codex / opencode put in their hook payload).
+				for (const ledgerPath of sessionLedgers.values()) {
+					try {
+						await appendFile(ledgerPath, line, "utf-8");
+					} catch {
+						/* best-effort */
+					}
+				}
+			},
+		});
+		// Propagate the endpoint via env so cli-driver injects it into
+		// each spawned subprocess (cli-driver's sanitizeEnv allowlist
+		// preserves `APOHARA_HOOK_*` after the §0.4 strip).
+		process.env.APOHARA_HOOK_ENDPOINT = `http://127.0.0.1:${hooksServer.port}`;
+		process.env.APOHARA_HOOK_TOKEN = hooksServer.token;
+		process.env.APOHARA_HOOK_PROTOCOL_VERSION = "1";
+		console.log(
+			`apohara hooks server: http://127.0.0.1:${hooksServer.port} ` +
+				`(endpoint ${hooksServer.endpointFile ?? "<unpublished>"})`,
+		);
+	} catch (err) {
+		console.warn(
+			`apohara hooks server: failed to start: ${(err as Error).message}`,
+		);
+	}
+	return hooksServer;
 }
 
 /**
@@ -470,6 +528,10 @@ const server = Bun.serve({
 				// `APOHARA_DISPATCH_DISABLED=1` skips the worker spawn
 				// (useful for tests / CI / when the user only wants the
 				// session_started signal).
+				// Start the hooks sidecar lazily before the first
+				// dispatch so spawned CLIs can find the endpoint file.
+				await ensureHooksServer();
+
 				if (process.env.APOHARA_DISPATCH_DISABLED !== "1" && prompt) {
 					// Replace any prior watcher for the same session id
 					// (defensive — sessionIds are UUIDs so collisions are

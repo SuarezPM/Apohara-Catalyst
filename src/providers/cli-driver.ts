@@ -341,8 +341,19 @@ async function runOnce(
 	// `~/.<provider>/` so they don't need the keys; passing them only
 	// risks "wrong account billed" (the nimbalyst incident) and credential
 	// exposure through process listings or core dumps.
+	//
+	// `APOHARA_HOOK_*` vars are preserved so hook scripts installed by
+	// `hooks-server/installer.ts` can discover the loopback hooks
+	// endpoint without having to read `~/.apohara/agent-hooks/endpoint.json`
+	// (the env path is more reliable when the agent runs as a different
+	// user from the orchestrator).
 	const env = sanitizeEnv(process.env as Record<string, string | undefined>, {
-		allow: ["APOHARA_DRIVEN"],
+		allow: [
+			"APOHARA_DRIVEN",
+			"APOHARA_HOOK_ENDPOINT",
+			"APOHARA_HOOK_TOKEN",
+			"APOHARA_HOOK_PROTOCOL_VERSION",
+		],
 	});
 	env.APOHARA_DRIVEN = "1";
 
