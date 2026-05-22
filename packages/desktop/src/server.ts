@@ -25,6 +25,17 @@ import {
 	startHooksServer,
 	type RunningHooksServer,
 } from "../../../src/core/hooks-server/server";
+import {
+	getPty,
+	getReplay,
+	killPty,
+	listPtys,
+	onPtyData,
+	onPtyExit,
+	resizePty,
+	spawnPty,
+	writePty,
+} from "../../../src/core/pty/registry";
 import { atomicWriteFile } from "../../../src/core/persistence/atomicWrite";
 import type { ProviderId } from "../../../src/core/providers/agent-config";
 import type { LLMMessage } from "../../../src/providers/router";
@@ -459,6 +470,194 @@ const server = Bun.serve({
 				mode: routingMode,
 				eventsDir: EVENTS_DIR,
 			}),
+
+		// --- T2.1 PTY routes — embedded terminal sessions. ---
+
+		// POST /api/pty — spawn a PTY. Body:
+		// `{command, args?, cwd?, cols?, rows?, sessionId?, taskId?}`.
+		// Returns `{ptyId, pid, startedAt}`.
+		"/api/pty": {
+			POST: async (req) => {
+				let body: {
+					command?: string;
+					args?: string[];
+					cwd?: string;
+					cols?: number;
+					rows?: number;
+					sessionId?: string;
+					taskId?: string;
+				} = {};
+				try {
+					body = await readBoundedJson(req);
+				} catch (err) {
+					const msg = (err as Error).message;
+					if (msg === "body too large") {
+						return Response.json({ error: msg }, { status: 413 });
+					}
+					return Response.json({ error: "invalid JSON body" }, { status: 400 });
+				}
+				if (typeof body.command !== "string" || body.command.length === 0) {
+					return Response.json(
+						{ error: "command is required" },
+						{ status: 400 },
+					);
+				}
+				try {
+					const handle = spawnPty({
+						command: body.command,
+						args: body.args,
+						cwd: body.cwd ?? REPO_ROOT,
+						cols: body.cols,
+						rows: body.rows,
+						sessionId: body.sessionId,
+						taskId: body.taskId,
+					});
+					return Response.json(handle);
+				} catch (err) {
+					return Response.json(
+						{ error: (err as Error).message },
+						{ status: 500 },
+					);
+				}
+			},
+			GET: () => Response.json({ ptys: listPtys() }),
+		},
+
+		// GET /api/pty/:id/stream — SSE stream of PTY output.
+		// First message replays the 100 KiB scrollback so re-attaching
+		// rebuilds the terminal cleanly; subsequent messages are live.
+		"/api/pty/:id/stream": (req) => {
+			const id = req.params.id;
+			if (!getPty(id)) return new Response("not found", { status: 404 });
+			const stream = new ReadableStream({
+				start(controller) {
+					const encoder = new TextEncoder();
+					let closed = false;
+					const send = (data: string) => {
+						if (closed) return;
+						try {
+							controller.enqueue(encoder.encode(data));
+						} catch {
+							closed = true;
+						}
+					};
+
+					// 1) Replay scrollback as one base64 chunk so the client
+					// can drop it into xterm.js wholesale without per-line
+					// reparse. (Base64 keeps control chars + non-utf8 safe
+					// across SSE's line-oriented framing.)
+					const replay = getReplay(id);
+					if (replay) {
+						send(
+							`event: replay\ndata: ${Buffer.from(replay, "utf-8").toString("base64")}\n\n`,
+						);
+					}
+
+					// 2) Live data — same base64 transport.
+					const offData = onPtyData(id, (chunk) => {
+						send(
+							`data: ${Buffer.from(chunk, "utf-8").toString("base64")}\n\n`,
+						);
+					});
+					const offExit = onPtyExit(id, (code) => {
+						send(`event: exit\ndata: ${code}\n\n`);
+						closed = true;
+						try {
+							controller.close();
+						} catch {
+							/* already closed */
+						}
+					});
+
+					// 3) Heartbeat so proxies don't drop the connection.
+					const heartbeat = setInterval(() => {
+						send(`: heartbeat ${Date.now()}\n\n`);
+					}, 15_000);
+
+					req.signal.addEventListener("abort", () => {
+						closed = true;
+						clearInterval(heartbeat);
+						offData();
+						offExit();
+						try {
+							controller.close();
+						} catch {
+							/* already closed */
+						}
+					});
+				},
+			});
+			return new Response(stream, {
+				headers: {
+					"Content-Type": "text/event-stream",
+					"Cache-Control": "no-cache",
+					Connection: "keep-alive",
+				},
+			});
+		},
+
+		// POST /api/pty/:id/input — feed bytes to the PTY's stdin.
+		// Body: text payload (plain string, no JSON wrapper) so the
+		// keyboard handler in xterm.js can call this directly without
+		// serializing. Bounded to 64 KiB.
+		"/api/pty/:id/input": {
+			POST: async (req) => {
+				const id = req.params.id;
+				if (!getPty(id)) return new Response("not found", { status: 404 });
+				const buf = await req.arrayBuffer();
+				if (buf.byteLength > 64 * 1024) {
+					return Response.json({ error: "body too large" }, { status: 413 });
+				}
+				const text = Buffer.from(buf).toString("utf-8");
+				if (!writePty(id, text)) {
+					return Response.json({ error: "pty closed" }, { status: 410 });
+				}
+				return Response.json({ accepted: true });
+			},
+		},
+
+		// POST /api/pty/:id/resize — update cols + rows.
+		"/api/pty/:id/resize": {
+			POST: async (req) => {
+				const id = req.params.id;
+				if (!getPty(id)) return new Response("not found", { status: 404 });
+				let body: { cols?: number; rows?: number } = {};
+				try {
+					body = await readBoundedJson(req);
+				} catch {
+					return Response.json({ error: "invalid JSON body" }, { status: 400 });
+				}
+				if (
+					typeof body.cols !== "number" ||
+					typeof body.rows !== "number" ||
+					body.cols < 1 ||
+					body.rows < 1
+				) {
+					return Response.json(
+						{ error: "cols + rows are required integers >= 1" },
+						{ status: 400 },
+					);
+				}
+				resizePty(id, body.cols, body.rows);
+				return Response.json({ cols: body.cols, rows: body.rows });
+			},
+		},
+
+		// DELETE /api/pty/:id — kill the PTY.
+		"/api/pty/:id": {
+			DELETE: (req) => {
+				const id = req.params.id;
+				if (!getPty(id)) return new Response("not found", { status: 404 });
+				killPty(id);
+				return Response.json({ killed: true });
+			},
+			GET: (req) => {
+				const id = req.params.id;
+				const handle = getPty(id);
+				if (!handle) return new Response("not found", { status: 404 });
+				return Response.json(handle);
+			},
+		},
 
 		// POST /api/run — minimal session-start hook (M017.2). The full
 		// scheduler spawn lands in M017.3+ when the UI can drive it. For
