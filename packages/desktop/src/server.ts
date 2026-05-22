@@ -12,9 +12,16 @@
  */
 
 import { existsSync, watch as fsWatch } from "node:fs";
-import { mkdir, open, stat } from "node:fs/promises";
+import { appendFile, mkdir, open, stat } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
+import { dispatchSession } from "../../../src/core/dispatch/dispatcher";
+import {
+	watchSessionResults,
+	type Disposable,
+} from "../../../src/core/dispatch/result-watcher";
+import { dispatchPaths } from "../../../src/core/dispatch/types";
 import { atomicWriteFile } from "../../../src/core/persistence/atomicWrite";
+import type { ProviderId } from "../../../src/core/providers/agent-config";
 import type { LLMMessage } from "../../../src/providers/router";
 import { ProviderRouter } from "../../../src/providers/router";
 import index from "../index.html";
@@ -96,6 +103,34 @@ let routingMode: RoutingMode =
 // canonical state and accepts per-request overrides via either
 // `X-Apohara-Roster: id1,id2,id3` header or `roster: [...]` in the body.
 let providerRoster: Set<string> = new Set();
+
+// Result-file watchers per session. Each `/api/run` registers one so
+// the ledger gets a `task_completed` / `task_failed` event the moment
+// the worker drops a result file. We hold a reference for cleanup.
+const sessionWatchers = new Map<string, Disposable>();
+
+/**
+ * Pick the CLI provider for `/api/run`. Honors `APOHARA_RUN_PROVIDER`
+ * for overrides; otherwise picks the first member of the active roster
+ * (the UI's roster picker), defaulting to claude-code-cli when nothing
+ * is set. Only the 3 CLI-wrapper providers are valid here — legacy API
+ * providers go through `/api/enhance`'s separate router path.
+ */
+function pickRunProvider(roster: Set<string>): ProviderId {
+	const explicit = process.env.APOHARA_RUN_PROVIDER;
+	if (
+		explicit === "claude-code-cli" ||
+		explicit === "codex-cli" ||
+		explicit === "opencode-go"
+	) {
+		return explicit;
+	}
+	const active: ProviderId[] = ["claude-code-cli", "codex-cli", "opencode-go"];
+	for (const id of active) {
+		if (roster.size === 0 || roster.has(id)) return id;
+	}
+	return "claude-code-cli";
+}
 
 function pickEnhanceProvider(
 	modeOverride: RoutingMode | undefined,
@@ -369,6 +404,7 @@ const server = Bun.serve({
 				const sessionId = `desktop-${crypto.randomUUID().replace(/-/g, "")}`;
 				await mkdir(EVENTS_DIR, { recursive: true });
 				const ledgerPath = join(EVENTS_DIR, `run-${sessionId}.jsonl`);
+				const provider = pickRunProvider(roster);
 				const event = {
 					id: crypto.randomUUID(),
 					timestamp: new Date().toISOString(),
@@ -379,6 +415,7 @@ const server = Bun.serve({
 						source: "desktop",
 						mode,
 						roster: [...roster],
+						provider,
 					},
 				};
 				// §0.8 atomic write — even though this is the first write
@@ -386,11 +423,78 @@ const server = Bun.serve({
 				// initial write is in flight previously saw an empty
 				// replay because `existsSync` could pass before flush.
 				await atomicWriteFile(ledgerPath, `${JSON.stringify(event)}\n`);
+
+				// T1.1 — actually dispatch the prompt to the picked CLI
+				// provider. The dispatcher writes an instruction file,
+				// returns immediately, and the worker (spawned in-process
+				// for v1) writes a result file when it finishes. The
+				// session watcher below converts the result write into
+				// a `task_completed` / `task_failed` ledger event the SSE
+				// stream picks up live.
+				//
+				// `APOHARA_DISPATCH_DISABLED=1` skips the worker spawn
+				// (useful for tests / CI / when the user only wants the
+				// session_started signal).
+				if (process.env.APOHARA_DISPATCH_DISABLED !== "1" && prompt) {
+					// Replace any prior watcher for the same session id
+					// (defensive — sessionIds are UUIDs so collisions are
+					// effectively impossible, but a leak here would leak a
+					// `fs.watch` handle per re-run).
+					const prior = sessionWatchers.get(sessionId);
+					if (prior) prior.close();
+					// Pre-create the results directory so `fs.watch` can attach
+					// BEFORE the dispatcher's first worker writes its result.
+					// Without this the watcher attempted to watch a missing
+					// directory and missed the result file entirely (the
+					// retry-after-500ms path was firing after the result had
+					// already landed in fast cases).
+					const paths = dispatchPaths(REPO_ROOT, sessionId);
+					await mkdir(paths.results, { recursive: true });
+					const watcher = watchSessionResults({
+						workspace: REPO_ROOT,
+						sessionId,
+						ledgerPath,
+					});
+					sessionWatchers.set(sessionId, watcher);
+					try {
+						await dispatchSession({
+							workspace: REPO_ROOT,
+							sessionId,
+							prompt,
+							providerId: provider,
+							ledgerPath,
+						});
+					} catch (err) {
+						// Best-effort APPEND the dispatch-setup failure to
+						// the ledger (the dispatcher may have already added
+						// a `task_scheduled` line). The watcher will still
+						// see any result the worker did manage to write.
+						const failureEvent = {
+							id: crypto.randomUUID(),
+							timestamp: new Date().toISOString(),
+							type: "task_failed",
+							severity: "error",
+							payload: {
+								provider,
+								error: `dispatch setup failed: ${(err as Error).message}`,
+							},
+							metadata: { provider },
+						};
+						await appendFile(
+							ledgerPath,
+							`${JSON.stringify(failureEvent)}\n`,
+							"utf-8",
+						).catch(() => {
+							/* ledger may have moved on already — ignore */
+						});
+					}
+				}
 				return Response.json({
 					sessionId,
 					ledger: ledgerPath,
 					mode,
 					roster: [...roster],
+					provider,
 				});
 			},
 		},
