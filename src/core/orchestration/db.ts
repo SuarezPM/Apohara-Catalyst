@@ -51,3 +51,28 @@ export async function openOrchestrationDb(
 		},
 	};
 }
+
+import { readFileSync } from "node:fs";
+
+export function initOrchestrationDb(db: Database): OrchestrationDb {
+	db.exec("PRAGMA foreign_keys = ON");
+	const current = (
+		db.query("PRAGMA user_version").get() as { user_version: number }
+	).user_version;
+	if (current < 1) {
+		const sql = readFileSync(
+			join(import.meta.dir, "migrations", "001_initial.sql"),
+			"utf-8",
+		);
+		db.exec(sql);
+		db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+	}
+	return {
+		raw() {
+			return db;
+		},
+		close() {
+			db.close();
+		},
+	};
+}
