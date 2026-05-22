@@ -10,6 +10,7 @@
  * Glob uses minimatch-style wildcards via Bun.glob.
  */
 import { Glob } from "bun";
+import { posix } from "node:path";
 
 export type PermissionPattern =
   | { kind: "bash_prefix"; prefix: string }
@@ -38,7 +39,14 @@ export function matchPattern(p: PermissionPattern, inv: ToolInvocation): boolean
     case "edit_glob": {
       const file = inv.input.file_path;
       if (typeof file !== "string") return false;
-      return new Glob(p.glob).match(file);
+      // Normalize before matching: fold `..` / `.` segments so a pattern
+      // like `Edit(subdir/**)` cannot match `subdir/../../etc/passwd`
+      // by literal-prefix accident. We keep the path relative when the
+      // input was relative (so an existing `Edit(src/**)` pattern still
+      // matches `src/api/users.ts`), and only normalize the `..`
+      // segments. Cross-platform slashes are folded to POSIX form.
+      const normalized = posix.normalize(file.replace(/\\/g, "/"));
+      return new Glob(p.glob).match(normalized);
     }
     case "mcp_prefix":
       return inv.tool.startsWith(p.prefix);

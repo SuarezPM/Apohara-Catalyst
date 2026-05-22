@@ -31,3 +31,24 @@ test("mcp__apohara__* matches mcp__apohara__list_runs", () => {
   const p: PermissionPattern = { kind: "mcp_prefix", prefix: "mcp__apohara__" };
   expect(matchPattern(p, { tool: "mcp__apohara__list_runs", input: {} })).toBe(true);
 });
+
+test("Edit(subdir/**) does NOT match path-traversal escape", () => {
+  // Without normalization, a pattern allow on subdir/** would match
+  // `subdir/../../etc/passwd` by literal-prefix accident. The path
+  // normalization folds `..` segments so the resolved path is clearly
+  // outside the allowed tree and the match fails.
+  const p: PermissionPattern = { kind: "edit_glob", glob: "subdir/**" };
+  expect(
+    matchPattern(p, {
+      tool: "Edit",
+      input: { file_path: "subdir/../../etc/passwd" },
+    }),
+  ).toBe(false);
+});
+
+test("Edit(./src/**) matches src/api/users.ts (./ normalization)", () => {
+  const p: PermissionPattern = { kind: "edit_glob", glob: "src/**" };
+  expect(
+    matchPattern(p, { tool: "Edit", input: { file_path: "./src/api/users.ts" } }),
+  ).toBe(true);
+});

@@ -9,7 +9,7 @@
  * Returns the matched message (and marks it read), or null on timeout.
  */
 import type { OrchestrationDb } from "./db";
-import { listUnread, markRead, type MessageRow, type MessageType } from "./messages";
+import { claimNextUnread, type MessageRow, type MessageType } from "./messages";
 
 export interface CheckWaitInput {
 	toHandle: string;
@@ -33,12 +33,13 @@ export async function checkWait(db: OrchestrationDb, input: CheckWaitInput): Pro
 	let lastHeartbeat = Date.now();
 
 	while (Date.now() < deadline) {
-		const unread = listUnread(db, input.toHandle, { types: input.types, limit: 1 });
-		if (unread.length > 0) {
-			const msg = unread[0];
-			markRead(db, msg.id);
-			return msg;
-		}
+		// Atomic claim: two consumers polling the same `toHandle` are
+		// guaranteed never to both receive the same message.
+		const claimed = claimNextUnread(db, input.toHandle, {
+			types: input.types,
+			limit: 1,
+		});
+		if (claimed) return claimed;
 
 		if (input.heartbeatStream && Date.now() - lastHeartbeat >= heartbeatMs) {
 			const elapsed = Date.now() - (deadline - input.timeoutMs);
