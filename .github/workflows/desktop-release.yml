@@ -29,7 +29,21 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: ubuntu-latest
+          - runner: macos-13
+            os-name: darwin-x64
+            artifact-glob: |
+              target/release/apohara-desktop
+              target/release/bundle/dmg/*.dmg
+              target/release/bundle/macos/*.app
+            system-deps: ""
+          - runner: macos-14
+            os-name: darwin-arm64
+            artifact-glob: |
+              target/release/apohara-desktop
+              target/release/bundle/dmg/*.dmg
+              target/release/bundle/macos/*.app
+            system-deps: ""
+          - runner: ubuntu-22.04
             os-name: linux-x64
             artifact-glob: |
               target/release/apohara-desktop
@@ -43,14 +57,7 @@ jobs:
                 librsvg2-dev \
                 libgtk-3-dev \
                 libayatana-appindicator3-dev
-          - runner: macos-latest
-            os-name: darwin-arm64
-            artifact-glob: |
-              target/release/apohara-desktop
-              target/release/bundle/dmg/*.dmg
-              target/release/bundle/macos/*.app
-            system-deps: ""
-          - runner: windows-latest
+          - runner: windows-2022
             os-name: win-x64
             artifact-glob: |
               target/release/apohara-desktop.exe
@@ -77,6 +84,16 @@ jobs:
         with:
           workspaces: ". -> target"
           key: ${{ matrix.os-name }}-tauri
+
+      - name: Cache bun artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.bun
+            packages/desktop/node_modules/.cache
+          key: ${{ matrix.os-name }}-bun-${{ hashFiles('bun.lockb') }}
+          restore-keys: |
+            ${{ matrix.os-name }}-bun-
 
       - name: Install system deps (${{ matrix.os-name }})
         if: matrix.system-deps != ''
