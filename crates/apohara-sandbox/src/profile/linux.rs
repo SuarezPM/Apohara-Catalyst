@@ -150,6 +150,36 @@ impl LinuxProfile {
                     }));
                 }
 
+                // `clone(flags, ...)` is allowed only when none of the
+                // CLONE_NEW* namespace bits are set. Bits combined here
+                // mirror <sched.h>:
+                //   CLONE_NEWNS     = 0x00020000
+                //   CLONE_NEWCGROUP = 0x02000000
+                //   CLONE_NEWUTS    = 0x04000000
+                //   CLONE_NEWIPC    = 0x08000000
+                //   CLONE_NEWUSER   = 0x10000000
+                //   CLONE_NEWPID    = 0x20000000
+                //   CLONE_NEWNET    = 0x40000000
+                //                   = 0x7E020000
+                // seccompiler's `masked_eq` is `(arg & MASK) == val`, so
+                // `(arg0 & 0x7E020000) == 0` is exactly "no namespace
+                // bits set". `clone3` is not listed here at all — its
+                // flags live inside a struct pointer that seccomp can't
+                // dereference, so we deny clone3 outright via the
+                // default mismatch_action (EPERM); modern glibc falls
+                // back to clone() and the conditional below takes
+                // effect there.
+                let clone_ns_mask: u64 = 0x7E02_0000;
+                rules.push(json!({
+                    "syscall": "clone",
+                    "args": [{
+                        "index": 0,
+                        "type": "dword",
+                        "op": { "masked_eq": clone_ns_mask },
+                        "val": 0u64,
+                    }]
+                }));
+
                 rules
             }
             PermissionTier::DangerFullAccess => Vec::new(),
