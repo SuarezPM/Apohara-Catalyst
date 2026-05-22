@@ -23,7 +23,9 @@ export function ProgressBar({
 	width = 30,
 	mode: modeProp,
 }: ProgressBarProps) {
-	const mode = modeProp ?? useResponsiveMode();
+	// useResponsiveMode runs unconditionally to keep hook order stable.
+	const responsiveMode = useResponsiveMode();
+	const mode = modeProp ?? responsiveMode;
 	const percentage =
 		total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : 0;
 	const filled = Math.round((percentage / 100) * width);

@@ -76,7 +76,10 @@ function formatDuration(ms: number): string {
 export function TaskList({ mode: modeProp, maxItems }: TaskListProps) {
 	const { tasks, counts } = useTaskList();
 	const activeRun = useActiveRun();
-	const mode = modeProp ?? useResponsiveMode();
+	// useResponsiveMode runs unconditionally to keep hook order stable
+	// across renders (see AgentList.tsx for the long comment).
+	const responsiveMode = useResponsiveMode();
+	const mode = modeProp ?? responsiveMode;
 
 	const enrichedTasks = useMemo(() => {
 		if (!activeRun)

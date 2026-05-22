@@ -102,7 +102,9 @@ const STATUS_SYMBOLS: Record<TaskStatus, string> = {
  * Adapts to terminal width: compact/minimal show fewer columns.
  */
 export function AgentCostTable({ mode: modeProp }: AgentCostTableProps) {
-	const mode = modeProp ?? useResponsiveMode();
+	// useResponsiveMode runs unconditionally to keep hook order stable.
+	const responsiveMode = useResponsiveMode();
+	const mode = modeProp ?? responsiveMode;
 	const activeRun = useActiveRun();
 
 	const rows = useMemo(

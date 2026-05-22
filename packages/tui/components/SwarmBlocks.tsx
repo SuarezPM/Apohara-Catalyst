@@ -131,7 +131,9 @@ export function extractAgentBlocks(events: EventLog[]): AgentBlock[] {
  */
 export function SwarmBlocks({ mode: modeProp, maxItems }: SwarmBlocksProps) {
 	const activeRun = useActiveRun();
-	const mode = modeProp ?? useResponsiveMode();
+	// useResponsiveMode runs unconditionally to keep hook order stable.
+	const responsiveMode = useResponsiveMode();
+	const mode = modeProp ?? responsiveMode;
 	const events = activeRun?.events ?? [];
 
 	const blocks = useMemo(() => extractAgentBlocks(events), [events]);

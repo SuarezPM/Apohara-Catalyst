@@ -28,7 +28,12 @@ function formatElapsed(ms: number): string {
  */
 export function AgentList({ mode: modeProp }: AgentListProps) {
 	const activeRun = useActiveRun();
-	const mode = modeProp ?? useResponsiveMode();
+	// Hook MUST run on every render — the previous `modeProp ?? useResponsiveMode()`
+	// short-circuited the hook when `modeProp` was defined, making the hook
+	// order conditional and triggering React's "Rendered fewer hooks than
+	// expected" the moment a caller toggled the prop between defined/undefined.
+	const responsiveMode = useResponsiveMode();
+	const mode = modeProp ?? responsiveMode;
 
 	const agents = useMemo<AgentTaskInfo[]>(() => {
 		if (!activeRun) return [];

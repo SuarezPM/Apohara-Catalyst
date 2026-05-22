@@ -67,7 +67,9 @@ export function extractAgents(
  */
 export function AgentStatus({ mode: modeProp }: AgentStatusProps) {
 	const activeRun = useActiveRun();
-	const mode = modeProp ?? useResponsiveMode();
+	// useResponsiveMode runs unconditionally to keep hook order stable.
+	const responsiveMode = useResponsiveMode();
+	const mode = modeProp ?? responsiveMode;
 	const events = activeRun?.events ?? [];
 	const { agents, fallbackCount, latestFallback } = extractAgents(events);
 
