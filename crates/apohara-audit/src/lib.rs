@@ -1,9 +1,10 @@
 //! JSONL audit sink per spec §0.4 (culture #4 inspiration).
 //!
-//! Async-queue, writer task dedicated, JSONL append-only, daily UTC rotation
-//! + size-based rotation. `fchmod 0600` forced on file descriptor (no race
-//! with separate chmod call). Record schema canonical:
-//!   { ts, server, kind, actor, target, payload }
+//! Async-queue, writer task dedicated, JSONL append-only, daily UTC rotation,
+//! plus size-based rotation. `fchmod 0600` forced on file descriptor (no race
+//! with separate chmod call).
+//!
+//! Record schema canonical: `{ ts, server, kind, actor, target, payload }`.
 //! Drops on overflow (does NOT block event loop).
 
 use serde::{Deserialize, Serialize};
@@ -157,7 +158,7 @@ async fn open_with_0600(path: &Path) -> std::io::Result<File> {
         let mut perms = std_file.metadata()?.permissions();
         perms.set_mode(0o600);
         std::fs::set_permissions(path, perms)?;
-        return Ok(f);
+        Ok(f)
     }
     #[cfg(not(unix))]
     {

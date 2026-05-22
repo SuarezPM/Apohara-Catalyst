@@ -13,8 +13,13 @@ sink.write(AuditEvent {
     actor: Some("agent:claude:task-42".into()),
     target: Some("list_runs".into()),
     payload: serde_json::json!({ "limit": 10 }),
-}).await?;
+})?;
 ```
+
+Note: `write()` is **non-blocking fire-and-forget** — it returns immediately
+after `try_send` on the bounded mpsc channel (no `.await`). On a full queue
+it returns `AuditError::QueueOverflow`; the dedicated writer task drains the
+channel and performs all real I/O off the caller's path.
 
 ## Schema
 
