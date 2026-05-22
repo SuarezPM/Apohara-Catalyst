@@ -1,13 +1,13 @@
 import { atom } from "jotai/vanilla";
 
-export type ViewMode = "graph" | "board";
+export type ViewMode = "graph" | "board" | "terminal";
 
 const STORAGE_KEY = "apohara.viewMode";
 
 function loadInitial(): ViewMode {
   if (typeof window === "undefined") return "graph";
   const raw = window.localStorage.getItem(STORAGE_KEY);
-  if (raw === "graph" || raw === "board") return raw;
+  if (raw === "graph" || raw === "board" || raw === "terminal") return raw;
   return "graph";
 }
 
