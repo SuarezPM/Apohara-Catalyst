@@ -39,6 +39,7 @@ export function isAllowedEvent(event: string): event is AllowedEvent {
 const DENY_KEYS = new Set([
   "repo_url", "repo_slug", "repo_name",
   "username", "user_email", "user_login",
+  "email", "user_id", "userid", "user", "account_id",
   "file_path", "file_paths", "files",
   "source_code", "source_code_diff", "diff", "patch",
   "prompt", "prompt_body",
@@ -49,12 +50,17 @@ const DENY_KEYS = new Set([
   "issue_title", "issue_body", "pr_title", "pr_body",
 ]);
 
+/** Per-string max length sent to transport. Prevents unbounded payloads if a caller
+ *  passes a large stack trace, log dump, or error message under a non-deny key. */
+const MAX_STRING_LENGTH = 200;
+
 export function scrubProperties(props: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(props)) {
     if (DENY_KEYS.has(k.toLowerCase())) continue;
-    // Numbers / bounded-cardinality enums / counts are fine
-    if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") {
+    if (typeof v === "string") {
+      out[k] = v.length > MAX_STRING_LENGTH ? v.slice(0, MAX_STRING_LENGTH) + "…" : v;
+    } else if (typeof v === "number" || typeof v === "boolean") {
       out[k] = v;
     }
     // Drop objects/arrays — bound the surface
