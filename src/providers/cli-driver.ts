@@ -313,6 +313,15 @@ async function runOnce(
 	}
 
 	const content = (cfg.cleanOutput ?? stripAnsi)(stdout);
+	// Surface empty-success cases. Some CLIs return exit 0 with no
+	// output when their auth/config is broken — without this warning
+	// the UI just shows a silent empty Enhanced block and the user has
+	// no signal that something went wrong on the provider side.
+	if (content.length === 0) {
+		console.warn(
+			`cli-driver(${cfg.id}): exited 0 with empty stdout — check that the CLI is authenticated and the binary's environment is intact`,
+		);
+	}
 	return {
 		content,
 		provider: cfg.id,

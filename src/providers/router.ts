@@ -4,6 +4,8 @@ import { dirname, join } from "node:path";
 import { getProviderKey } from "../core/config";
 import { ContextForgeClient } from "../core/contextforge-client";
 import type { EventLedger } from "../core/ledger";
+import { ACTIVE_PROVIDER_FACTORIES } from "../core/providers/active-roster";
+import { getLegacyProviders } from "../core/providers/legacy-roster";
 import type {
 	EventLog,
 	EventSeverity,
@@ -697,6 +699,24 @@ export class ProviderRouter {
 	 * If the request fails due to 429 or timeout, tries another provider.
 	 */
 	public async completion(req: LLMRequest): Promise<LLMResponse> {
+		// Allow-list gate: clients can only ask for providers in the
+		// active roster (the 3 CLI drivers) unless APOHARA_LEGACY_PROVIDERS=1
+		// flips legacy on. Without this, a UI bug or a malicious caller
+		// could request `anthropic-api` / `openai` / etc. and the router
+		// would happily route to a real-API path with credentials. This
+		// enforces the spec / CLAUDE.md hard rule at the server boundary
+		// instead of trusting the client roster picker.
+		const ALLOWED = new Set<string>(
+			ACTIVE_PROVIDER_FACTORIES.map((f) => f().id),
+		);
+		if (process.env.APOHARA_LEGACY_PROVIDERS === "1") {
+			for (const p of getLegacyProviders()) ALLOWED.add(p.id);
+		}
+		if (req.provider && !ALLOWED.has(req.provider)) {
+			throw new Error(
+				`router: provider "${req.provider}" not in active roster (set APOHARA_LEGACY_PROVIDERS=1 to enable legacy cloud providers)`,
+			);
+		}
 		const preferredProvider = req.provider || "opencode-go";
 		let currentProvider = preferredProvider;
 		let lastError: Error | unknown = null;

@@ -53,14 +53,32 @@ export class EventWriteQueue<T = unknown> {
     const batch = this.queue.splice(0);
     const t0 = Date.now();
 
-    this.inflight = this.inflight.then(async () => {
-      await this.opts.flush(batch);
+    // `inflight` is the FIFO write chain. Without a `.catch` recovery,
+    // one rejected flush would leave the chain in a permanently-rejected
+    // state and every subsequent `await this.inflight` would re-throw —
+    // silently losing every future write. We log the failure and
+    // continue with a fresh resolved promise so the next enqueue tries
+    // again on its own merits.
+    const chained = this.inflight.then(async () => {
+      try {
+        await this.opts.flush(batch);
+      } catch (err) {
+        console.warn(
+          `event_queue_flush_failed rows=${batch.length} err=${
+            (err as Error).message
+          }`,
+        );
+      }
       const dt = Date.now() - t0;
-      const pressureFlushMs = this.opts.pressureFlushMs ?? DEFAULT_PRESSURE_FLUSH_MS;
+      const pressureFlushMs =
+        this.opts.pressureFlushMs ?? DEFAULT_PRESSURE_FLUSH_MS;
       if (dt > pressureFlushMs) {
-        console.warn(`event_queue_slow_flush ms=${dt} rows=${batch.length}`);
+        console.warn(
+          `event_queue_slow_flush ms=${dt} rows=${batch.length}`,
+        );
       }
     });
-    await this.inflight;
+    this.inflight = chained;
+    await chained;
   }
 }
