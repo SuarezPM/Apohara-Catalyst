@@ -27,9 +27,39 @@ opencode), normalize them to ApoharaEvent JSONL, and:
 - `HooksServer::bound_addr() -> SocketAddr` — useful when binding to :0
 - `HooksServer::shutdown(self)` — graceful via oneshot
 
+## Routes
+
+All routes sit behind the bearer-auth middleware (`Authorization: Bearer <token>`).
+Missing or wrong token → `401 Unauthorized`.
+
+| Method | Path     | Auth   | Body                                | Success                                  |
+|--------|----------|--------|-------------------------------------|------------------------------------------|
+| GET    | `/health`| Bearer | —                                   | `200 { "alive": true, "ts": <rfc3339> }` |
+| POST   | `/event` | Bearer | `HookEventEnvelope` (JSON, see below)| `200 { "accepted": true }`              |
+
+`HookEventEnvelope` (see `src/event.rs`):
+
+```json
+{
+  "type": "pre_tool_use | post_tool_use | post_tool_use_failure | stop | user_prompt_submit | permission_request",
+  "pane_key": "pane-1",
+  "task_id": "task-42 | null",
+  "worktree_id": "swift-falcon-a3f9c2 | null",
+  "payload": { /* shape per event type — see HookEventPayload variants */ }
+}
+```
+
+Validation: the discriminator is re-folded into `payload` and deserialized as
+the tagged `HookEventPayload` enum. Unknown `type` or malformed payload →
+`422 Unprocessable Entity`.
+
+Stage 2.3 will forward accepted events to the orchestration DB + a tokio
+broadcast channel; today the handler only validates and `tracing::info!`s.
+
 ## Tests
 
 `cargo test -p apohara-hooks-server --test auth` — 2 tests (unauthorized rejection + port-0 binding).
+`cargo test -p apohara-hooks-server --test event` — 2 tests (valid pre_tool_use accepted + unknown type → 422).
 
 ## What this crate is NOT
 

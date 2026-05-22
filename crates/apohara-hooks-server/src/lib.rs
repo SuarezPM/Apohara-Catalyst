@@ -6,13 +6,14 @@
 //! to the orchestration DB + tokio broadcast channel.
 
 pub mod auth;
+pub mod event;
 
 use auth::{bearer_auth, AuthState};
 use axum::{
     extract::State,
     middleware,
     response::Json,
-    routing::get,
+    routing::{get, post},
     Router,
 };
 use std::net::SocketAddr;
@@ -51,6 +52,7 @@ impl HooksServer {
 
         let app = Router::new()
             .route("/health", get(health))
+            .route("/event", post(crate::event::handle_event))
             .layer(middleware::from_fn_with_state(auth_state.clone(), bearer_auth))
             .with_state(auth_state);
 
