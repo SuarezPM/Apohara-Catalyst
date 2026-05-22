@@ -1,286 +1,234 @@
-# Architecture — Apohara v2.0
+# Architecture — Apohara v1.0
 
-> This document describes how the orchestrator, sidecars, and visual surface
+> This document describes how the v1.0 orchestrator, sidecars, and surfaces
 > fit together. It is the reference text every PR is expected to match; if
 > the code drifts from it, the document is the lie — open a PR to update it.
 
 For the *what* (capabilities and roadmap), see [`README.md`](README.md) and
-[`ROADMAP.md`](ROADMAP.md). For the *day-to-day engineering contract*, see
-[`CLAUDE.md`](CLAUDE.md).
+[`ROADMAP.md`](ROADMAP.md). For the *agent-facing navigation contract*, see
+[`AGENTS.md`](AGENTS.md) (symlinked as `CLAUDE.md`). For the *commitments
+that drove the design*, see [`PRINCIPLES.md`](PRINCIPLES.md). For the spec,
+see [`docs/superpowers/specs/2026-05-21-apohara-v1-design.md`](docs/superpowers/specs/2026-05-21-apohara-v1-design.md).
 
 ---
 
-## 1. System diagram
+## 1. System overview
 
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│  APOHARA DESKTOP  (Tauri v2, ~6 MB single binary, M017)              │
-│  React 19 + Geist + @xyflow/react + Monaco + Lexical                 │
-│  ├─ Objective pane    ┬─ Swarm Canvas (DAG)   ┬─ Code+Diff           │
-│  └─────────────────── SSE stream from ledger ─────────────────────── │
-└──────────────────────────────────────────────────────────────────────┘
-                              ↕ HTTP (localhost:7331)
-┌──────────────────────────────────────────────────────────────────────┐
-│  APOHARA CORE  (TypeScript on Bun)                                   │
-│  Bun.serve() ──► /api/enhance · /api/run · /api/events (SSE)         │
-│  ┌─ src/core/ ──────────────────────────────────────────────────┐    │
-│  │ decomposer · scheduler · subagent-manager · consolidator      │    │
-│  │ verification-mesh · agent-router · ledger (Phase 4 hash chain)│    │
-│  │ capability-manifest · sandbox (TS wrapper)                    │    │
-│  └─────────────────────────────────────────────────────────────  ┘    │
-│  src/providers/router.ts — 21 providers + OAuth (Gemini)             │
-└──────────────────────────────────────────────────────────────────────┘
-                              ↕ subprocess + Unix sockets
-┌──────────────────────────────┬───────────────────────────────────────┐
-│  apohara-indexer (Rust) ✅   │  apohara-sandbox (Rust) ✅ M014       │
-│  tree-sitter + redb +        │  seccomp-bpf + user/mount/PID ns      │
-│  Nomic BERT embeddings       │  3-tier permission profiles           │
-│  Daemon, Unix socket RPC     │  Per-process fork chain               │
-└──────────────────────────────┴───────────────────────────────────────┘
-                              ↕ HTTP :8001 (optional)
-┌──────────────────────────────────────────────────────────────────────┐
-│  APOHARA CONTEXT FORGE  (parallel repo, optional)                    │
-│  FastAPI + vLLM bridge + INV-15 safety gate                          │
-│  60–80% token savings, AMD MI300X local-first path                   │
-└──────────────────────────────────────────────────────────────────────┘
-```
+Apohara is a multi-agent code orchestration platform built on three CLI
+providers (Claude Code, Codex, OpenCode) with no provider-managed API keys.
+Tasks come in as SPEC.md files or GitHub issues, get decomposed into a
+dependency DAG by the planner, dispatched to git-worktree-isolated agents
+by a bun:sqlite scheduler, executed under a seccomp-bpf sandbox, gated by a
+judge / critic / invariants (JCR) verifier, and merged via the GitHub
+bridge. Every meaningful event is appended to a SHA-256-chained JSONL
+ledger; `apohara replay --verify` rebuilds the run and refuses to render
+tampered chains.
 
 ---
 
-## 2. End-to-end request flow
+## 2. Core invariants
 
-The lifecycle of one objective from the textarea to a green PR.
+These hold across every commit. Violating any of them is a P0 regression.
 
-1. **Desktop pane → POST /api/enhance**
-   `packages/desktop/src/components/ObjectivePane.tsx` posts the raw
-   prompt with an `X-Apohara-Mode: gpu|cloud` header. The Bun server
-   (`packages/desktop/src/server.ts`) looks up the routing mode and
-   picks a provider — `carnice-9b-local` for GPU mode, the configured
-   cloud provider otherwise. The enhanced prompt streams back into the
-   pane and the user clicks **Run**.
+- **INV-15 (JCR safety gate)** — judge model + critic model + invariant
+  suite (tests + schema + permission lattice) must *all* agree before any
+  Apohara-authored diff opens a PR. A 2-of-3 majority does not ship.
+- **SHA-256 ledger chain** — every event in `.events/run-<sid>.jsonl`
+  references the prior `chain_hash`; `apohara replay --verify` rejects any
+  tampering and `EventLedger.verify()` returns `brokenAt: i` on the first
+  divergent index.
+- **Atomic file writes (§0.8)** — every on-disk producer uses
+  `mkstemp + rename` (TS: `src/core/persistence/atomicWrite.ts`, Rust:
+  the corresponding helper in `apohara-persistence`). Half-written
+  artifacts are not a failure mode the rest of the system has to handle.
+- **Env sanitization on every spawn (§0.4)** — `src/core/persistence/envSanitizer.ts`
+  scrubs provider API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc.)
+  and host secrets before any subprocess inherits the environment. The
+  three CLI drivers authenticate against the user's subscriptions, not
+  against a key embedded in the orchestrator process.
+- **Bash compound guard** — `src/core/safety/bashCompoundAnalyzer.ts`
+  defensively splits on `&&`, `||`, `;` (honoring quotes, heredocs, and
+  command substitution). Any compound forces `["once"]` scope; `always`
+  is never available for compound bash even when each component matches
+  an allow-list entry.
 
-2. **Desktop pane → POST /api/run**
-   The server materializes a session id (`desktop-<base36>-<rand6>`)
-   and writes `session_started` to `.events/run-<sid>.jsonl`. The pane
-   subscribes to `/api/session/<sid>/events` (SSE) and starts tailing.
-
-3. **Decomposer → DAG**
-   `src/core/decomposer.ts` calls the planning provider and parses the
-   structured JSON output into a `Task[]` with `dependsOn` edges. Cycle
-   detection (DFS) rejects malformed plans. `decomposer_complete` is
-   logged to the ledger; the Swarm Canvas picks it up over SSE and
-   renders the DAG via `@xyflow/react`.
-
-4. **Scheduler → worktrees**
-   `src/core/scheduler.ts` walks the DAG in topo order, spawning each
-   task into an isolated git worktree under `.claude/worktrees/`. Each
-   task carries a permission tier (`workspace_write` by default).
-
-5. **Subagent → router → provider**
-   The subagent loop calls `src/providers/router.ts` for each LLM turn.
-   When `CONTEXTFORGE_ENABLED=1`, calls go through
-   `src/core/contextforge-client.ts` first to compress + reuse KV
-   context; on any error the client silently falls back to the cloud
-   API. Every call emits `provider_selected` and, on the Carnice path,
-   `contextforge_savings` with the measured baseline delta.
-
-6. **Sandbox → test execution**
-   When the subagent needs to run code (`bun test`, `cargo build`, the
-   binary it just wrote), it asks `src/core/sandbox.ts` to spawn the
-   `apohara-sandbox` Rust binary. That binary forks twice (parent →
-   middle child unshares namespaces → grandchild applies seccomp +
-   `execvp`s the command) and pipes stdout/stderr back as JSON. Any
-   blocked syscall produces a `security_violation` ledger event.
-
-7. **Verification mesh → judge + critic**
-   `src/core/verification-mesh.ts` invokes the two arbiter providers
-   over the diff. The INV-15 safety gate (M015.4) forces fresh context
-   when judge risk exceeds the paper's τ threshold. Both arbiters must
-   approve before the consolidator opens the PR.
-
-8. **Consolidator → PR + ledger seal**
-   `src/core/consolidator.ts` `git push`es the worktree, opens the PR
-   via `gh`, and logs `github_pr_opened`. The session's ledger file is
-   now a cryptographically chained record (Phase 4 SHA-256 chain): each
-   event's `prev_hash` equals the previous event's `hash`, and
-   `apohara replay --verify` rejects any tampering.
+The full set of 33 cross-cutting disciplines lives in spec §0; this
+document only highlights the load-bearing ones.
 
 ---
 
-## 3. The core packages
+## 3. Module map
 
-### `src/core/`
+This table mirrors `AGENTS.md` / `CLAUDE.md` (the agent-facing source of
+truth). If you find a divergence, fix both.
 
-| Module | Responsibility |
+### Rust crates (`crates/`)
+
+| Crate | Responsibility |
 |---|---|
-| `decomposer.ts`         | NL intent → typed `Task[]` with `dependsOn` edges; cycle detection (DFS). |
-| `scheduler.ts`          | Topo-walk the DAG, spawn worktree per task, gather results. |
-| `subagent-manager.ts`   | Per-task agent loop, retry budgets, escalation. |
-| `consolidator.ts`       | Merge accepted diffs into trunk, open PR via `gh`. |
-| `verification-mesh.ts`  | Dual-arbiter judge/critic, INV-15 safety gate, drift detection. |
-| `agent-router.ts`       | Role → provider mapping with fallback chains; emits `provider_selected`. |
-| `ledger.ts`             | Phase-4 SHA-256-chained JSONL event log, `verify()`, tamper detection. |
-| `capability-manifest.ts`| Per-provider role/tag scoring; backs Thompson Sampling (M013, post-v0.1). |
-| `sandbox.ts`            | TS wrapper around the Rust sandbox binary + non-Linux consent fallback. |
-| `indexer-client.ts`     | Unix-socket RPC to the indexer daemon (tree-sitter + embeddings). |
-| `contextforge-client.ts`| Best-effort HTTP client to the parallel ContextForge service. |
+| `crates/apohara-types` | Shared types Rust↔TS (ts-rs SSoT, §0.7) |
+| `crates/apohara-secrets` | OS-native credential store (keyring-rs) |
+| `crates/apohara-pathsafety` | Symlink-escape detection |
+| `crates/apohara-audit` | JSONL audit sink + rotation + fchmod 0600 |
+| `crates/apohara-notifications` | Cross-platform push notifications |
+| `crates/apohara-persistence` | Cross-platform service installer + atomic-write helpers |
+| `crates/apohara-worktree` | Git worktree lifecycle (consolidates the previous isolation-engine crate; not yet renamed in this branch) |
+| `crates/apohara-coordinator` | Semantic conflict coordinator (slim, delegates state) |
+| `crates/apohara-hooks-server` | Agent-hooks HTTP loopback (axum sidecar) |
+| `crates/apohara-attention` | Attention bands state machine (HOT/WARM/COOL/IDLE) |
+| `crates/apohara-token-accounting` | Token accounting (absolutes > deltas, per-thread) |
+| `crates/apohara-mcp-bridge` | Canonical MCP config + per-provider adapters (Claude/Codex/OpenCode dialects) |
+| `crates/apohara-event-humanizer` | Provider events → human-readable labels |
+| `crates/apohara-anti-thrash` | Strategy rotation tracker (anti-loop) |
+| `crates/apohara-indexer` | tree-sitter + redb + Nomic BERT (see OOM hazard in `AGENTS.md`) |
+| `crates/apohara-sandbox` | seccomp-bpf + Linux namespaces (mount + user + PID + net) |
 
-### `crates/apohara-indexer/`
+### TypeScript packages (`packages/`)
 
-Rust daemon that owns the code knowledge graph.
+| Package | Responsibility |
+|---|---|
+| `packages/apohara-shared` | TS types auto-generated by ts-rs (do not edit by hand — §0.7) |
+| `packages/desktop` | Tauri v2 + React 19 desktop UI (TaskBoard, Plans, Permissions, Verification timeline) |
+| `packages/github-bridge` | GitHub Issues → orchestration → PR (poll-only in v1.0; webhook returns 501) |
+| `packages/tui` | Ink-based terminal UI (Dashboard, AgentList, CostTable, config wizard) |
 
-- **Storage:** `redb` (zero-deps embedded KV).
-- **Parsing:** tree-sitter for 18 languages, hits every changed file on
-  watch.
-- **Embeddings:** Nomic BERT loaded via `candle`. Tests gate the model
-  load behind `APOHARA_MOCK_EMBEDDINGS=1` so CI / dev loops don't OOM —
-  see `CLAUDE.md §8.1` for the hard rule.
-- **API:** Unix-socket JSON-RPC. `searchMemories(query, k)` powers
-  similarity search; `getBlastRadius(file, symbol)` powers the impact
-  warning in PRs.
+### TypeScript domains (`src/core/`)
 
-### `crates/apohara-sandbox/` — M014
+| Path | Responsibility |
+|---|---|
+| `src/core/orchestration/` | bun:sqlite orchestration DB, scheduler, decision gates, coordinator-runs, drift probe, circuit breaker, setup-verification |
+| `src/core/safety/` | Permission patterns, bash compound analyzer, settings hierarchy, durable prompt, runnerPolicy (planCompiler / presets / fsSnapshot) |
+| `src/core/spec/` | SPEC.md watcher + plan documents + plan status cache |
+| `src/core/mcp/` | Internal MCP servers (bootstrap, canonical schema, mcpInjection, `base/` + `servers/` for ledger/runs/indexer/settings) |
+| `src/core/providers/` | `BaseAgentProvider` + 3 active drivers (Claude / Codex / OpenCode), active vs. legacy roster, trust presets, mixins/protocols/streams |
+| `src/core/hooks/` | Agent-hooks installer + events bridge |
+| `src/core/decomposer/` | SPEC → tasks manifest decomposer |
+| `src/core/verification/` | Verification mesh + `qualityGates/` (JCR gate orchestration) |
+| `src/core/telemetry/` | Anonymous install ID + telemetry plumbing |
+| `src/core/persistence/` | Atomic file writes (§0.8), env sanitizer (§0.4), shared defaults |
+| `src/core/anti-thrash/` | TS counterpart of strategy-rotation tracker |
+| `src/core/context/` | Per-request context propagation |
+| `src/core/cli/` | Shared CLI errors + output helpers (`apohara doctor`, `verify-setup`, etc.) |
 
-The syscall-level enforcement boundary. Three runtime layers:
-
-| Layer | Source | Mechanism |
-|---|---|---|
-| Permission tier model | `src/permission.rs`  | `ReadOnly`, `WorkspaceWrite`, `DangerFullAccess`. Serde-roundtrippable, parsed from the TS wrapper's tier string. |
-| Syscall allowlists    | `src/profile/syscalls.rs` | Static `&[&str]` arrays per tier (~45 pure-allow entries + conditional `openat` for ReadOnly, conditional `fcntl` + `ioctl` for WorkspaceWrite). |
-| BPF filter            | `src/profile/linux.rs`    | Compiles the manifest to a real `BpfProgram` via `seccompiler::compile_from_json`. Default mismatch action = `errno(EPERM)` so violations are observable failures, not SIGSYS kills. |
-| Namespaces            | `src/namespace.rs`        | `unshare(CLONE_NEWUSER \| CLONE_NEWNS \| CLONE_NEWPID)` + the three uid/gid/setgroups writes that unlock unprivileged operation. |
-| Runner                | `src/runner/imp.rs`       | Two-fork chain: parent → middle child unshares → grandchild dups pipes + chdir + installs seccomp + `execvp`s. Exec failures surface via a CLOEXEC error pipe. |
-
-The two-fork shape is structural: `unshare(CLONE_NEWPID)` only takes
-effect for the *next* child of the unsharer, so the grandchild is the
-first process inside the new PID namespace. The middle child also
-isolates the orchestrator from the user/mount-ns move.
-
-### `packages/desktop/` — M017
-
-Tauri v2 + React 19 + Bun.serve. Three panes plus a cost-meter top bar:
-
-- `src/components/ObjectivePane.tsx` — textarea, Enhance, Run, error banner.
-- `src/components/SwarmCanvas.tsx` — `@xyflow/react` DAG; node state classes from `task_scheduled`/`task_completed`/`task_failed`; mesh-verdict sentinels.
-- `src/components/CodeDiffPane.tsx` — file tree + Monaco `DiffEditor` (vs-dark, inline); reconstructs file snapshots from `file_created` / `file_modified` payloads.
-- `src/components/CostMeter.tsx` — cumulative tokens + USD + savings; GPU/Cloud routing toggle wired to `/api/mode`.
-
-The Bun.serve backend exposes `/api/enhance`, `/api/run`,
-`/api/session/:id/events` (SSE), `/api/mode`, `/api/health`. The SSE
-endpoint tails `.events/run-<sid>.jsonl` via `fs.watch`, holding back
-partial JSON lines on byte-offset boundaries so the React stream never
-sees half an event.
+Per-crate `AGENTS.md` files (where present) carry the local invariants for
+that crate; the agents read them on every session.
 
 ---
 
-## 4. The event ledger
+## 4. Data flow
 
-Every meaningful action in Apohara — provider selection, contextforge
-savings, task scheduling, sandbox execution, mesh verdict, PR open —
-writes one line of JSON to `.events/run-<sid>.jsonl`.
-
-Phase 4 hardened the ledger with a **SHA-256 hash chain**:
+A single objective travels through the same pipeline whether it enters via
+SPEC.md or via the GitHub bridge:
 
 ```
-{ ..., prev_hash: "00..00", hash: "h1" }   ← genesis
-{ ..., prev_hash: "h1",     hash: "h2" }   ← first event
-{ ..., prev_hash: "h2",     hash: "h3" }   ← second event
-                                ▲
-                                │
-                                └ each event's prev_hash must equal the
-                                  previous event's hash, OR
-                                  EventLedger.verify() returns brokenAt: i.
+  SPEC.md / GitHub issue
+          │
+          ▼
+   decomposer (src/core/decomposer/)        — NL → typed task manifest
+          │
+          ▼
+   tasks table (bun:sqlite, src/core/orchestration/)
+          │
+          ▼
+   scheduler (src/core/orchestration/)      — topo walk, decision gates,
+          │                                   circuit breaker, conflict serial
+          ▼
+   worktree spawn (crates/apohara-worktree) — symlink-safe checkout
+          │
+          ▼
+   provider (src/core/providers/)           — BaseAgentProvider →
+          │                                   claude-code-cli | codex-cli |
+          │                                   opencode-go (stdio, no keys)
+          ▼
+   ledger (.events/run-<sid>.jsonl)         — SHA-256-chained JSONL
+          │
+          ▼
+   verifier (src/core/verification/)        — judge + critic + invariants
+          │                                   (INV-15 JCR gate)
+          ▼
+   PR builder (packages/github-bridge/)     — three-strategy idempotency:
+          │                                   apohara-attempt: sha256:HEX
+          ▼
+   github-bridge (packages/github-bridge/)  — Octokit, retry + rate-limit,
+                                              poll-only in v1.0
 ```
 
-`apohara replay <run-id>` walks the chain and refuses to render a run if
-verify() fails. The CLI's `--dry-run` flag emits deterministic JSON
-suitable for diffing across machines, which is what underpins the
-"reproducible incident triage" use case.
+Sandbox execution (`crates/apohara-sandbox`) sits beneath the provider
+step: whenever a CLI driver needs to run code, it asks the sandbox to
+spawn the command via the two-fork seccomp+namespaces chain. Internal MCP
+servers (`src/core/mcp/`, `crates/apohara-mcp-bridge`) sit beside the
+provider step: they expose ledger / runs / indexer / settings to the
+spawned CLI over loopback HTTP with a per-bootstrap 32-char hex token
+written 0600 to the endpoint file.
 
 ---
 
-## 5. The provider router
+## 5. Cross-cutting disciplines
 
-`src/providers/router.ts` knows about 21 LLM providers and exposes
-`completion({ messages, agentId, provider })`. Highlights:
+The full list is in
+[`docs/superpowers/specs/2026-05-21-apohara-v1-design.md` §0](docs/superpowers/specs/2026-05-21-apohara-v1-design.md)
+(33 disciplines). Highlights worth re-reading before any non-trivial PR:
 
-- **Routing modes** (M015.5): `gpu` prefers `carnice-9b-local`; `cloud`
-  prefers `process.env.APOHARA_CLOUD_PROVIDER` (default `opencode-go`).
-- **Fallback chains**: each role (`planner`, `coder`, `critic`, `judge`)
-  has an ordered fallback list in `agent-router.ts`'s `ROLE_FALLBACK_ORDER`.
-- **OAuth**: Gemini works via the Google PKCE flow; Anthropic is gated
-  by TOS and currently disabled.
-- **Capability score** (post-v0.1, M013): every call updates a Beta
-  distribution per (provider, role) in `capability-manifest.ts`; the
-  router samples to pick the next call (Thompson Sampling) with 5%
-  exploration traffic.
-
----
-
-## 6. Determinism and replay
-
-The orchestrator is deterministic *given* the ledger and the providers'
-responses. Two practical consequences:
-
-1. **`apohara replay`** rebuilds the DAG, the verification mesh
-   decisions, the cost meter, and the final diff *without* re-calling
-   any provider. It's what the desktop UI uses to render a finished run
-   in scrub mode.
-2. **`apohara replay --dry-run --json`** emits the canonical action plan
-   for the run. Diffing two `--dry-run` outputs across machines confirms
-   that two clients agree on what should happen — which is the building
-   block for the future paired-execution mode (M013.5 + Phase 7).
+- **§0.1 Centralized IPC listeners** — never per-component; abort
+  controllers + session mapping + permission lifecycle all flow through
+  a single dispatcher.
+- **§0.4 Env sanitization** — `src/core/persistence/envSanitizer.ts` on
+  every spawn; no API keys reach subprocesses.
+- **§0.7 ts-rs SSoT** — Rust types are the source of truth; the TS bindings
+  in `packages/apohara-shared/types.ts` are generated via
+  `bun run generate-types` and never edited by hand.
+- **§0.8 Atomic file writes** — `mkstemp + rename`, project-wide.
+- **§0.14 Token accounting** — absolutes over deltas, per-thread.
+- **§0.16 `enum_dispatch` instead of `Box<dyn>`** for provider polymorphism.
 
 ---
 
-## 7. Build + distribution
+## 6. What's NOT in v1.0
 
-| Artifact | Source | Size |
-|---|---|---|
-| `apohara` CLI bundle (`dist/cli.js`) | `bun build src/cli.ts --target node` | ~3 MB JS |
-| `apohara-indexer` daemon | `cargo build -p apohara-indexer --release` | ~12 MB |
-| `apohara-sandbox` binary | `cargo build -p apohara-sandbox --release` | ~5 MB |
-| `apohara-desktop` (Linux ELF) | `cd packages/desktop && bun run tauri:build` | **5.6 MB** ✅ |
-| `apohara-desktop` (.deb) | same | 1.9 MB |
-| `apohara-desktop` (AppImage) | same | 78 MB (webkit2gtk bundled) |
-| `apohara-desktop` (.dmg, macOS) | CI matrix on `macos-latest` | (pending) |
-| `apohara-desktop` (.msi, Windows) | CI matrix on `windows-latest` | (pending) |
+These surfaces are intentionally absent. Don't search for them; don't add
+"helpful" stubs. They are tracked for v1.1+.
 
-The cross-OS matrix lives in
-[`.github/workflows/desktop-release.yml`](.github/workflows/desktop-release.yml)
-and fires on `v*` tag pushes; PRs touching `packages/desktop/` get a
-smoke-build only (no artifact upload) so packaging regressions surface
-before merge.
+- **Webhook delivery worker (`scripts/two-track-events.ts`)** — deferred
+  to v1.1 per plan §11.2. The `packages/github-bridge/src/webhook.ts`
+  endpoint exists only to reserve the URL path and always returns
+  **HTTP 501 Not Implemented** in v1.0. v1.0 ingestion is poll-only
+  (60s cadence). The two-track design (SSE + HMAC-signed webhook with
+  8-attempt back-off `[0,10,30,90,300,900,1800,3600]s` + 410 auto-disable)
+  ships in v1.1.
+- **Additional providers** — the active roster is exactly
+  `claude-code-cli`, `codex-cli`, `opencode-go`. The 21-provider legacy
+  roster (cloud APIs + Gemini OAuth + others) is gated behind
+  `APOHARA_LEGACY_PROVIDERS=1` and is **not characterized end-to-end
+  against the JCR gate in v1.0**. A fourth official provider is a
+  major-version event, not a config toggle. See `PRINCIPLES.md` §5.
+- **Kanban/DAG UI sync integration test** — Task 10.6 (mount TaskBoard +
+  SwarmCanvas in a test harness and assert both views update on a
+  scheduler-side task mutation) is deferred. No
+  `tests/integration/kanban_dag_sync.test.ts` ships in v1.0.
+- **Anthropic provider OAuth** — TOS blocks programmatic OAuth wrapping
+  for several providers (including Anthropic). The CLI-wrapper pattern
+  is the v1.0 contract; OAuth flows are out of scope for the
+  foreseeable future, not just v1.0.
+- **Certain runner policies** — `src/core/safety/runnerPolicy/` ships the
+  `balanced` preset compiled and validated by `apohara doctor`; the
+  full preset taxonomy (per-provider, per-environment) lands incrementally
+  in v1.x.
 
----
-
-## 8. Test architecture
-
-- **Rust**: `cargo test -p <crate> --lib`, then one `--test <bin>` at a
-  time. Never bare `cargo test` — see `CLAUDE.md §8.1` for the OOM rule
-  on the indexer's BERT load.
-- **TypeScript**: `bun test tests/<file>.test.ts`. Tests that exercise
-  fs paths use `mkdtemp(tmpdir())` for hermetic isolation.
-- **E2E (visual)**: `bun run --filter @apohara/desktop e2e` runs
-  Playwright against the live `:7331` dev server.
-- **CI**: `.github/workflows/ci.yml` runs Bun 1.3.13 (pinned — 1.4.x
-  regressed `fs.promises.appendFile` await timing, surfacing as ENOENT
-  in EventLedger tests).
-
----
-
-## 9. Pointers
-
-- **Roadmap:** [`ROADMAP.md`](ROADMAP.md) — milestone-level state.
-- **Engineering contract:** [`CLAUDE.md`](CLAUDE.md) — guardrails for
-  every commit (surgical changes, gitnexus impact analysis, simplicity
-  first).
-- **GitNexus reference:** [`AGENTS.md`](AGENTS.md) — code-intelligence
-  surface; auto-managed `<!-- gitnexus:start -->`–`<!-- gitnexus:end -->`
-  block.
-- **INV-15 paper:** [DOI 10.5281/zenodo.20114594](https://doi.org/10.5281/zenodo.20114594).
+Known v1.0 quirks (vs. genuinely-absent features) are tracked in
+[`CHANGELOG.md` "Known limitations"](CHANGELOG.md).
 
 ---
 
-*Document anchored 2026-05-12 against commit `b58dbca`. Update in place
-when capabilities land; never rewrite from scratch.*
+## 7. Where to read more
+
+- **Spec:** [`docs/superpowers/specs/2026-05-21-apohara-v1-design.md`](docs/superpowers/specs/2026-05-21-apohara-v1-design.md) — full v1.0 design, including §0 disciplines.
+- **Plan:** [`docs/superpowers/plans/2026-05-22-apohara-v1.md`](docs/superpowers/plans/2026-05-22-apohara-v1.md) — task-by-task implementation log (which Stage/Task created each module).
+- **Principles:** [`PRINCIPLES.md`](PRINCIPLES.md) — the six commitments that drove every "no" in v1.0.
+- **Changelog:** [`CHANGELOG.md`](CHANGELOG.md) — v1.0.0 entry + known limitations.
+- **Agent navigation:** [`AGENTS.md`](AGENTS.md) (symlinked as `CLAUDE.md`) — module map, build/test commands, OOM hazards, "do not do" list.
+- **Roadmap:** [`ROADMAP.md`](ROADMAP.md) — milestone-level state beyond v1.0.
+
+---
+
+*Document anchored 2026-05-22 against branch `feat/apohara-v1`. Update in
+place when modules land or move; never rewrite from scratch.*
