@@ -1,12 +1,13 @@
-use apohara_notifications::{fire, set_global_notifier, Notification, Notifier, Urgency};
+use apohara_notifications::{fire, set_global_notifier, Notification, NotifyError, Notifier, Urgency};
 
 struct CollectingNotifier {
     pub sent: std::sync::Mutex<Vec<Notification>>,
 }
 
 impl Notifier for CollectingNotifier {
-    fn notify(&self, n: Notification) {
+    fn notify(&self, n: Notification) -> Result<(), NotifyError> {
         self.sent.lock().unwrap().push(n);
+        Ok(())
     }
 }
 
