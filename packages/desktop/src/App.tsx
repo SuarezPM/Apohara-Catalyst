@@ -216,6 +216,20 @@ export function App() {
 				case "hook_event":
 					bus.emit("apohara://hook-event", ev.payload);
 					break;
+				case "task_phase":
+					// Per-task progress beat from the dispatch runner
+					// (symphony §7.1 phases: preparing_workspace →
+					// launching_agent_process → finishing → succeeded /
+					// failed / timed_out). The Stage 8
+					// VerificationTimeline UI subscribes to this to render
+					// live phase progress; today it's mostly observability.
+					bus.emit("apohara://task-phase", {
+						taskId: ev.taskId,
+						phase: ev.payload?.phase,
+						detail: ev.payload?.detail,
+						providerId: ev.metadata?.provider,
+					});
+					break;
 				case "mesh_verdict":
 					bus.emit("apohara://verifier-conflict", ev.payload);
 					break;

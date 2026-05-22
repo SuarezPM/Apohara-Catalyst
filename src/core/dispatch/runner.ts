@@ -8,14 +8,22 @@
  * Result. The orchestrator's file watcher reads the result and turns
  * it into the right ledger event. This keeps the contract simple: one
  * instruction → exactly one result file on disk.
+ *
+ * When the optional `ledgerPath` is set the runner also appends
+ * symphony §7.1 `task_phase` events at each milestone
+ * (`preparing_workspace`, `launching_agent_process`, `finishing`,
+ * `succeeded` / `failed` / `timed_out`). The VerificationTimeline UI
+ * consumes those via the SSE → bus bridge for real-time progress.
  */
-import { mkdir } from "node:fs/promises";
+import { appendFile, mkdir } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { atomicWriteFile } from "../persistence/atomicWrite.js";
 import {
 	BUILTIN_CLI_DRIVERS,
 	callCliDriver,
 	type CliDriverConfig,
 } from "../../providers/cli-driver.js";
+import type { RunPhase } from "./state.js";
 import {
 	dispatchPaths,
 	type DispatchInstruction,
@@ -26,12 +34,54 @@ function pickDriver(providerId: string): CliDriverConfig | undefined {
 	return BUILTIN_CLI_DRIVERS.find((d) => d.id === providerId);
 }
 
+export interface RunDispatchOptions {
+	/** When set, the runner appends one `task_phase` ledger event per
+	 * phase milestone so the UI's VerificationTimeline can render
+	 * real-time progress. Best-effort: failures to append are swallowed
+	 * because they must NOT abort the actual worker. */
+	ledgerPath?: string;
+}
+
+async function emitPhase(
+	ledgerPath: string | undefined,
+	taskId: string,
+	providerId: string,
+	phase: RunPhase,
+	detail?: string,
+): Promise<void> {
+	if (!ledgerPath) return;
+	const line = `${JSON.stringify({
+		id: randomUUID(),
+		timestamp: new Date().toISOString(),
+		type: "task_phase",
+		severity: phase === "failed" || phase === "timed_out" ? "error" : "info",
+		taskId,
+		payload: { phase, detail },
+		metadata: { provider: providerId },
+	})}\n`;
+	try {
+		await appendFile(ledgerPath, line, "utf-8");
+	} catch {
+		// Phase events are observability only — never block the runner.
+	}
+}
+
 export async function runDispatchInstruction(
 	inst: DispatchInstruction,
 	workspace: string,
+	opts: RunDispatchOptions = {},
 ): Promise<DispatchResult> {
 	const startedAt = Date.now();
 	const paths = dispatchPaths(workspace, inst.sessionId);
+
+	await emitPhase(
+		opts.ledgerPath,
+		inst.taskId,
+		inst.providerId,
+		"preparing_workspace",
+		`workdir=${workspace}`,
+	);
+
 	await mkdir(paths.results, { recursive: true });
 
 	const writeResult = async (result: DispatchResult) => {
@@ -52,6 +102,13 @@ export async function runDispatchInstruction(
 
 	const driver = pickDriver(inst.providerId);
 	if (!driver) {
+		await emitPhase(
+			opts.ledgerPath,
+			inst.taskId,
+			inst.providerId,
+			"failed",
+			"no driver registered",
+		);
 		const completedAt = Date.now();
 		return writeResult({
 			...baseResult,
@@ -69,10 +126,24 @@ export async function runDispatchInstruction(
 			]
 		: [{ role: "user" as const, content: inst.prompt }];
 
+	await emitPhase(
+		opts.ledgerPath,
+		inst.taskId,
+		inst.providerId,
+		"launching_agent_process",
+		`binary=${driver.binary}`,
+	);
+
 	try {
 		const llmResponse = await callCliDriver(driver, messages);
+		await emitPhase(
+			opts.ledgerPath,
+			inst.taskId,
+			inst.providerId,
+			"finishing",
+		);
 		const completedAt = Date.now();
-		return writeResult({
+		const result = await writeResult({
 			...baseResult,
 			status: "completed",
 			content: llmResponse.content,
@@ -80,14 +151,26 @@ export async function runDispatchInstruction(
 			completedAt,
 			durationMs: completedAt - startedAt,
 		});
+		await emitPhase(
+			opts.ledgerPath,
+			inst.taskId,
+			inst.providerId,
+			"succeeded",
+			`durationMs=${completedAt - startedAt}`,
+		);
+		return result;
 	} catch (err) {
 		const completedAt = Date.now();
 		const message = (err as Error).message;
-		// Heuristic: messages that mention "timed out" / "timeout" map to
-		// `timed_out` so the watcher can route them through the retry
-		// path; everything else is a generic failure.
 		const status =
 			/timed out|timeout/i.test(message) ? ("timed_out" as const) : ("failed" as const);
+		await emitPhase(
+			opts.ledgerPath,
+			inst.taskId,
+			inst.providerId,
+			status,
+			message,
+		);
 		return writeResult({
 			...baseResult,
 			status,

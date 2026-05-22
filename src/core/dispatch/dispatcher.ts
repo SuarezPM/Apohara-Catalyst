@@ -211,6 +211,7 @@ export async function dispatchSession(
 							await readFile(task.instructionPath, "utf-8"),
 						) as DispatchInstruction,
 						opts.workspace,
+						{ ledgerPath: opts.ledgerPath },
 					);
 				} catch (err) {
 					// Defensive — `runDispatchInstruction` is supposed to

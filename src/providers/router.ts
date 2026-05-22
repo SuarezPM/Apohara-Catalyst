@@ -285,12 +285,10 @@ export class ProviderRouter {
 
 	// API Keys
 	//
-	// `opencodeApiKey` is retained on the constructor (tests + the
-	// legacy api.opencode.ai path expected it) but is no longer read
-	// anywhere — the `opencode-go` provider is now a pure CLI wrapper
-	// per CLAUDE.md hard rule. Kept as a field so existing
-	// `RouterConfig.opencodeApiKey` callers don't break.
-	private opencodeApiKey: string;
+	// `opencodeApiKey` was removed post-T2.4 — the `opencode-go`
+	// provider is now a pure CLI wrapper. `RouterConfig.opencodeApiKey`
+	// is still accepted on the constructor for backwards-compat with
+	// existing tests + `commands/auto.ts`, but the value is dropped.
 	private anthropicApiKey: string;
 	private geminiApiKeyDirect: string;
 	private deepseekApiKey: string;
@@ -328,17 +326,15 @@ export class ProviderRouter {
 	// Phase 4.4: forces temperature:0 on every provider call for replay determinism
 	public readonly replayMode: boolean;
 
-	// Simulate failure flag for demo/testing — read via
-	// `callOpenCode` previously; now only `commands/auto.ts` sets it.
-	// Kept as fields so existing `RouterConfig.simulateFailure`
-	// callers don't break.
-	private simulateFailure = false;
-	private failureSimulated = false;
+	// Simulate-failure flags were used only by the removed
+	// `callOpenCode` path. The cfg surface still accepts them for
+	// backwards-compat but the values are dropped.
 
 	constructor(cfg?: RouterConfig) {
 		// Initialize all API keys
-		this.opencodeApiKey =
-			cfg?.opencodeApiKey || getProviderKey("opencode-go") || "";
+		// opencodeApiKey deliberately dropped post-T2.4 — accepted on
+		// the cfg surface for backwards-compat but never stored.
+		void cfg?.opencodeApiKey;
 		this.anthropicApiKey =
 			cfg?.anthropicApiKey || getProviderKey("anthropic-api") || "";
 		this.geminiApiKeyDirect =
@@ -363,7 +359,7 @@ export class ProviderRouter {
 
 		this.cooldownMinutes = cfg?.cooldownMinutes ?? 5;
 		this.maxFailuresBeforeCooldown = cfg?.maxFailuresBeforeCooldown ?? 3;
-		this.simulateFailure = cfg?.simulateFailure ?? false;
+		void cfg?.simulateFailure;
 		this.eventLedger = cfg?.eventLedger;
 		this.replayMode = cfg?.replayMode ?? false;
 		// M015.2 — opt-in ContextForge sidecar. Returns null unless
