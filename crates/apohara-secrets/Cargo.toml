@@ -1,0 +1,15 @@
+[package]
+name = "apohara-secrets"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+keyring = "3.6"
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
