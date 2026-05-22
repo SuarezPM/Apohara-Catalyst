@@ -97,10 +97,43 @@ pub async fn cleanup(task_id: &str, reason: CleanupReason, repo_path: &Path) -> 
     let target = entries.iter().find(|e| e.task_id == task_id).ok_or_else(|| LifecycleError::MetaNotFound(task_id.into()))?;
     match reason {
         CleanupReason::Completed | CleanupReason::Cancelled => {
-            // git worktree remove --force <path>
-            let _ = Command::new("git").args(["-C", repo_path.to_str().unwrap(), "worktree", "remove", "--force", target.path.to_str().unwrap()])
-                .output().await?;
-            tokio::fs::remove_dir_all(&target.path).await.ok();
+            // §3.1 — consult `delete_preflight` before any destructive
+            // op. The old `git worktree remove --force` would silently
+            // wipe uncommitted user work or unpushed commits. If the
+            // worktree is anything other than Clean we route through
+            // `preserve_on_fail` (creates a recovery branch + leaves
+            // the directory) and return without touching disk.
+            match crate::preflight::delete_preflight(task_id, repo_path).await {
+                Ok(crate::preflight::PreflightReport::Clean) => {
+                    // git worktree remove (no --force needed — preflight already
+                    // confirmed the tree is clean and pushed)
+                    let _ = Command::new("git")
+                        .args([
+                            "-C",
+                            repo_path.to_str().unwrap(),
+                            "worktree",
+                            "remove",
+                            target.path.to_str().unwrap(),
+                        ])
+                        .output()
+                        .await?;
+                    tokio::fs::remove_dir_all(&target.path).await.ok();
+                }
+                Ok(report) => {
+                    tracing::warn!(
+                        ?report,
+                        "cleanup({:?}) refused — worktree has dirty files / unpushed commits / live agent; routing through preserve_on_fail",
+                        reason,
+                    );
+                    // The recovery branch + tracing line preserve the user's
+                    // work and emit an actionable diagnostic. Failure here
+                    // is non-fatal — we still leave the worktree on disk.
+                    let _ = preserve_on_fail(task_id, FailureReason::Cancelled, repo_path).await;
+                }
+                Err(err) => {
+                    tracing::warn!(?err, "cleanup({:?}) preflight failed; leaving worktree in place", reason);
+                }
+            }
         }
         CleanupReason::Failed => {
             // NO-OP: preserve for inspection

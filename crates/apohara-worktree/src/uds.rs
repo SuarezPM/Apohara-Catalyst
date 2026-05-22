@@ -38,6 +38,18 @@ impl UdsServer {
     pub async fn start(config: ServerConfig) -> Result<Self, UdsError> {
         if config.socket_path.exists() { let _ = std::fs::remove_file(&config.socket_path); }
         let listener = UnixListener::bind(&config.socket_path)?;
+        // Restrict the socket to the owning user immediately. Default
+        // umask leaves it world-connectable, which would let any local
+        // user dispatch worktree-management commands (adopt_orphan,
+        // delete_preflight, etc.) against this orchestrator.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(
+                &config.socket_path,
+                std::fs::Permissions::from_mode(0o600),
+            );
+        }
         let (shutdown_tx, mut shutdown_rx) = oneshot::channel::<()>();
         let handle = tokio::spawn(async move {
             loop {
