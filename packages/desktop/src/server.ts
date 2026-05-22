@@ -15,6 +15,7 @@ import { existsSync, watch as fsWatch } from "node:fs";
 import { appendFile, mkdir, open, stat } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
 import { dispatchSession } from "../../../src/core/dispatch/dispatcher";
+import { runReconcilerTick } from "../../../src/core/dispatch/reconciler";
 import {
 	watchSessionResults,
 	type Disposable,
@@ -108,6 +109,40 @@ let providerRoster: Set<string> = new Set();
 // the ledger gets a `task_completed` / `task_failed` event the moment
 // the worker drops a result file. We hold a reference for cleanup.
 const sessionWatchers = new Map<string, Disposable>();
+
+// Session ledger paths — the reconciler iterates these every tick.
+// Cleared together with the matching watcher when a session releases.
+const sessionLedgers = new Map<string, string>();
+
+// Reconciler tick interval. 30 s is the spec default (symphony §8.5).
+// Cheap: one `readdir(.apohara/runs/<sid>/tasks)` per active session.
+// Override via `APOHARA_RECONCILER_INTERVAL_MS=0` to disable entirely
+// (tests, CI). `APOHARA_RECONCILER_STALL_MS` shadows the per-task
+// stall timeout (default 5 min — see `reconciler.ts`).
+const RECONCILER_INTERVAL_MS = Number(
+	process.env.APOHARA_RECONCILER_INTERVAL_MS ?? "30000",
+);
+const RECONCILER_STALL_MS = Number(
+	process.env.APOHARA_RECONCILER_STALL_MS ?? "300000",
+);
+if (RECONCILER_INTERVAL_MS > 0) {
+	const tick = setInterval(async () => {
+		for (const [sid, ledgerPath] of sessionLedgers) {
+			try {
+				await runReconcilerTick({
+					workspace: REPO_ROOT,
+					sessionId: sid,
+					ledgerPath,
+					stallTimeoutMs: RECONCILER_STALL_MS,
+				});
+			} catch {
+				// Best-effort — the tick CANNOT throw because the bun
+				// server then dies. Swallowing here is the right call.
+			}
+		}
+	}, RECONCILER_INTERVAL_MS);
+	tick.unref?.();
+}
 
 /**
  * Pick the CLI provider for `/api/run`. Honors `APOHARA_RUN_PROVIDER`
@@ -456,6 +491,7 @@ const server = Bun.serve({
 						ledgerPath,
 					});
 					sessionWatchers.set(sessionId, watcher);
+					sessionLedgers.set(sessionId, ledgerPath);
 					try {
 						await dispatchSession({
 							workspace: REPO_ROOT,
