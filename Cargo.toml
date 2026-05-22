@@ -12,6 +12,10 @@ members = [
     "crates/apohara-attention",
     "crates/apohara-audit",
     "crates/apohara-secrets",
+    "crates/apohara-token-accounting",
+    "crates/apohara-event-humanizer",
+    "crates/apohara-anti-thrash",
+    "crates/apohara-mcp-bridge",
 ]
 
 [workspace.package]

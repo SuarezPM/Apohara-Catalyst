@@ -129,6 +129,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
+name = "apohara-anti-thrash"
+version = "1.0.0-dev"
+dependencies = [
+ "serde",
+ "thiserror 2.0.18",
+ "tracing",
+ "ts-rs",
+]
+
+[[package]]
 name = "apohara-attention"
 version = "1.0.0-dev"
 dependencies = [
@@ -163,6 +173,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "apohara-event-humanizer"
+version = "1.0.0-dev"
+dependencies = [
+ "serde",
+ "thiserror 2.0.18",
+ "tracing",
+ "ts-rs",
+]
+
+[[package]]
 name = "apohara-indexer"
 version = "0.1.0"
 dependencies = [
@@ -188,6 +208,16 @@ dependencies = [
  "tree-sitter-rust",
  "tree-sitter-typescript",
  "uuid",
+]
+
+[[package]]
+name = "apohara-mcp-bridge"
+version = "1.0.0-dev"
+dependencies = [
+ "serde",
+ "thiserror 2.0.18",
+ "tracing",
+ "ts-rs",
 ]
 
 [[package]]
@@ -240,6 +270,16 @@ dependencies = [
  "keyring",
  "thiserror 2.0.18",
  "tracing",
+]
+
+[[package]]
+name = "apohara-token-accounting"
+version = "1.0.0-dev"
+dependencies = [
+ "serde",
+ "thiserror 2.0.18",
+ "tracing",
+ "ts-rs",
 ]
 
 [[package]]
