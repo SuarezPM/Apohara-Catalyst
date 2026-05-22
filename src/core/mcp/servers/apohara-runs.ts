@@ -5,6 +5,11 @@
  * Backed by coordinator_runs table (Stage 2.11) + tasks table (Stage 2.10).
  */
 import { McpServer, type ToolRegistration } from "../base/McpServer.js";
+import {
+  optionalInteger,
+  optionalString,
+  requireString,
+} from "../base/inputValidation.js";
 import type { OrchestrationDb } from "../../orchestration/db.js";
 
 export interface RunsServerOpts {
@@ -20,24 +25,28 @@ export function buildRunsTools(db: OrchestrationDb): ToolRegistration[] {
     {
       name: "list_runs",
       handler: async (input) => {
-        const filter = (input.filter ?? {}) as { status?: string; since?: number; limit?: number };
-        const limit = filter.limit ?? 50;
+        const filter = (input.filter && typeof input.filter === "object")
+          ? (input.filter as Record<string, unknown>)
+          : {};
+        const status = optionalString(filter, "status");
+        const since = optionalInteger(filter, "since", undefined);
+        const limit = optionalInteger(filter, "limit", 50) ?? 50;
         let sql = "SELECT id, run_id, status, started_at, ended_at FROM coordinator_runs";
         const where: string[] = [];
         const params: unknown[] = [];
-        if (filter.status) { where.push("status = ?"); params.push(filter.status); }
-        if (filter.since) { where.push("started_at >= ?"); params.push(filter.since); }
+        if (status) { where.push("status = ?"); params.push(status); }
+        if (since !== undefined) { where.push("started_at >= ?"); params.push(since); }
         if (where.length > 0) sql += " WHERE " + where.join(" AND ");
         sql += " ORDER BY started_at DESC LIMIT ?";
         params.push(limit);
-        const rows = db.raw().query(sql).all(...params as (string | number | null)[]);
+        const rows = db.raw().query(sql).all(...(params as never[]));
         return { runs: rows };
       },
     },
     {
       name: "inspect_run",
       handler: async (input) => {
-        const runId = input.runId as string;
+        const runId = requireString(input, "runId");
         const run = db.raw().query("SELECT * FROM coordinator_runs WHERE run_id = ?").get(runId);
         const taskCount = db.raw().query(
           "SELECT COUNT(*) as count FROM tasks WHERE parent_id = ? OR id = ?"
@@ -57,7 +66,7 @@ export function buildRunsTools(db: OrchestrationDb): ToolRegistration[] {
     {
       name: "get_run_diff",
       handler: async (input) => {
-        const runId = input.runId as string;
+        const runId = requireString(input, "runId");
         const tasksDone = db.raw().query(
           "SELECT id, status, completed_at FROM tasks WHERE parent_id = ? AND status IN ('completed', 'failed') ORDER BY completed_at DESC"
         ).all(runId);

@@ -1,5 +1,27 @@
+import { timingSafeEqual } from "node:crypto";
 import { TokenBucket, DEFAULT_RATE_LIMITS, type RateLimitConfig } from "./rateLimit.js";
 import { AuditLogger, type AuditEntry } from "./auditLogger.js";
+import { McpValidationError } from "./inputValidation.js";
+
+/**
+ * Constant-time bearer-token comparison. The short-circuit `!==` we
+ * used previously leaks the matching prefix length via timing: an
+ * attacker measuring the auth response time can recover the token one
+ * byte at a time. `timingSafeEqual` requires equal-length buffers, so
+ * we pad to the larger of the two lengths first so a wrong-length
+ * guess can't be distinguished from a wrong-content guess either.
+ */
+function bearerEquals(provided: string, expected: string): boolean {
+	const a = Buffer.from(provided, "utf-8");
+	const b = Buffer.from(expected, "utf-8");
+	const maxLen = Math.max(a.length, b.length);
+	const padA = Buffer.alloc(maxLen);
+	const padB = Buffer.alloc(maxLen);
+	a.copy(padA);
+	b.copy(padB);
+	const equal = timingSafeEqual(padA, padB);
+	return equal && a.length === b.length;
+}
 
 export type ToolHandler = (input: Record<string, unknown>) => Promise<unknown>;
 
@@ -48,9 +70,12 @@ export class McpServer {
   }
 
   private async handle(req: Request): Promise<Response> {
-    // Bearer auth gate
+    // Bearer auth gate (constant-time comparison — see bearerEquals).
     const auth = req.headers.get("authorization") ?? "";
-    if (!auth.startsWith("Bearer ") || auth.slice(7) !== this.config.bearerToken) {
+    if (
+      !auth.startsWith("Bearer ") ||
+      !bearerEquals(auth.slice(7), this.config.bearerToken)
+    ) {
       await this.logEntry({ server: this.config.serverName, tool: "<auth>", status: "denied" });
       return new Response("Unauthorized", { status: 401 });
     }
@@ -67,7 +92,17 @@ export class McpServer {
 
     let body: { tool?: string; input?: Record<string, unknown> };
     try {
-      body = (await req.json()) as { tool?: string; input?: Record<string, unknown> };
+      // Bounded body so a hostile client can't OOM the local MCP
+      // server with a single huge JSON. 64 KiB is far more than any
+      // realistic tool input.
+      const buf = await req.arrayBuffer();
+      if (buf.byteLength > 64 * 1024) {
+        return new Response("Payload Too Large", { status: 413 });
+      }
+      body = JSON.parse(Buffer.from(buf).toString("utf-8")) as {
+        tool?: string;
+        input?: Record<string, unknown>;
+      };
     } catch {
       return new Response("Invalid JSON", { status: 400 });
     }
@@ -82,8 +117,16 @@ export class McpServer {
       await this.logEntry({ server: this.config.serverName, tool: body.tool, status: "ok" });
       return Response.json({ result });
     } catch (e) {
-      await this.logEntry({ server: this.config.serverName, tool: body.tool, status: "error", detail: String(e) });
-      return Response.json({ error: String(e) }, { status: 500 });
+      // Map validation errors to HTTP 400 (client-fixable) so the caller
+      // distinguishes "bad input" from a server-side fault.
+      const status = e instanceof McpValidationError ? 400 : 500;
+      await this.logEntry({
+        server: this.config.serverName,
+        tool: body.tool,
+        status: "error",
+        detail: String(e),
+      });
+      return Response.json({ error: String(e) }, { status });
     }
   }
 
