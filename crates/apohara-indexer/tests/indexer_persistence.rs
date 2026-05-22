@@ -155,7 +155,7 @@ fn test_concurrent_db_access_fails() {
     let db1 = Database::create(&db_path).unwrap();
 
     // Begin a write transaction (holds the lock)
-    let write_txn = db1.begin_write().unwrap();
+    let _write_txn = db1.begin_write().unwrap();
     let _table: TableDefinition<&str, &[u8]> = TableDefinition::new("test");
 
     // Try to open second database instance - behavior depends on OS

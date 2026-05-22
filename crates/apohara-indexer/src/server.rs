@@ -341,7 +341,7 @@ fn handle_ping(params: &Option<serde_json::Value>) -> Result<serde_json::Value> 
 }
 
 /// Handle shutdown method
-async fn handle_shutdown(indexer: &Arc<Indexer>) -> Result<serde_json::Value> {
+async fn handle_shutdown(_indexer: &Arc<Indexer>) -> Result<serde_json::Value> {
     tracing::info!("Shutdown requested via RPC");
     // The actual shutdown is handled by the Server's shutdown method
     // This just returns success - the caller should call Server::shutdown()
@@ -714,7 +714,7 @@ mod tests {
         assert!(result.is_ok(), "Search should not fail even with no matches");
 
         let response = result.unwrap();
-        let memories = response.get("memories").unwrap().as_array().unwrap();
+        let _memories = response.get("memories").unwrap().as_array().unwrap();
         // May return results or empty depending on semantic similarity
 
         // Test 4: Missing query parameter

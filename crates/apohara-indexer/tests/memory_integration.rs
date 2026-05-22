@@ -281,7 +281,7 @@ fn test_memory_content_preservation() {
     };
 
     let content = "This is a very specific memory about using Result<T, E> instead of panic! in Rust";
-    let memory_id = indexer
+    let _memory_id = indexer
         .store_memory("correction", content)
         .expect("Failed to store");
 
