@@ -38,8 +38,18 @@ class ListenerRegistry {
   dispatch(event: string, payload: unknown): void {
     const set = this.handlers.get(event);
     if (!set) return;
-    for (const handler of set) {
-      try { void handler(payload); } catch (e) {
+    // Snapshot to avoid concurrent-mutation issues if a handler calls
+    // register/dispose/reset on the same event during dispatch.
+    const snapshot = Array.from(set);
+    for (const handler of snapshot) {
+      try {
+        const result = handler(payload);
+        if (result && typeof (result as Promise<unknown>).then === "function") {
+          (result as Promise<unknown>).catch((e) => {
+            console.error(`Async listener for ${event} rejected:`, e);
+          });
+        }
+      } catch (e) {
         console.error(`Listener for ${event} threw:`, e);
       }
     }
