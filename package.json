@@ -32,7 +32,9 @@
 		"typescript": "^5"
 	},
 	"dependencies": {
+		"chokidar": "^5.0.0",
 		"commander": "^14.0.3",
+		"yaml": "^2.9.0",
 		"zod": "^4.4.1"
 	}
 }
