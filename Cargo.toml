@@ -16,6 +16,7 @@ members = [
     "crates/apohara-event-humanizer",
     "crates/apohara-anti-thrash",
     "crates/apohara-mcp-bridge",
+    "crates/apohara-hooks-server",
 ]
 
 [workspace.package]
