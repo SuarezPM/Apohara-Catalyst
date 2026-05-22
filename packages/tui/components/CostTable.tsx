@@ -36,7 +36,9 @@ function countTasksByProvider(
  */
 export function CostTable({ mode: modeProp }: CostTableProps) {
 	const { rows, totalCostUsd, totalTokens } = useCostTable();
-	const mode = modeProp ?? useResponsiveMode();
+	// useResponsiveMode runs unconditionally to keep hook order stable.
+	const responsiveMode = useResponsiveMode();
+	const mode = modeProp ?? responsiveMode;
 	const activeRun = useActiveRun();
 
 	const enrichedRows = useMemo(() => {
