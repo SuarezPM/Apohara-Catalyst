@@ -54,6 +54,19 @@ pub const READONLY_PURE_ALLOW: &[&str] = &[
     // Entropy
     "getrandom",
     // Process control
+    //
+    // `prctl` is allowed unconstrained. The audit flagged `PR_SET_DUMPABLE`
+    // and `PR_SET_PTRACER` as widening the ptrace surface, but
+    // `seccompiler::apply_filter` (see `profile/linux.rs::Profile::install`)
+    // internally sets `PR_SET_NO_NEW_PRIVS=1` before the filter takes
+    // effect — that flag stays sticky for the lifetime of the process and
+    // its descendants, and disables every ptrace-mediated privilege
+    // escalation that `PR_SET_DUMPABLE` / `PR_SET_PTRACER` could otherwise
+    // hand out. Narrowing prctl further by argument would require an
+    // explicit allowlist of all the PR_* options runtime libraries rely on
+    // (PR_SET_NAME, PR_SET_VMA, PR_SET_PDEATHSIG, PR_SET_KEEPCAPS, …) and
+    // risks breaking glibc / musl startup. Revisit if seccompiler ever
+    // drops the implicit NO_NEW_PRIVS bit.
     "prctl",
     "arch_prctl",
     // Exit

@@ -9,7 +9,15 @@
 import { spawn } from "bun";
 import { sanitizeEnv } from "../persistence/envSanitizer";
 
-export const DISPATCH_STALE_THRESHOLD = 20;
+function readThreshold(): number {
+	const raw = process.env.APOHARA_DISPATCH_STALE_THRESHOLD;
+	if (!raw) return 20;
+	const n = Number.parseInt(raw, 10);
+	return Number.isFinite(n) && n >= 1 ? n : 20;
+}
+
+/** Override at deploy time via APOHARA_DISPATCH_STALE_THRESHOLD. */
+export const DISPATCH_STALE_THRESHOLD = readThreshold();
 
 export interface DriftReport {
 	commitsBehind: number;
