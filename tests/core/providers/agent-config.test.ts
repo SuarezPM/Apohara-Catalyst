@@ -21,8 +21,10 @@ test("claude-code-cli has preflightTrust='claude'", () => {
   expect(AGENT_CONFIG["claude-code-cli"].preflightTrust).toBe("claude");
 });
 
-test("opencode-go has args ['--pure']", () => {
-  expect(AGENT_CONFIG["opencode-go"].args).toEqual(["--pure"]);
+test("opencode-go uses 'run --format json' (NDJSON streaming)", () => {
+  // Replaced the bogus `--pure` flag (never existed upstream) with the
+  // real non-interactive invocation per opencode 1.15.x.
+  expect(AGENT_CONFIG["opencode-go"].args).toEqual(["run", "--format", "json"]);
 });
 
 test("getAgentConfig returns undefined for unknown provider", () => {

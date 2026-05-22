@@ -284,6 +284,14 @@ export class ProviderRouter {
 	private readonly API_URLS = API_ENDPOINTS;
 
 	// API Keys
+	//
+	// `opencodeApiKey` is retained on the constructor (tests + the
+	// legacy api.opencode.ai path expected it) but is no longer read
+	// anywhere — the `opencode-go` provider is now a pure CLI wrapper
+	// per CLAUDE.md hard rule. We use a `// @ts-expect-error` shim to
+	// keep the storage without tripping `noUnusedLocals`; once tests
+	// stop passing the option we can drop it entirely.
+	// @ts-expect-error -- retained for backwards-compat with RouterConfig.opencodeApiKey
 	private opencodeApiKey: string;
 	private anthropicApiKey: string;
 	private geminiApiKeyDirect: string;
@@ -322,8 +330,12 @@ export class ProviderRouter {
 	// Phase 4.4: forces temperature:0 on every provider call for replay determinism
 	public readonly replayMode: boolean;
 
-	// Simulate failure flag for demo/testing
+	// Simulate failure flag for demo/testing — read via
+	// `callOpenCode` previously; now only `commands/auto.ts` sets it.
+	// Keep the storage to avoid breaking the `RouterConfig` shape.
+	// @ts-expect-error -- retained for RouterConfig.simulateFailure
 	private simulateFailure = false;
+	// @ts-expect-error -- retained for symmetry with simulateFailure
 	private failureSimulated = false;
 
 	constructor(cfg?: RouterConfig) {
@@ -961,76 +973,10 @@ export class ProviderRouter {
 		return callCliDriver(cfg, messages);
 	}
 
-	private async callOpenCode(messages: LLMMessage[]): Promise<LLMResponse> {
-		// Simulate 429 rate limit for demo purposes
-		if (this.simulateFailure && !this.failureSimulated) {
-			this.failureSimulated = true;
-			throw new Error("OpenCode Go API Error: 429 Rate Limit Exceeded");
-		}
-
-		if (!this.opencodeApiKey) {
-			throw new Error(
-				"OpenCode API key not configured. Keys must start with 'oc-' or 'opencode-'.",
-			);
-		}
-
-		// OpenCode uses the Anthropic Messages API format
-		const systemMessages = messages.filter((m) => m.role === "system");
-		const nonSystemMessages = messages.filter((m) => m.role !== "system");
-		const systemPrompt =
-			systemMessages.map((m) => m.content).join("\n") || undefined;
-
-		const body: Record<string, unknown> = {
-			model: MODEL_NAMES["opencode-go"],
-			max_tokens: 8096,
-			messages: nonSystemMessages.map((m) => ({
-				role: m.role,
-				content: m.content,
-			})),
-		};
-		if (systemPrompt) body.system = systemPrompt;
-
-		const response = await fetch(this.API_URLS["opencode-go"], {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				"x-api-key": this.opencodeApiKey,
-				"anthropic-version": "2023-06-01",
-			},
-			body: JSON.stringify(this.withReplayDefaults(body)),
-			signal: AbortSignal.timeout(30000),
-		});
-
-		if (!response.ok) {
-			const errorText = await response.text().catch(() => "");
-			await this.logEvent(
-				"api_call_failed",
-				{ provider: "opencode-go", status: response.status, error: errorText },
-				"error",
-				{ provider: "opencode-go" },
-			);
-			throw new Error(
-				`OpenCode Go API Error: ${response.status} ${response.statusText}`,
-			);
-		}
-
-		const data = (await response.json()) as {
-			content?: Array<{ type: string; text?: string }>;
-			usage?: { input_tokens?: number; output_tokens?: number };
-		};
-		const content = data.content?.find((b) => b.type === "text")?.text || "";
-		return {
-			content,
-			provider: "opencode-go",
-			model: MODEL_NAMES["opencode-go"],
-			usage: {
-				promptTokens: data.usage?.input_tokens || 0,
-				completionTokens: data.usage?.output_tokens || 0,
-				totalTokens:
-					(data.usage?.input_tokens || 0) + (data.usage?.output_tokens || 0),
-			},
-		};
-	}
+	// `callOpenCode` (the api.opencode.ai REST variant) was removed —
+	// per CLAUDE.md hard rule, `opencode-go` is a CLI wrapper, never an
+	// API client with a key. The dispatch path lives in `callCliDriver`
+	// + `extractTextFromOpencodeNdjson` (see `cli-driver.ts`).
 
 	private async callAnthropicApi(messages: LLMMessage[]): Promise<LLMResponse> {
 		if (!this.anthropicApiKey) {
