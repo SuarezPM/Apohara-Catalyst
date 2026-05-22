@@ -1,5 +1,5 @@
 import { test, expect, spyOn } from "bun:test";
-import { emitResult, emitError, emitDiagnostic, ApoharaError, EXIT_SUCCESS, EXIT_USER_ERROR, EXIT_ENV_ERROR } from "../../../src/core/cli/output";
+import { emitResult, emitError, emitDiagnostic, ApoharaError, installGlobalErrorHandlers, EXIT_SUCCESS, EXIT_USER_ERROR, EXIT_ENV_ERROR, type ApoharaErrorShape } from "../../../src/core/cli/output";
 
 test("exit codes are 0, 1, 2", () => {
   expect(EXIT_SUCCESS).toBe(0);
@@ -53,5 +53,43 @@ test("emitDiagnostic always goes to stderr, never contaminates stdout", () => {
   expect(stdoutSpy).not.toHaveBeenCalled();
   expect(stderrSpy).toHaveBeenCalled();
   stdoutSpy.mockRestore();
+  stderrSpy.mockRestore();
+});
+
+test("installGlobalErrorHandlers is idempotent (no listener stacking)", () => {
+  const before = process.listenerCount("uncaughtException");
+  installGlobalErrorHandlers(false);
+  installGlobalErrorHandlers(false);
+  installGlobalErrorHandlers(true);
+  const after = process.listenerCount("uncaughtException");
+  expect(after).toBe(before + 1);  // only ONE listener net, not 3
+
+  // Cleanup: install once more with jsonMode=false to restore default, then we can't easily remove globally
+  // but at least the count is right
+});
+
+test("emitResult text mode handles cycles without crashing", () => {
+  const cyclic: { self?: unknown } = {};
+  cyclic.self = cyclic;
+  const stdoutSpy = spyOn(process.stdout, "write").mockImplementation(() => true);
+  expect(() => emitResult(cyclic, { jsonMode: false })).not.toThrow();
+  expect(stdoutSpy).toHaveBeenCalled();
+  stdoutSpy.mockRestore();
+});
+
+test("emitResult text mode handles BigInt without crashing", () => {
+  const stdoutSpy = spyOn(process.stdout, "write").mockImplementation(() => true);
+  expect(() => emitResult({ count: 9999999999999999n }, { jsonMode: false })).not.toThrow();
+  expect(stdoutSpy).toHaveBeenCalled();
+  stdoutSpy.mockRestore();
+});
+
+test("emitError fills missing remediation with placeholder", () => {
+  const stderrSpy = spyOn(process.stderr, "write").mockImplementation(() => true);
+  emitError({ code: "X", message: "msg" } as unknown as ApoharaErrorShape, { jsonMode: false });
+  const arg = stderrSpy.mock.calls[0][0];
+  const written = typeof arg === "string" ? arg : arg.toString();
+  expect(written).toContain("remediation: (no remediation provided)");
+  expect(written).not.toContain("undefined");
   stderrSpy.mockRestore();
 });
