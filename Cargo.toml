@@ -4,7 +4,7 @@ members = [
     "crates/apohara-types",
     "crates/apohara-indexer",
     "crates/apohara-sandbox",
-    "isolation-engine",
+    "crates/apohara-worktree",
     "packages/desktop/src-tauri",
     "crates/apohara-pathsafety",
     "crates/apohara-persistence",

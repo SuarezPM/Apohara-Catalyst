@@ -9,7 +9,7 @@ export interface IsolationResult {
 export class IsolationEngine {
 	private binaryPath: string;
 
-	constructor(binaryPath = "isolation-engine/target/debug/isolation-engine") {
+	constructor(binaryPath = "target/debug/apohara-worktree-cli") {
 		this.binaryPath = binaryPath;
 	}
 

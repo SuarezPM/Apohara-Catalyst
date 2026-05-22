@@ -38,7 +38,7 @@ describe("IsolationEngine Integration", () => {
 	it("should create and destroy a git worktree", async () => {
 		// Need to use absolute path for the binary since we are changing cwd for the spawn
 		const engine = new IsolationEngine(
-			resolve("isolation-engine/target/debug/isolation-engine"),
+			resolve("target/debug/apohara-worktree-cli"),
 		);
 
 		// Create worktree
