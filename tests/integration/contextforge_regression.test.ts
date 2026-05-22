@@ -16,6 +16,12 @@ test("contextforge regression: 310/310 stays green", () => {
     return;
   }
 
+  const pytestProbe = spawnSync("bash", ["-c", "command -v pytest"], { encoding: "utf-8" });
+  if (pytestProbe.status !== 0) {
+    console.warn(`[skip] pytest not on PATH — run \`pipx install pytest\` (or equivalent) to enforce V-1`);
+    return;
+  }
+
   const result = spawnSync("bash", ["-c", "PYTHONPATH=. pytest tests/ -q"], {
     cwd: CONTEXTFORGE,
     encoding: "utf-8",
