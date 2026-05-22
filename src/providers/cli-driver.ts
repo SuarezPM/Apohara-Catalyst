@@ -28,8 +28,30 @@
 
 import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
+import { sanitizeEnv } from "../core/persistence/envSanitizer";
 import type { ProviderId } from "../core/types";
 import type { LLMMessage, LLMResponse } from "./router";
+
+/**
+ * Per-binary serialization queue. The claude / codex / gemini CLIs all
+ * keep local state in `~/.<provider>/` (credentials, history, session
+ * locks). Two concurrent invocations of the same binary from the same
+ * Bun process contend on those internal locks and the LATER one hangs
+ * until the leader exits — the documented "claude-code-cli sometimes
+ * times out at 120 s" failure mode. We coalesce by binary name so a
+ * second `claude` call waits for the first to finish before starting,
+ * never both at once.
+ */
+const binaryQueues = new Map<string, Promise<unknown>>();
+function runSerialized<T>(binary: string, task: () => Promise<T>): Promise<T> {
+	const prev = binaryQueues.get(binary) ?? Promise.resolve();
+	const next = prev.catch(() => undefined).then(task);
+	binaryQueues.set(
+		binary,
+		next.catch(() => undefined),
+	);
+	return next;
+}
 
 export interface CliDriverConfig {
 	/** ProviderId that this driver fulfills (e.g. `"claude-code-cli"`). */
@@ -192,53 +214,95 @@ export async function callCliDriver(
 	const argv = cfg.args({ prompt, system: system || undefined });
 	const timeoutMs = cfg.timeoutMs ?? 120_000;
 
+	return runSerialized(cfg.binary, () => runOnce(cfg, prompt, argv, timeoutMs));
+}
+
+async function runOnce(
+	cfg: CliDriverConfig,
+	prompt: string,
+	argv: string[],
+	timeoutMs: number,
+): Promise<LLMResponse> {
+	// §0.4: NEVER pass the parent env unsanitized — that would leak API
+	// keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.) into the CLI
+	// subprocess. The official CLIs read their own auth from
+	// `~/.<provider>/` so they don't need the keys; passing them only
+	// risks "wrong account billed" (the nimbalyst incident) and credential
+	// exposure through process listings or core dumps.
+	const env = sanitizeEnv(process.env as Record<string, string | undefined>, {
+		allow: ["APOHARA_DRIVEN"],
+	});
+	env.APOHARA_DRIVEN = "1";
+
 	const child = spawn(cfg.binary, argv, {
 		stdio: cfg.stdin ? ["pipe", "pipe", "pipe"] : ["ignore", "pipe", "pipe"],
-		env: { ...process.env, APOHARA_DRIVEN: "1" },
+		env,
 	});
 
 	if (cfg.stdin && child.stdin) {
+		// Slow CLIs that haven't opened stdin yet can EPIPE on a fast
+		// write; without a handler the unhandled `error` would crash the
+		// bun process. We surface it as a soft warning — the timeout/exit
+		// branches will close the call cleanly.
+		child.stdin.on("error", (err) => {
+			console.warn(
+				`cli-driver(${cfg.id}): stdin error: ${(err as Error).message}`,
+			);
+		});
 		child.stdin.write(prompt);
 		child.stdin.end();
 	}
 
 	let stdout = "";
 	let stderr = "";
-	child.stdout?.on("data", (chunk) => {
+	const onStdout = (chunk: Buffer) => {
 		stdout += chunk.toString("utf-8");
-	});
-	child.stderr?.on("data", (chunk) => {
+	};
+	const onStderr = (chunk: Buffer) => {
 		stderr += chunk.toString("utf-8");
-	});
+	};
+	child.stdout?.on("data", onStdout);
+	child.stderr?.on("data", onStderr);
 
 	const exitCode: number = await new Promise((resolve, reject) => {
+		let settled = false;
+		const settle = (action: () => void) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			child.stdout?.off("data", onStdout);
+			child.stderr?.off("data", onStderr);
+			action();
+		};
 		const timer = setTimeout(() => {
 			try {
 				child.kill("SIGKILL");
 			} catch {
 				/* already gone */
 			}
-			reject(
-				new Error(
-					`${cfg.id}: CLI driver timed out after ${timeoutMs} ms (binary=${cfg.binary})`,
+			settle(() =>
+				reject(
+					new Error(
+						`${cfg.id}: CLI driver timed out after ${timeoutMs} ms (binary=${cfg.binary})`,
+					),
 				),
 			);
 		}, timeoutMs);
 		child.on("error", (err) => {
-			clearTimeout(timer);
 			if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-				reject(
-					new Error(
-						`${cfg.id}: binary "${cfg.binary}" not found on PATH. Install the official CLI to enable this provider.`,
+				settle(() =>
+					reject(
+						new Error(
+							`${cfg.id}: binary "${cfg.binary}" not found on PATH. Install the official CLI to enable this provider.`,
+						),
 					),
 				);
 			} else {
-				reject(err);
+				settle(() => reject(err));
 			}
 		});
 		child.on("exit", (code) => {
-			clearTimeout(timer);
-			resolve(code ?? -1);
+			settle(() => resolve(code ?? -1));
 		});
 	});
 
