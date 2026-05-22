@@ -7,7 +7,7 @@ members = [
     "isolation-engine",
     "packages/desktop/src-tauri",
     "crates/apohara-pathsafety",
-    "crates/apohara-secrets",
+    "crates/apohara-persistence",
 ]
 
 [workspace.package]
