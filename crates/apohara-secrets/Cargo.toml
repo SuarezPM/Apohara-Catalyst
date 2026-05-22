@@ -8,7 +8,12 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-keyring = "3.6"
+keyring = { version = "3.6", features = [
+    "apple-native",
+    "windows-native",
+    "linux-native-sync-persistent",
+    "crypto-rust",
+] }
 thiserror.workspace = true
 tracing.workspace = true
 
