@@ -243,15 +243,15 @@ export async function dispatchSession(
 			} else {
 				// `script` / `review` kinds are not wired in v1. Write a
 				// `failed` result with a clear error so the watcher emits
-				// task_failed and the chain stops.
+				// task_failed and the chain stops. (TS already narrows
+				// `action.kind` to `"script" | "review"` here, so no
+				// `action.providerId` is available — we use the session
+				// fallback.)
 				const now = Date.now();
 				const placeholder: DispatchResult = {
 					taskId: task.taskId,
 					sessionId: opts.sessionId,
-					providerId:
-						action.kind === "coding" || action.kind === "follow_up"
-							? action.providerId
-							: opts.providerId,
+					providerId: opts.providerId,
 					status: "failed",
 					error: `executor-action kind '${action.kind}' is not wired yet (Stage 8+)`,
 					startedAt: now,
