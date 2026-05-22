@@ -60,6 +60,38 @@ export function updateTaskStatus(db: OrchestrationDb, id: string, status: TaskSt
 		.run(status, result === undefined ? null : JSON.stringify(result), completedAt, id);
 }
 
+/**
+ * Conditional status transition for race-free claim.
+ *
+ * Two scheduler instances picking the same `pending` task previously
+ * both succeeded with `updateTaskStatus(id, "dispatched")` — same row,
+ * same final status, no error — and both spawned workers (double
+ * dispatch). The new contract: callers MUST go through `tryClaimTask`
+ * which only succeeds when the current row matches `expectedStatus`,
+ * and returns whether THIS caller won the claim.
+ */
+export function tryClaimTask(
+	db: OrchestrationDb,
+	id: string,
+	expectedStatus: TaskStatus,
+	nextStatus: TaskStatus,
+): boolean {
+	if (!VALID_STATUSES.includes(nextStatus)) {
+		throw new Error(`invalid status: ${nextStatus}`);
+	}
+	const completedAt =
+		nextStatus === "completed" || nextStatus === "failed" ? Date.now() : null;
+	const stmt = db
+		.raw()
+		.prepare(
+			`UPDATE tasks SET status = ?, completed_at = ? WHERE id = ? AND status = ?`,
+		);
+	const info = stmt.run(nextStatus, completedAt, id, expectedStatus) as {
+		changes: number;
+	};
+	return info.changes > 0;
+}
+
 export function listReadyTasks(db: OrchestrationDb): TaskRow[] {
 	// Ready = pending AND all deps completed AND not blocked by an open decision_gate
 	const sql = `

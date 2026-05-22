@@ -49,14 +49,34 @@ export class DurablePromptStore {
     const deadline = Date.now() + timeoutMs;
     // Fast path: response already present.
     const immediate = this.responses.get(request_id);
-    if (immediate) return immediate;
+    if (immediate) {
+      this.consume(request_id);
+      return immediate;
+    }
 
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, pollMs));
       const r = this.responses.get(request_id);
-      if (r) return r;
+      if (r) {
+        this.consume(request_id);
+        return r;
+      }
     }
+    // Timeout — drop the pending entry so `listPending()` doesn't keep
+    // reporting it as awaiting user input forever.
+    this.pending.delete(request_id);
     return null;
+  }
+
+  /**
+   * Remove a fully-handled prompt (responded + delivered) from both
+   * maps. Previously `pending` / `responses` only ever grew; over a long
+   * session this both wasted memory and made `listPending()` lie about
+   * what was actually awaiting input.
+   */
+  private consume(request_id: string): void {
+    this.pending.delete(request_id);
+    this.responses.delete(request_id);
   }
 
   listPending(): PermissionRequest[] {
