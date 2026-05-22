@@ -111,11 +111,11 @@ impl AuditSink {
         })
     }
 
-    pub async fn write(&self, event: AuditEvent) -> Result<(), AuditError> {
-        self.tx
-            .send(event)
-            .await
-            .map_err(|_| AuditError::QueueOverflow)
+    pub fn write(&self, event: AuditEvent) -> Result<(), AuditError> {
+        use tokio::sync::mpsc::error::TrySendError;
+        self.tx.try_send(event).map_err(|e| match e {
+            TrySendError::Full(_) | TrySendError::Closed(_) => AuditError::QueueOverflow,
+        })
     }
 
     pub async fn flush(&self) -> Result<(), AuditError> {

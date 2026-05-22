@@ -15,7 +15,6 @@ async fn writes_event_and_persists_jsonl() {
         target: Some("apohara.runs.list_runs".into()),
         payload: serde_json::json!({ "limit": 5 }),
     })
-    .await
     .unwrap();
 
     sink.flush().await.unwrap();
@@ -47,7 +46,6 @@ async fn enforces_0600_perms_on_unix() {
             target: None,
             payload: serde_json::json!({}),
         })
-        .await
         .unwrap();
         sink.flush().await.unwrap();
 
