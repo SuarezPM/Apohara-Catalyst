@@ -1,11 +1,38 @@
 [workspace]
+resolver = "2"
 members = [
-    "isolation-engine",
-    "crates/apohara-sandbox",
+    "crates/apohara-types",
     "crates/apohara-indexer",
+    "crates/apohara-sandbox",
+    "isolation-engine",
     "packages/desktop/src-tauri",
 ]
-resolver = "3"
+
+[workspace.package]
+edition = "2021"
+version = "1.0.0-dev"
+license = "MIT"
+authors = ["Pablo M. Suarez <suarezpm@csnat.unt.edu.ar>"]
+repository = "https://github.com/SuarezPM/Apohara"
+rust-version = "1.95"
+
+[workspace.dependencies]
+# Common deps with single source of version truth
+anyhow = "1.0"
+thiserror = "2.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+ts-rs = { version = "11.0", features = ["serde-json-impl", "uuid-impl"] }
+uuid = { version = "1.10", features = ["v4", "v7", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+sha2 = "0.10"
+hex = "0.4"
+async-trait = "0.1"
+futures = "0.3"
+dirs = "5.0"
 
 [profile.release]
 opt-level = 3
