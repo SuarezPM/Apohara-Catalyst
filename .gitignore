@@ -65,6 +65,11 @@ CLAUDE.md.bak.*
 .apohara/orchestration.db-shm
 .apohara/sockets/
 .apohara/audit/
+.apohara/capability-stats.json
+.apohara/install_id
+
+# Stage 4+ opencode worktree task prompt files (transient)
+.opencode-task-prompt.md
 
 # ts-rs auto-generated bindings (regenerated via `bun run generate-types`)
 crates/*/bindings/
