@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { stripUnsafeChars } from "../lib/sanitize.ts";
 import type { EventLog } from "../types.ts";
 import { useActiveRun } from "./useDashboard.tsx";
 
@@ -39,12 +40,15 @@ export function extractTasks(events: EventLog[]): TaskItem[] {
 		if (!TASK_EVENT_TYPES.includes(event.type)) continue;
 		if (!event.taskId) continue;
 
-		const description =
+		const rawDescription =
 			event.payload.description && typeof event.payload.description === "string"
 				? event.payload.description
 				: event.payload.name && typeof event.payload.name === "string"
 					? event.payload.name
 					: event.type;
+		// Strip ANSI / control chars so an agent that includes terminal
+		// escapes in its tool output can't corrupt the TUI render.
+		const description = stripUnsafeChars(rawDescription);
 
 		const role =
 			event.metadata?.role && typeof event.metadata.role === "string"

@@ -3,6 +3,7 @@ import React, { useMemo } from "react";
 import type { ProviderId } from "../../../src/core/types.ts";
 import { useActiveRun } from "../hooks/useDashboard.tsx";
 import { useResponsiveMode } from "../hooks/useResponsiveMode.tsx";
+import { stripUnsafeChars } from "../lib/sanitize.ts";
 
 export interface AgentListProps {
 	/** Override to force a specific responsive mode */
@@ -49,11 +50,12 @@ export function AgentList({ mode: modeProp }: AgentListProps) {
 			let elapsedMs: number | undefined;
 
 			if (event.taskId) {
-				currentTask =
+				currentTask = stripUnsafeChars(
 					event.payload.description &&
-					typeof event.payload.description === "string"
+						typeof event.payload.description === "string"
 						? event.payload.description
-						: event.taskId;
+						: event.taskId,
+				);
 			}
 
 			if (event.timestamp) {

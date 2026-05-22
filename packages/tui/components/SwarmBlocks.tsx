@@ -3,6 +3,7 @@ import React, { useMemo } from "react";
 import { useActiveRun } from "../hooks/useDashboard.tsx";
 import { useResponsiveMode } from "../hooks/useResponsiveMode.tsx";
 import type { TaskStatus } from "../hooks/useTaskList.tsx";
+import { stripUnsafeChars } from "../lib/sanitize.ts";
 import type { EventLog, ResponsiveMode } from "../types.ts";
 
 const FILE_EVENT_TYPES = ["file_modified", "file_created", "file_deleted"];
@@ -53,12 +54,13 @@ export function extractAgentBlocks(events: EventLog[]): AgentBlock[] {
 
 		// Track task lifecycle for status + description
 		if (event.type === "task_scheduled") {
-			const desc =
+			const desc = stripUnsafeChars(
 				typeof event.payload.description === "string"
 					? event.payload.description
 					: typeof event.payload.name === "string"
 						? event.payload.name
-						: event.taskId;
+						: event.taskId,
+			);
 			const provider =
 				typeof event.metadata?.provider === "string"
 					? event.metadata.provider
@@ -92,11 +94,12 @@ export function extractAgentBlocks(events: EventLog[]): AgentBlock[] {
 
 		// Track file events
 		if (FILE_EVENT_TYPES.includes(event.type)) {
-			const filePath =
+			const rawPath =
 				(typeof event.payload.filePath === "string" &&
 					event.payload.filePath) ||
 				(typeof event.payload.path === "string" && event.payload.path) ||
 				undefined;
+			const filePath = rawPath ? stripUnsafeChars(rawPath) : undefined;
 			if (filePath) {
 				if (!taskFiles.has(event.taskId)) {
 					taskFiles.set(event.taskId, new Set());
