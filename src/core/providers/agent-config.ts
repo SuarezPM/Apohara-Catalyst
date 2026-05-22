@@ -24,7 +24,13 @@ export interface AgentConfig {
   draftPromptFlag?: string | null;
   draftPromptEnvVar?: string | null;
   draftPasteReadySignal?: string | null;
-  preflightTrust?: "claude" | "codex" | null;
+  preflightTrust?:
+    | "claude"
+    | "codex"
+    | "cursor"
+    | "copilot"
+    | "aider"
+    | null;
   hookConfigPath: string;
   hookConfigShape: HookConfigShape;
   hookScriptName: string;
