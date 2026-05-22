@@ -24,7 +24,7 @@ set -eu
 
 REPO="${APOHARA_REPO:-SuarezPM/Apohara}"
 VERSION="${APOHARA_VERSION:-latest}"
-PREFIX="${APOHARA_PREFIX:-/usr/local}"
+PREFIX="${APOHARA_PREFIX:-${HOME}/.local}"
 
 require() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -34,7 +34,6 @@ require() {
 }
 
 require curl
-require tar
 require uname
 
 OS_RAW="$(uname -s)"
@@ -77,8 +76,13 @@ if [ "$VERSION" = "latest" ]; then
   fi
 fi
 
-TARBALL="apohara-desktop-${PLATFORM}.tar.gz"
-URL="https://github.com/${REPO}/releases/download/${VERSION}/${TARBALL}"
+# TODO release-time: desktop-release.yml currently uploads the bare
+# apohara-desktop binary. If a future release ships a tar.gz instead,
+# switch ASSET to "apohara-desktop-${PLATFORM}.tar.gz" and uncomment
+# the SHA256 block below.
+ASSET="apohara-desktop"
+URL="https://github.com/${REPO}/releases/download/${VERSION}/${ASSET}"
+CHECKSUM_URL="https://github.com/${REPO}/releases/download/${VERSION}/${ASSET}.sha256"
 
 # Pick an install directory we can actually write to.
 BIN_DIR="${PREFIX}/bin"
@@ -98,21 +102,22 @@ TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT INT TERM
 
 printf 'Downloading %s\n' "$URL"
-if ! curl -fL --progress-bar "$URL" -o "$TMP_DIR/${TARBALL}"; then
+if ! curl -fL --progress-bar "$URL" -o "$TMP_DIR/${ASSET}"; then
   printf 'error: download failed.\n' >&2
   exit 2
 fi
 
-printf 'Extracting...\n'
-tar -xzf "$TMP_DIR/${TARBALL}" -C "$TMP_DIR"
+# TODO release-time: If the release ships a SHA256 sidecar, uncomment
+# the block below once desktop-release.yml is updated to upload it.
+# printf 'Verifying SHA256...\n'
+# EXPECTED_SHA="$(curl -fsSL "$CHECKSUM_URL" | cut -d' ' -f1)"
+# ACTUAL_SHA="$(sha256sum "$TMP_DIR/${ASSET}" | cut -d' ' -f1)"
+# if [ "$EXPECTED_SHA" != "$ACTUAL_SHA" ]; then
+#   printf 'error: SHA256 mismatch.\n' >&2
+#   exit 2
+# fi
 
-# The release tarball contains a single `apohara-desktop` binary.
-if [ ! -f "$TMP_DIR/apohara-desktop" ]; then
-  printf 'error: tarball did not contain apohara-desktop binary.\n' >&2
-  exit 2
-fi
-
-install -m 0755 "$TMP_DIR/apohara-desktop" "$BIN_DIR/apohara"
+install -m 0755 "$TMP_DIR/${ASSET}" "$BIN_DIR/apohara"
 printf '\nInstalled apohara %s to %s\n' "$VERSION" "$BIN_DIR/apohara"
 
 case ":$PATH:" in
@@ -124,4 +129,5 @@ case ":$PATH:" in
     ;;
 esac
 
-printf 'Run "apohara --help" to get started.\n'
+printf '\nRun "apohara doctor" to verify your setup.\n'
+printf 'Run "apohara verify-setup" for an end-to-end check.\n'
