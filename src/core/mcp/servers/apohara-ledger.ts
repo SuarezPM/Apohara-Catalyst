@@ -11,6 +11,12 @@
  * (Stage 2.9). Stage 9+ replaces with the durable ledger if needed.
  */
 import { McpServer, type ToolRegistration } from "../base/McpServer.js";
+import {
+	optionalInteger,
+	optionalString,
+	optionalStringArray,
+	requireString,
+} from "../base/inputValidation.js";
 import type { OrchestrationDb } from "../../orchestration/db.js";
 import type { MessageType } from "../../orchestration/messages.js";
 
@@ -27,10 +33,12 @@ export function buildLedgerTools(db: OrchestrationDb): ToolRegistration[] {
     {
       name: "read_events",
       handler: async (input) => {
-        const runId = input.runId as string | undefined;
-        const types = input.types as MessageType[] | undefined;
-        const offset = (input.offset as number | undefined) ?? 0;
-        const limit = (input.limit as number | undefined) ?? 100;
+        const runId = optionalString(input, "runId");
+        const types = optionalStringArray(input, "types") as
+          | MessageType[]
+          | undefined;
+        const offset = optionalInteger(input, "offset", 0) ?? 0;
+        const limit = optionalInteger(input, "limit", 100) ?? 100;
 
         let sql = `SELECT id, from_handle, to_handle, type, payload, ts FROM messages`;
         const where: string[] = [];
@@ -44,14 +52,14 @@ export function buildLedgerTools(db: OrchestrationDb): ToolRegistration[] {
         sql += " ORDER BY id ASC LIMIT ? OFFSET ?";
         params.push(limit, offset);
 
-        const rows = db.raw().query(sql).all(...params);
+        const rows = db.raw().query(sql).all(...(params as never[]));
         return { events: rows };
       },
     },
     {
       name: "replay_run",
       handler: async (input) => {
-        const runId = input.runId as string;
+        const runId = requireString(input, "runId");
         const rows = db.raw().query(
           `SELECT id, from_handle, to_handle, type, payload, ts FROM messages WHERE thread_id = ? ORDER BY id ASC`
         ).all(runId);
@@ -61,8 +69,8 @@ export function buildLedgerTools(db: OrchestrationDb): ToolRegistration[] {
     {
       name: "get_last_event",
       handler: async (input) => {
-        const runId = input.runId as string;
-        const type = input.type as string;
+        const runId = requireString(input, "runId");
+        const type = requireString(input, "type");
         const row = db.raw().query(
           `SELECT id, from_handle, to_handle, type, payload, ts FROM messages WHERE thread_id = ? AND type = ? ORDER BY id DESC LIMIT 1`
         ).get(runId, type);
@@ -72,11 +80,15 @@ export function buildLedgerTools(db: OrchestrationDb): ToolRegistration[] {
     {
       name: "search_events",
       handler: async (input) => {
-        const runId = input.runId as string;
-        const query = input.query as string;
+        const runId = requireString(input, "runId");
+        const rawQuery = requireString(input, "query");
+        // Escape LIKE wildcards so user-controlled query text can only
+        // match what they literally typed, not whatever-they-want via
+        // `%` / `_`. ESCAPE clause makes the backslash the literal escape.
+        const escaped = rawQuery.replace(/[\\%_]/g, (m) => `\\${m}`);
         const rows = db.raw().query(
-          `SELECT id, from_handle, to_handle, type, payload, ts FROM messages WHERE thread_id = ? AND payload LIKE ? ORDER BY id ASC LIMIT 100`
-        ).all(runId, `%${query}%`);
+          `SELECT id, from_handle, to_handle, type, payload, ts FROM messages WHERE thread_id = ? AND payload LIKE ? ESCAPE '\\' ORDER BY id ASC LIMIT 100`
+        ).all(runId, `%${escaped}%`);
         return { matches: rows };
       },
     },

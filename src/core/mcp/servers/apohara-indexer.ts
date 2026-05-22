@@ -7,6 +7,7 @@
  * accept an optional IndexerClient override for testing.
  */
 import { McpServer, type ToolRegistration } from "../base/McpServer.js";
+import { optionalString, requireString } from "../base/inputValidation.js";
 
 export interface SymbolMatch {
   file: string;
@@ -49,19 +50,24 @@ export function buildIndexerTools(client: IndexerClient): ToolRegistration[] {
   return [
     {
       name: "blast_radius",
-      handler: async (input) => client.blastRadius(input.symbol as string),
+      handler: async (input) => client.blastRadius(requireString(input, "symbol")),
     },
     {
       name: "search_symbols",
-      handler: async (input) => client.searchSymbols(input.query as string, input.kind as string | undefined),
+      handler: async (input) =>
+        client.searchSymbols(
+          requireString(input, "query"),
+          optionalString(input, "kind"),
+        ),
     },
     {
       name: "file_symbols",
-      handler: async (input) => client.fileSymbols(input.file as string),
+      handler: async (input) => client.fileSymbols(requireString(input, "file")),
     },
     {
       name: "reverse_dependencies",
-      handler: async (input) => client.reverseDependencies(input.symbol as string),
+      handler: async (input) =>
+        client.reverseDependencies(requireString(input, "symbol")),
     },
   ];
 }

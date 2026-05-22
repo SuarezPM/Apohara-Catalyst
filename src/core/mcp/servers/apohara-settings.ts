@@ -12,6 +12,7 @@
  */
 import { readFile } from "node:fs/promises";
 import { McpServer, type ToolRegistration } from "../base/McpServer.js";
+import { requireString } from "../base/inputValidation.js";
 import { atomicWriteJson } from "../../persistence/atomicWrite.js";
 
 export const SETTING_ALLOWLIST: ReadonlySet<string> = new Set([
@@ -49,7 +50,7 @@ export function buildSettingsTools(storagePath: string): ToolRegistration[] {
     {
       name: "get_setting",
       handler: async (input) => {
-        const key = input.key as string;
+        const key = requireString(input, "key");
         if (SETTING_DENYLIST.has(key)) throw new Error(`denied: ${key}`);
         const state = await loadSettings(storagePath);
         return { key, value: state.values[key] ?? null };
@@ -58,7 +59,7 @@ export function buildSettingsTools(storagePath: string): ToolRegistration[] {
     {
       name: "set_setting",
       handler: async (input) => {
-        const key = input.key as string;
+        const key = requireString(input, "key");
         const value = input.value;
         if (SETTING_DENYLIST.has(key)) throw new Error(`denied: ${key}`);
         if (!SETTING_ALLOWLIST.has(key)) throw new Error(`not in allowlist: ${key}`);
