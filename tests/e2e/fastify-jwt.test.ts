@@ -113,10 +113,9 @@ describe("Fastify JWT + Provider + Isolation E2E", () => {
 
 	const binaryPath = join(
 		process.cwd(),
-		"isolation-engine",
 		"target",
 		"debug",
-		"isolation-engine",
+		"apohara-worktree-cli",
 	);
 	const hasBinary = existsSync(binaryPath);
 
