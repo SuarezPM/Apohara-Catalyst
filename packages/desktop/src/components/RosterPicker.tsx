@@ -102,6 +102,16 @@ export const ALL_PROVIDERS: ProviderId[] = GROUPS.flatMap((g) =>
 	g.providers.map((p) => p.id),
 );
 
+// Active roster per spec / CLAUDE.md: only the 3 CLI drivers ship enabled by
+// default. Everything else is LEGACY behind `APOHARA_LEGACY_PROVIDERS=1`.
+// Using ALL_PROVIDERS as the new-user default routed GPU runs to
+// `carnice-9b-local`, which is rarely installed → 502 on /api/enhance.
+export const DEFAULT_PROVIDERS: ProviderId[] = [
+	"claude-code-cli",
+	"codex-cli",
+	"opencode-go",
+];
+
 interface Props {
 	enabled: Set<ProviderId>;
 	onChange: (next: Set<ProviderId>) => void;
