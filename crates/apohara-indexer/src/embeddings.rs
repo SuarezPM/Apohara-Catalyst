@@ -16,6 +16,12 @@ use tokenizers::Tokenizer;
 /// 1. If feature `mock-embeddings` is active at compile time → Mock.
 /// 2. If env var `APOHARA_MOCK_EMBEDDINGS=1` at runtime → Mock.
 /// 3. Otherwise → Real (production default).
+//
+// Allow large variant: the Real variant carries BertModel + Tokenizer (~1.4 KB struct,
+// not counting the GBs of model weights they point to). The enum is only ever held
+// behind an Arc, so boxing the inner fields would add an extra indirection without
+// real memory savings.
+#[allow(clippy::large_enum_variant)]
 pub enum EmbeddingModel {
     Real {
         model: BertModel,

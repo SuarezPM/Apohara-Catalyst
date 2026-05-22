@@ -34,7 +34,7 @@ impl DependencyGraph {
         let path = file.into();
         self.nodes.insert(path.clone(), ());
         // Ensure the file has an entry in edges even with no dependencies yet
-        self.edges.entry(path).or_insert_with(Vec::new);
+        self.edges.entry(path).or_default();
     }
 
     /// Add a dependency edge from a source file to a target file
@@ -52,7 +52,7 @@ impl DependencyGraph {
         // Add the edge
         self.edges
             .entry(source.clone())
-            .or_insert_with(Vec::new);
+            .or_default();
         
         // Avoid duplicate dependencies
         let edges = self.edges.get_mut(&source).unwrap();
@@ -97,7 +97,7 @@ impl DependencyGraph {
                 }
                 reverse_edges
                     .entry(dep.clone())
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(source.clone());
             }
         }

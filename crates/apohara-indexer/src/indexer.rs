@@ -1,6 +1,6 @@
-/// Indexer orchestrator - ties together parsing, embeddings, vector index, and persistence.
-///
-/// Provides high-level API for indexing source code files and searching for similar functions.
+//! Indexer orchestrator - ties together parsing, embeddings, vector index, and persistence.
+//!
+//! Provides high-level API for indexing source code files and searching for similar functions.
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -32,7 +32,7 @@ static SHARED_MODEL_INIT: Mutex<()> = Mutex::new(());
 /// co-exist with N model copies. Holding forever forces end-to-end serialization at the
 /// binary level — only one apohara-indexer test process runs at a time system-wide.
 #[cfg(test)]
-struct ModelLoadLock(std::fs::File);
+struct ModelLoadLock(#[allow(dead_code)] std::fs::File);
 
 #[cfg(test)]
 static MODEL_LOCK_HOLDER: OnceLock<ModelLoadLock> = OnceLock::new();
@@ -44,6 +44,9 @@ fn acquire_interprocess_model_lock() -> ModelLoadLock {
     let path = std::env::temp_dir().join(".apohara-model-init.lock");
     let file = OpenOptions::new()
         .create(true)
+        // Lock file holds no data; never truncate so concurrent flock holders
+        // don't see a zeroed file mid-flight. `flock` cares about the inode, not contents.
+        .truncate(false)
         .write(true)
         .open(&path)
         .expect("failed to open model lock file");
@@ -159,6 +162,11 @@ impl Indexer {
         self.index.lock().unwrap().len()
     }
 
+    /// Returns `true` if no functions are indexed.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Index a text string (raw function code)
     pub fn index_text(&self, text: &str, metadata: NodeMetadata) -> Result<u64> {
         // Generate embedding
@@ -268,7 +276,7 @@ impl Indexer {
 
     /// Search for similar functions
     pub fn search(&self, query: &str, k: usize) -> Result<Vec<SearchResult>> {
-        if self.len() == 0 {
+        if self.is_empty() {
             tracing::debug!("Search on empty index returned empty results");
             return Ok(Vec::new());
         }
@@ -464,7 +472,7 @@ mod tests {
             .add_parameter("b", Some("number"))
             .with_return_type("number");
 
-        let path = Path::new("test.ts");
+        let _path = Path::new("test.ts");
 
         // The text format includes function signature
         let text = format!(
