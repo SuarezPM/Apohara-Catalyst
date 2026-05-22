@@ -5,6 +5,7 @@ use candle_transformers::models::nomic_bert::{Config, NomicBertModel as BertMode
 use hf_hub::api::sync::ApiBuilder;
 use hf_hub::{Repo, RepoType};
 use std::path::PathBuf;
+use std::sync::Mutex;
 use tokenizers::Tokenizer;
 
 /// Embedding model used by the indexer. Two variants:
@@ -27,6 +28,17 @@ pub enum EmbeddingModel {
         model: BertModel,
         tokenizer: Tokenizer,
         device: Device,
+        /// Serializes concurrent calls to `embed()`. Neither
+        /// `tokenizers::Tokenizer::encode` nor
+        /// `candle_transformers::models::nomic_bert::NomicBertModel::forward`
+        /// guarantees thread-safe `&self` mutation under concurrent access;
+        /// the previous `unsafe impl Send/Sync for EmbeddingModel` was a
+        /// "trust me" promise that the audit specifically flagged as unsound
+        /// when the indexer MCP server spawns one task per connection.
+        ///
+        /// The lock lives INSIDE the Real variant so the `embed()` signature
+        /// stays `&self` (no public-API breakage at the dozen call sites).
+        embed_lock: Mutex<()>,
     },
     Mock,
 }
@@ -92,6 +104,7 @@ impl EmbeddingModel {
             model,
             tokenizer,
             device,
+            embed_lock: Mutex::new(()),
         })
     }
 
@@ -101,7 +114,17 @@ impl EmbeddingModel {
                 model,
                 tokenizer,
                 device,
-            } => Self::embed_real(text, model, tokenizer, device),
+                embed_lock,
+            } => {
+                // Serialize the BERT forward pass + tokenizer encode. A
+                // poisoned lock is recoverable here: an earlier panic in
+                // `embed_real` doesn't leave the model in a state that
+                // would corrupt a later caller — we ignore poison and
+                // continue. The whole call still runs to completion or
+                // returns an `anyhow::Result` error.
+                let _g = embed_lock.lock().unwrap_or_else(|p| p.into_inner());
+                Self::embed_real(text, model, tokenizer, device)
+            }
             Self::Mock => Ok(Self::embed_mock(text)),
         }
     }

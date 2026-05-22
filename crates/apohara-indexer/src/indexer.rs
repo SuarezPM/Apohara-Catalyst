@@ -14,7 +14,22 @@ use crate::parser::{parse_file, FunctionSignature};
 
 // EmbeddingModel wraps candle CPU tensors. CPU Device is single-threaded safe.
 // We need Send + Sync to store the model in OnceLock<Arc<T>> which requires T: Send + Sync.
-// Safety: EmbeddingModel is only used on the CPU device; no GPU state or thread-local storage.
+//
+// Safety contract (after the M*.* embed-lock landing):
+//   - The dangerous shared-mutable surface lives in `BertModel` and
+//     `Tokenizer`, both of which expose `&self` methods that may
+//     mutate internal state via interior mutability. The audit
+//     specifically flagged a data race when two indexer MCP tasks
+//     called `model.embed()` concurrently.
+//   - `EmbeddingModel::embed()` now takes a `Mutex<()>` guard
+//     (`embed_lock` field on the `Real` variant) BEFORE touching the
+//     model or tokenizer. Every shared-mutable access is therefore
+//     serialized within a single process.
+//   - With that serialization in place, `Send + Sync` is sound: any
+//     thread observes the model only while holding the mutex, so the
+//     interior-mutability tendrils inside candle/tokenizers never
+//     overlap. Sending the `Arc<EmbeddingModel>` across thread
+//     boundaries is also safe because no `!Send` resource escapes.
 unsafe impl Send for EmbeddingModel {}
 unsafe impl Sync for EmbeddingModel {}
 

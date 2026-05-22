@@ -11,7 +11,7 @@ pub mod event;
 
 use auth::{bearer_auth, AuthState};
 use axum::{
-    extract::State,
+    extract::{DefaultBodyLimit, State},
     middleware,
     response::Json,
     routing::{get, post},
@@ -101,9 +101,16 @@ impl HooksServer {
             bearer_token: Arc::new(config.bearer_token.clone()),
         };
 
+        // Cap on the maximum body any handler will receive. axum's
+        // default (2 MiB) is high for the small hook events we accept;
+        // an explicit cap also documents the contract and protects
+        // against a serde recursion DoS on deeply-nested JSON payloads.
+        const HOOK_BODY_LIMIT: usize = 256 * 1024;
+
         let app = Router::new()
             .route("/health", get(health))
             .route("/event", post(crate::event::handle_event))
+            .layer(DefaultBodyLimit::max(HOOK_BODY_LIMIT))
             .layer(middleware::from_fn_with_state(auth_state.clone(), bearer_auth))
             .with_state(auth_state);
 

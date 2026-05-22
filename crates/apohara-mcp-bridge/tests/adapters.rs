@@ -28,7 +28,9 @@ fn to_claude_has_mcp_servers_key() {
 #[test]
 fn to_codex_emits_toml_section() {
     let out = codex::to_codex_toml(&sample());
-    assert!(out.contains("[mcp_servers.apohara.ledger]"));
+    // Server names containing `.` are emitted as quoted TOML keys so
+    // they don't accidentally become nested tables (apohara → ledger).
+    assert!(out.contains("[mcp_servers.\"apohara.ledger\"]"), "got: {out}");
     assert!(out.contains("command = \"apohara\""));
     assert!(out.contains("args = [\"mcp\", \"serve\", \"ledger\"]"));
 }
