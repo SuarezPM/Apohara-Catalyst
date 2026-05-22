@@ -1,4 +1,5 @@
 import type { DagTask, TaskStatus } from "../../store/dagStore.js";
+import { TaskBoardCard } from "./TaskBoardCard.js";
 
 interface TaskBoardLaneProps {
 	status: TaskStatus;
@@ -61,28 +62,7 @@ export function TaskBoardLane({ status, tasks }: TaskBoardLaneProps) {
 				}}
 			>
 				{tasks.map((task) => (
-					<div
-						key={task.id}
-						data-testid={`taskboard-card-${task.id}`}
-						style={{
-							padding: "0.5rem",
-							background: "#0d1117",
-							borderRadius: 4,
-							border: "1px solid #30363d",
-							fontSize: "0.85rem",
-						}}
-					>
-						<div style={{ fontWeight: 600 }}>{task.id}</div>
-						<div
-							style={{
-								color: "#8b949e",
-								fontSize: "0.75rem",
-								marginTop: 2,
-							}}
-						>
-							{task.title}
-						</div>
-					</div>
+					<TaskBoardCard key={task.id} task={task} />
 				))}
 			</div>
 		</div>
