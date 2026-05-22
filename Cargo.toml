@@ -8,6 +8,10 @@ members = [
     "packages/desktop/src-tauri",
     "crates/apohara-pathsafety",
     "crates/apohara-persistence",
+    "crates/apohara-notifications",
+    "crates/apohara-attention",
+    "crates/apohara-audit",
+    "crates/apohara-secrets",
 ]
 
 [workspace.package]
