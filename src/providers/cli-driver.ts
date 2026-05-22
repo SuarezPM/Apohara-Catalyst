@@ -156,6 +156,59 @@ export const BUILTIN_CLI_DRIVERS: CliDriverConfig[] = [
 		cleanOutput: extractTextFromOpencodeNdjson,
 		defaultModel: "opencode-via-cli",
 	},
+
+	// --- Legacy providers (opt-in via APOHARA_LEGACY_PROVIDERS=1) ---
+	// They land in the registry unconditionally so users can route
+	// `APOHARA_RUN_PROVIDER=cursor-agent` for testing, but the active
+	// roster picker in the UI doesn't surface them unless legacy mode
+	// is on (see `active-roster.ts`).
+
+	{
+		// `cursor-agent -p <prompt>` runs headless and exits. The
+		// pre-trust step in trust-presets.ts must already have written
+		// `.workspace-trusted` or the first-launch menu eats the prompt
+		// (orca pinned this behavior in PR #926).
+		id: "cursor-agent" as ProviderId,
+		label: "Cursor Agent",
+		binary: "cursor-agent",
+		args: ({ prompt, system }) =>
+			system
+				? ["-p", `[system] ${system}\n\n[user] ${prompt}`]
+				: ["-p", prompt],
+		cleanOutput: (raw) => stripAnsi(raw).trim(),
+		defaultModel: "cursor-agent-via-cli",
+	},
+	{
+		// `copilot --prompt <text>` runs non-interactively. `--prompt`
+		// (not `--interactive`) makes it exit after the response — the
+		// shape `callCliDriver` needs. Pre-trust closes the trust modal.
+		id: "copilot-cli" as ProviderId,
+		label: "GitHub Copilot CLI",
+		binary: "copilot",
+		args: ({ prompt, system }) =>
+			system
+				? ["--prompt", `[system] ${system}\n\n[user] ${prompt}`]
+				: ["--prompt", prompt],
+		cleanOutput: (raw) => stripAnsi(raw).trim(),
+		defaultModel: "copilot-via-cli",
+	},
+	{
+		// `aider --message <text>` (or `-m`) runs the message
+		// non-interactively then exits. `--yes-always` skips the
+		// "are you sure?" prompts that otherwise hang our headless
+		// run; `--no-fancy-input` disables the interactive line editor.
+		id: "aider" as ProviderId,
+		label: "Aider",
+		binary: "aider",
+		args: ({ prompt, system }) => [
+			"--yes-always",
+			"--no-fancy-input",
+			"--message",
+			system ? `[system] ${system}\n\n[user] ${prompt}` : prompt,
+		],
+		cleanOutput: (raw) => stripAnsi(raw).trim(),
+		defaultModel: "aider-via-cli",
+	},
 ];
 
 /**

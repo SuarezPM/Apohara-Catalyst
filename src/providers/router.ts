@@ -288,10 +288,8 @@ export class ProviderRouter {
 	// `opencodeApiKey` is retained on the constructor (tests + the
 	// legacy api.opencode.ai path expected it) but is no longer read
 	// anywhere — the `opencode-go` provider is now a pure CLI wrapper
-	// per CLAUDE.md hard rule. We use a `// @ts-expect-error` shim to
-	// keep the storage without tripping `noUnusedLocals`; once tests
-	// stop passing the option we can drop it entirely.
-	// @ts-expect-error -- retained for backwards-compat with RouterConfig.opencodeApiKey
+	// per CLAUDE.md hard rule. Kept as a field so existing
+	// `RouterConfig.opencodeApiKey` callers don't break.
 	private opencodeApiKey: string;
 	private anthropicApiKey: string;
 	private geminiApiKeyDirect: string;
@@ -332,10 +330,9 @@ export class ProviderRouter {
 
 	// Simulate failure flag for demo/testing — read via
 	// `callOpenCode` previously; now only `commands/auto.ts` sets it.
-	// Keep the storage to avoid breaking the `RouterConfig` shape.
-	// @ts-expect-error -- retained for RouterConfig.simulateFailure
+	// Kept as fields so existing `RouterConfig.simulateFailure`
+	// callers don't break.
 	private simulateFailure = false;
-	// @ts-expect-error -- retained for symmetry with simulateFailure
 	private failureSimulated = false;
 
 	constructor(cfg?: RouterConfig) {
