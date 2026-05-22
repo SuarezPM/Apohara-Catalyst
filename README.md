@@ -1,223 +1,101 @@
 # Apohara
 
-> **The first open-source multi-AI coding orchestrator.** Write a prompt
-> once. Apohara decomposes it into microtasks and dispatches each one to
-> the AI that does it best — Claude plans, GPT codes, Gemini verifies —
-> using **your existing subscriptions**, not API keys.
-
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│  apohara                                       ◈ Claude · GPT · Gemini│
-├───────────────┬──────────────────────────┬─────────────────────────-─┤
-│  Objective    │   Swarm Canvas (DAG)     │  Code + Diff              │
-│               │                          │                           │
-│  build CRUD   │   ┌─planner (Claude)─┐   │  + src/api/users.ts       │
-│  endpoint     │   └──┬───────────────┘   │  ~ src/db/schema.ts       │
-│  with auth    │      ▼                   │                           │
-│               │   ┌─coder (GPT) ──┐    │  ┌──── verification ────┐ │
-│  [Enhance ▾]  │   └──┬──────────────┘    │  │ judge (Gemini) ✓     │ │
-│  [Run ▶]      │      ▼                   │  │ critic (Claude) ✓    │ │
-│               │   ┌─verifier (Gemini)┐ ⚖ │  └──────────────────────┘ │
-└───────────────┴──────────────────────────┴───────────────────────────┘
-```
-
-Type the intent. The right AI handles each step. The verification mesh
-makes a **different** AI audit the result before it merges.
+Local-first multi-agent code orchestration on top of CLI providers — no API keys, replayable by design.
 
 ## Why Apohara
 
-There are good tools to **call one AI from your editor** (Cursor, Cline,
-Continue). There are good tools to **manage multiple AI sessions side
-by side** (Nimbalyst). There is no tool that takes **one prompt**,
-splits it into parts, and orchestrates **several AIs collaborating on
-the same task** — with a different AI verifying the result so a single
-model's blind spots can't ship code.
+**Your subscriptions stay with you.** Apohara does not hold provider API keys, broker an OAuth flow, or store tokens in a cloud vault. The three CLI drivers (`claude-code-cli`, `codex-cli`, `opencode-go`) authenticate against your existing subscriptions over stdio, with the environment scrubbed of host secrets on every spawn (§0.4). If you delete Apohara tomorrow, no upstream service has anything of yours to expire.
 
-That gap is Apohara.
+**Replay or it didn't happen.** Every meaningful event — task dispatch, provider request, tool call, verdict, ledger commit — is appended to a SHA-256 chained JSONL ledger. `apohara replay --verify` recomputes the chain end-to-end and rejects any tampering. A bug report that includes the relevant `replay.jsonl` is a reproducible bug report; the rest are guesses.
 
-| You want… | Today you use | With Apohara |
-|---|---|---|
-| One AI in your editor | Cursor / Cline / Continue | Apohara works too, single-provider mode |
-| Multiple AI sessions, separate tasks | Nimbalyst, manual tab juggling | Apohara orchestrates a single task across them |
-| One AI does the work, *another* audits it | Custom prompts, hope for the best | Built-in dual-arbiter verification mesh (INV-15 safety gate) |
-| Bring your own subscriptions, not API keys | Run each CLI manually | Apohara drives your local `claude` / `codex` / `gemini` CLIs as providers |
-| Cost-free dev runs on your own GPU | Self-host vLLM, glue it yourself | Optional Carnice 9B + Apohara ContextForge: 79% token savings, measured |
-
-## Status
-
-**v0.1 alpha — current.** Multi-AI orchestrator, syscall-level sandbox,
-and the desktop visual surface are all shipping. See
-[`ROADMAP.md`](ROADMAP.md) for the milestone plan; see
-[`ARCHITECTURE.md`](ARCHITECTURE.md) for the deep dive.
-
-| Capability                                              | Status |
-|---|---|
-| **Multi-AI orchestration: prompt → DAG → per-microtask routing** | ✅ |
-| **Dual-arbiter verification mesh (judge ≠ critic ≠ coder)** | ✅ |
-| **CLI-driver providers (Claude Code, Codex, Gemini-CLI, opencode)** | ✅ |
-| **Pick-your-roster UI: enable/disable any provider per run**  | ✅ |
-| 21 cloud providers + Gemini OAuth                              | ✅ |
-| Event ledger v2 with SHA-256 hash chain + replay               | ✅ |
-| Vibe DAG decomposition with cycle detection                    | ✅ |
-| Code intelligence: tree-sitter + redb + Nomic BERT             | ✅ |
-| Syscall sandbox (seccomp-bpf + user/mount/PID namespaces)      | ✅ M014 |
-| Desktop visual surface (Tauri + React + SSE)                   | ✅ M017 |
-| **Optional**: ContextForge GPU sidecar (79% token savings)     | ✅ M015 |
-| 90-second viral demo + HN launch                               | ⏳ Phase 6 |
-| Self-improvement loop (`apohara auto "ship X"`)                | ⏳ v0.2 |
+**The judge / critic / invariants gate is not optional.** Before any code Apohara wrote reaches a PR, a judge model must accept it against the spec, a critic model must find no blocking concerns, and the invariant suite (tests + schema + permission lattice) must be green. INV-15 is the gate; 2-of-3 majority does not ship. Loosening it is a fork, not a v1.x change. See [`PRINCIPLES.md`](PRINCIPLES.md).
 
 ## Install
+
+**One-liner (Linux, macOS):**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/SuarezPM/Apohara/main/scripts/install.sh | sh
 ```
 
-Or from source:
+The installer probes `uname` for `linux-x64`, `linux-arm64`, `darwin-x64`, `darwin-arm64`, resolves the latest GitHub release tag, and drops the binary into `${APOHARA_PREFIX:-$HOME/.local}/bin`. Override the release with `APOHARA_VERSION=v1.0.0` and the destination with `APOHARA_PREFIX=/usr/local`. Exit codes are documented in the script header.
+
+**Homebrew (macOS, Linuxbrew):**
 
 ```bash
-git clone https://github.com/SuarezPM/Apohara
-cd Apohara
-bun install
-bun run build
+brew install SuarezPM/apohara/apohara
 ```
 
-The single-binary distribution (Linux ELF 5.6 MB, macOS `.dmg`, Windows
-`.msi`) lands automatically on every tag push via the
-[desktop-release workflow](.github/workflows/desktop-release.yml).
+The formula lives in [`packaging/homebrew/apohara.rb`](packaging/homebrew/apohara.rb). It pulls `bun`, `rust`, and `node` as build deps and ships a launchd service definition you can opt into with `brew services start apohara`.
+
+**Manual download:**
+
+Grab `apohara-desktop` for your platform from <https://github.com/SuarezPM/Apohara/releases>, `chmod +x` it, and move it onto `$PATH`. The SHA-256 of every release asset is published as a `.sha256` sidecar; verify with `sha256sum -c apohara-desktop.sha256` before running.
+
+Apohara needs at least one of the three CLI providers reachable on `$PATH` (`claude`, `codex`, `opencode`). `apohara doctor` will tell you which are missing.
 
 ## Quick start
 
 ```bash
-# Desktop mode — the visual surface
-cd packages/desktop
-bun run dev          # http://localhost:7331
+# 1. Verify the environment, one section at a time.
+apohara doctor
 
-# CLI mode — useful in CI and headless contexts
-bun run src/cli.ts auto "Implement JWT auth on /api/login"
+# 2. Run the canonical setup task end-to-end (LOCAL-SETUP-001).
+apohara verify-setup
+
+# 3. Hand Apohara your first objective.
+apohara plan "Add a /health endpoint that returns the git SHA"
 ```
 
-Open the desktop. In the top bar, tick the AIs you want to bring to
-this run (Claude · GPT · Gemini · Carnice-local · …) — the roster
-persists across sessions. Drop your objective in the left pane, hit
-**Enhance** to let the planner LLM rewrite it for clarity, then
-**Run**. The DAG appears in the center as the decomposer emits tasks;
-each task is dispatched to the AI that scores highest for that role,
-and the verification mesh forces a *different* AI to audit the diff
-before it merges.
+`apohara doctor` walks seven sections — `runtime`, `roster`, `policy`, `sandbox`, `ledger`, `mcp`, `assigned` — and exits non-zero on the first failure. Pass `--json` for machine output, or `--skip-sandbox` (or any other section) to bypass a known-broken host check.
 
-### Bring your own subscriptions (no API keys needed)
+`apohara verify-setup` enrolls a fixture task that exercises the full pipeline: decomposer → provider spawn → sandbox execution → verification mesh (judge + critic + invariants) → ledger commit. If this is green, the wiring is good; if it fails, the section that failed tells you exactly which subsystem to fix.
 
-Apohara ships **CLI-driver providers** so it can drive your existing
-official agent CLIs — your subscription auth, your TOS, your rate
-limits:
+`apohara plan` is the entry point for real work: it creates a SPEC document, dispatches it through the scheduler with the configured roster, and streams progress to the desktop UI (or `--headless` for CI).
 
-| Provider id | Driver binary | Get it from |
-|---|---|---|
-| `claude-code-cli` | `claude` | [@anthropic-ai/claude-code](https://www.npmjs.com/package/@anthropic-ai/claude-code) |
-| `codex-cli` | `codex` | [@openai/codex](https://www.npmjs.com/package/@openai/codex) |
-| `gemini-cli` | `gemini` | [@google/gemini-cli](https://www.npmjs.com/package/@google/gemini-cli) |
-| `opencode-go` | `opencode --pure` | [sst/opencode](https://github.com/sst/opencode) |
+## The three providers
 
-When a CLI is on `$PATH`, the matching provider is auto-enabled. If you
-also want raw API access, set the matching API key (`OPENAI_API_KEY`,
-`ANTHROPIC_API_KEY`, etc.) and Apohara prefers the CLI driver first,
-falling back to the API on failure.
+Apohara drives three sanctioned CLI agents. Each lives behind `BaseAgentProvider` and is wrapped per spec §8.
 
-## Use cases
+| Provider id        | Driver binary | Role               | Get it from |
+|--------------------|---------------|--------------------|-------------|
+| `claude-code-cli`  | `claude`      | planner, critic    | [@anthropic-ai/claude-code](https://www.npmjs.com/package/@anthropic-ai/claude-code) |
+| `codex-cli`        | `codex`       | coder              | [@openai/codex](https://www.npmjs.com/package/@openai/codex) |
+| `opencode-go`      | `opencode`    | explorer, editor   | [sst/opencode](https://github.com/sst/opencode) |
 
-| Intent | What apohara does (with roster `Claude + GPT-4 + Gemini`) |
-|---|---|
-| `"Add CRUD for /api/products"` | Claude plans the four-task DAG, GPT-4 writes schema + routes, Gemini writes tests + docs, mesh runs `bun test`, judge (Gemini) + critic (Claude) approve, green PR opens |
-| `"Migrate src/legacy/* off lodash"` | Indexer maps every consumer; GPT-4 patches each file in parallel; Claude verifies semantic equivalence on every diff; mesh merges in dependency order; one failed verification rolls the whole task back |
-| `"Fix the flake in tests/ledger.test.ts"` | Replays the failing run from the event ledger, reproduces inside the sandbox; Claude proposes the fix, GPT-4 stress-tests with 3 consecutive runs, Gemini critiques the test for false positives |
+Apohara never reads or forwards provider API keys. Each driver is spawned with sanitized env (§0.4), communicates over stdio, and is reconfigured per task via the canonical MCP config adapter (§8.8) in [`crates/apohara-mcp-bridge`](crates/apohara-mcp-bridge). The desktop roster lets you enable or disable any of the three per run; missing binaries are reported by `apohara doctor`, not silently dropped.
 
-## Architecture
+## What's in v1.0
 
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│  APOHARA DESKTOP (Tauri v2, ~6 MB single binary)                     │
-│  React 19 + Geist + @xyflow/react + Monaco + Lexical                 │
-└─────────────────────────── ↕ HTTP :7331 (Bun.serve) ─────────────────┘
-┌──────────────────────────────────────────────────────────────────────┐
-│  APOHARA CORE (TypeScript on Bun)                                    │
-│  decomposer · scheduler · verification-mesh · ledger (Phase 4 chain) │
-│  router (21 providers + OAuth) · subagent-manager · consolidator     │
-└─────────────────────────── ↕ Unix Domain Sockets ────────────────────┘
-┌──────────────────────────────┬───────────────────────────────────────┐
-│  apohara-indexer (Rust) ✅   │  apohara-sandbox (Rust) ✅ M014       │
-│  tree-sitter + redb + BERT   │  seccomp-bpf + user/mount/PID ns      │
-└──────────────────────────────┴───────────────────────────────────────┘
-                              ↕ HTTP :8001 (optional)
-┌──────────────────────────────────────────────────────────────────────┐
-│  APOHARA CONTEXT FORGE (parallel repo, Python + vLLM, optional)      │
-│  KV-cache coordinator · INV-15 safety gate                           │
-└──────────────────────────────────────────────────────────────────────┘
-```
+The full inventory lives in [`CHANGELOG.md`](CHANGELOG.md). The headline shipments:
 
-Deeper dive: [`ARCHITECTURE.md`](ARCHITECTURE.md).
+- Multi-agent scheduler on `bun:sqlite` with non-overlapping write manifests and decision-gate serialization on conflicting writes.
+- Three CLI drivers (`claude-code-cli`, `codex-cli`, `opencode-go`) wired behind `BaseAgentProvider` with per-spawn MCP config injection.
+- `apohara-sandbox` (seccomp-bpf + mount/user/PID/net namespaces) for untrusted runner execution.
+- `apohara-indexer` (tree-sitter + redb + Nomic BERT embeddings); CI-safe via `APOHARA_MOCK_EMBEDDINGS=1`.
+- SHA-256 chained event ledger with `apohara replay --verify`.
+- Four internal MCP servers (`apohara.ledger`, `apohara.runs`, `apohara.indexer`, `apohara.settings`) on loopback with 32-char hex tokens and a 0600 endpoint-file handshake.
+- `github-bridge` poll-only (GitHub App auth, no PAT) with three-strategy idempotent PR builder.
+- Desktop UI (Tauri v2 + React 19): TaskBoard, Plans, Agent config, Permissions, Verification timeline.
+- `apohara doctor` (7 sections, `--json`, `--skip-<section>`) and `apohara verify-setup` (LOCAL-SETUP-001).
 
-## Sandbox — what it actually does
+INV-15 (judge + critic + invariants), the bash compound guard, deny-first permission resolution, and `enum_dispatch` providers are architectural commitments documented in [`PRINCIPLES.md`](PRINCIPLES.md) and [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
-The `apohara-sandbox` Rust binary runs every untrusted command inside:
+## What's deferred
 
-1. A **user + mount + PID namespace bundle** (unprivileged, via
-   `CLONE_NEWUSER | CLONE_NEWNS | CLONE_NEWPID`). The agent sees PID 1
-   and cannot enumerate or signal host processes.
-2. A **seccomp-bpf filter** sized per permission tier (`ReadOnly`,
-   `WorkspaceWrite`, `DangerFullAccess`). Blocked syscalls return EPERM
-   so the agent observes a normal failure rather than dying with SIGSYS.
-3. Cryptographically-anchored audit: every execution emits a
-   `sandbox_execution` rollup + one `security_violation` event per
-   blocked syscall to the SHA-256-chained event ledger. `apohara replay`
-   reconstructs the entire run.
+- **GitHub webhook receiver.** v1.0 ships poll-only (`github-bridge` reads issues on a timer). The webhook handler currently returns HTTP 501; the two-track delivery worker lands in v1.1 (§11.2).
+- **Additional providers.** Cloud APIs and historical drivers (Gemini, Cursor, 21-provider router, Carnice-9B sidecar) are gated behind `APOHARA_LEGACY_PROVIDERS=1`. They are not part of the v1.0 INV-15 characterization. A fourth sanctioned provider is a major-version event, not a config toggle.
+- **ContextForge GPU sidecar.** The optional KV-cache coordinator ships from a sibling repo. The integration test (`tests/integration/contextforge_regression.test.ts`) skips when the sibling checkout or `pytest` is missing.
+- **`apohara-indexer` full-binary `cargo test`.** Runs OOM on 16 GB hosts (Nomic BERT weights are ~400 MB and `cargo test` spawns lib + integration binaries concurrently). Always run one binary at a time; mock with `APOHARA_MOCK_EMBEDDINGS=1` for CI.
 
-Non-Linux hosts fall back to a consent-gated unsandboxed mode:
-`APOHARA_ALLOW_UNSANDBOXED=1` opts in and logs `sandbox_bypassed`.
+## Links
 
-## Optional booster: ContextForge GPU sidecar
-
-Apohara is cloud-first by design — Claude, GPT-4, Gemini and the other
-21 providers do the work via their CLIs or APIs. If you also happen to
-have a CUDA or ROCm GPU lying around, you can plug
-[Apohara · ContextForge](https://github.com/SuarezPM/Apohara_Context_Forge)
-in as a sidecar to compress, deduplicate, and reuse KV context across
-your multi-AI calls. On a 5-agent benchmark (preprint
-DOI [10.5281/zenodo.20114594](https://doi.org/10.5281/zenodo.20114594))
-the sidecar measured **79.85% token savings** end-to-end. Paired with a
-local LLM server (llama-cpp-python serving
-[`kai-os/Carnice-9b-GGUF`](https://huggingface.co/kai-os/Carnice-9b-GGUF)),
-dev iterations can cost effectively **zero cloud tokens**.
-
-This is **strictly optional**. Apohara works unchanged when
-`CONTEXTFORGE_ENABLED` is unset; every ContextForge call is best-effort
-and silently falls back to the original context on any failure.
-
-### Quick start — NVIDIA, no Docker
-
-```bash
-git clone https://github.com/SuarezPM/Apohara_Context_Forge.git ~/Apohara-ContextForge
-cd ~/Apohara-ContextForge
-
-uv venv .venv --python 3.12
-source .venv/bin/activate
-uv pip install -e .
-
-# Boot the sidecar
-nohup python -m apohara_context_forge.main > /tmp/contextforge.log 2>&1 &
-
-# Tell Apohara to use it
-export CONTEXTFORGE_ENABLED=1
-export CONTEXTFORGE_URL=http://localhost:8001
-```
+- [`PRINCIPLES.md`](PRINCIPLES.md) — the six commitments that drove every "no" in v1.0
+- [`CHANGELOG.md`](CHANGELOG.md) — full v1.0.0 release notes (Keep a Changelog 1.1.0)
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — system diagram, request flow, crate map
+- [`docs/github-app-setup.md`](docs/github-app-setup.md) — GitHub App registration for `github-bridge`
+- [`docs/release-flow.md`](docs/release-flow.md) — pre-release to stable promotion procedure
 
 ## License
 
 MIT. See [`LICENSE`](LICENSE).
-
-## Contributing
-
-This repo is indexed by [GitNexus](https://github.com/SuarezPM/GitNexus) —
-when you touch a hub symbol, run `gitnexus_impact()` first and quote the
-blast radius in the PR description. `CLAUDE.md` captures the full
-engineering contract; `ROADMAP.md` captures the milestone plan; this
-README is the launch surface, not the spec.
