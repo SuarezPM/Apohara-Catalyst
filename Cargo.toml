@@ -6,6 +6,7 @@ members = [
     "crates/apohara-sandbox",
     "isolation-engine",
     "packages/desktop/src-tauri",
+    "crates/apohara-pathsafety",
 ]
 
 [workspace.package]

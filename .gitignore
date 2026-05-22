@@ -54,3 +54,7 @@ tmp/
 binaries/
 # npm pack output
 apohara-*.tgz
+
+# Symlink/backup artifacts from agent-managed dotfile migrations
+CLAUDE.md.bak.*
+

@@ -8,7 +8,8 @@
 | Task | Command |
 |---|---|
 | Build all crates | `cargo build --workspace` |
-| Run all Rust tests (be careful, see OOM hazard) | See "OOM hazard" below |
+| Run `apohara-types` tests | `cargo test -p apohara-types --lib --tests` |
+| Run `apohara-indexer` tests (one binary at a time, OOM-safe) | `cargo test -p apohara-indexer --lib && cargo test -p apohara-indexer --test memory_integration` |
 | Build TS bundle | `bun run build` |
 | Run TS tests | `bun test` |
 | Start desktop dev | `cd packages/desktop && bun run dev` |
@@ -19,6 +20,8 @@
 
 ## Module map
 
+> Status: 4 crates exist today (`apohara-types`, `apohara-indexer`, `apohara-sandbox`, `apohara-secrets` if Task 1.8 landed). The rest are planned — see `docs/superpowers/plans/2026-05-22-apohara-v1.md` for which Stage/Task creates each. Per-crate `AGENTS.md` files are added by the corresponding task.
+
 | Crate / package | Responsibility | Crate AGENTS.md |
 |---|---|---|
 | `crates/apohara-types` | Shared types Rust↔TS (ts-rs SSoT) | `crates/apohara-types/AGENTS.md` |
@@ -28,7 +31,7 @@
 | `crates/apohara-audit` | JSONL audit sink + rotation + fchmod 0600 | `crates/apohara-audit/AGENTS.md` |
 | `crates/apohara-notifications` | Cross-platform push notifications | `crates/apohara-notifications/AGENTS.md` |
 | `crates/apohara-persistence` | Cross-platform service installer | `crates/apohara-persistence/AGENTS.md` |
-| `crates/apohara-worktree` | Git worktree lifecycle (rename of isolation-engine) | `crates/apohara-worktree/AGENTS.md` |
+| `crates/apohara-worktree` | Git worktree lifecycle (consolidates the previous isolation-engine crate; not yet renamed in this branch) | `crates/apohara-worktree/AGENTS.md` |
 | `crates/apohara-coordinator` | Semantic conflict coordinator (slim, delegates state) | `crates/apohara-coordinator/AGENTS.md` |
 | `crates/apohara-hooks-server` | Agent-hooks HTTP loopback (axum sidecar) | `crates/apohara-hooks-server/AGENTS.md` |
 | `crates/apohara-attention` | Attention bands state machine (HOT/WARM/COOL/IDLE) | `crates/apohara-attention/AGENTS.md` |
@@ -80,7 +83,7 @@ Highlights:
 
 - **Do NOT** edit `packages/apohara-shared/types.ts` manually — regenerate via `bun run generate-types`
 - **Do NOT** commit to `main` directly — open a PR (this is a public repo from Stage 11 onwards)
-- **Do NOT** add OAuth flows for providers — CLI wrappers only (Pablo's hard rule, see `~/.claude/projects/.../memory/feedback_providers_cli_wrapper.md`)
+- **Do NOT** add OAuth flows for providers — CLI wrappers only (Pablo's hard rule: TOS prohibits programmatic OAuth for several providers; agents like Anthropic explicitly blocked from OAuth-based wrapping).
 - **Do NOT** add providers to the active roster beyond `claude-code-cli`, `codex-cli`, `opencode-go` — others are LEGACY behind `APOHARA_LEGACY_PROVIDERS=1`
 
 ---
