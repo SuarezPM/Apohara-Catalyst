@@ -1,5 +1,3 @@
-use serde::{Deserialize, Serialize};
-
 pub struct ApoharaVersion;
 
 impl ApoharaVersion {
