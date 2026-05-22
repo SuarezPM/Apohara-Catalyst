@@ -33,6 +33,17 @@ export function check(
   inv: ToolInvocation,
   opts: PermissionServiceOpts,
 ): PermissionDecision {
+  // 0. Compound bash guard (INV-15): always redirect to ask with ["once"].
+  //    Must be checked BEFORE allow-list to prevent "always" scope leak.
+  let scopes: PermissionScope[] = ["once", "session", "always"];
+  let isCompound = false;
+  if (inv.tool === "Bash" && typeof inv.input.command === "string") {
+    if (splitCompound(inv.input.command).length > 1) {
+      scopes = ["once"];
+      isCompound = true;
+    }
+  }
+
   // 1. Deny first — absolute veto.
   for (const denyStr of opts.settings.deny) {
     const p = parsePatternString(denyStr);
@@ -49,22 +60,17 @@ export function check(
     }
   }
 
-  // 3. Settings allow (merged tier).
-  for (const allowStr of opts.settings.allow) {
-    const p = parsePatternString(allowStr);
-    if (p && matchPattern(p, inv)) {
-      return { kind: "allow", reason: "settings_allow" };
+  // 3. Settings allow (merged tier). Skip for compound bash (INV-15).
+  if (!isCompound) {
+    for (const allowStr of opts.settings.allow) {
+      const p = parsePatternString(allowStr);
+      if (p && matchPattern(p, inv)) {
+        return { kind: "allow", reason: "settings_allow" };
+      }
     }
   }
 
-  // 4. Need to ask the user. Restrict scopes for compound bash.
-  let scopes: PermissionScope[] = ["once", "session", "always"];
-  if (inv.tool === "Bash" && typeof inv.input.command === "string") {
-    if (splitCompound(inv.input.command).length > 1) {
-      scopes = ["once"];
-    }
-  }
-
+  // 4. Need to ask the user. Scopes already restricted for compound.
   return {
     kind: "ask",
     suggested_pattern: suggestPattern(inv),
