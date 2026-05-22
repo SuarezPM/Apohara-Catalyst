@@ -1,77 +1,88 @@
-<!-- gitnexus:start -->
-# GitNexus — Code Intelligence
+# Apohara — Agent Navigation Guide
 
-This project is indexed by GitNexus as **Clarity-Code** (3983 symbols, 8547 relationships, 222 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+> Concise navigation for AI coding agents working in this repository.
+> For day-to-day engineering contract, see `CLAUDE.md` (symlinked here).
 
-> If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
+## Build & test commands
 
-## Always Do
+| Task | Command |
+|---|---|
+| Build all crates | `cargo build --workspace` |
+| Run all Rust tests (be careful, see OOM hazard) | See "OOM hazard" below |
+| Build TS bundle | `bun run build` |
+| Run TS tests | `bun test` |
+| Start desktop dev | `cd packages/desktop && bun run dev` |
+| Generate TS types from Rust | `bun run generate-types` |
+| Check types didn't drift | `bun run generate-types:check` |
+| Doctor (full env check) | `apohara doctor` |
+| Setup verification end-to-end | `apohara verify-setup` |
 
-- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `gitnexus_impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
-- **MUST run `gitnexus_detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows.
-- **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
-- When exploring unfamiliar code, use `gitnexus_query({query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
-- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `gitnexus_context({name: "symbolName"})`.
+## Module map
 
-## Never Do
+| Crate / package | Responsibility | Crate AGENTS.md |
+|---|---|---|
+| `crates/apohara-types` | Shared types Rust↔TS (ts-rs SSoT) | `crates/apohara-types/AGENTS.md` |
+| `crates/apohara-config` | Versioned config schema (v1→vN migrations) | `crates/apohara-config/AGENTS.md` |
+| `crates/apohara-secrets` | OS-native credential store (keyring-rs) | `crates/apohara-secrets/AGENTS.md` |
+| `crates/apohara-pathsafety` | Symlink-escape detection | `crates/apohara-pathsafety/AGENTS.md` |
+| `crates/apohara-audit` | JSONL audit sink + rotation + fchmod 0600 | `crates/apohara-audit/AGENTS.md` |
+| `crates/apohara-notifications` | Cross-platform push notifications | `crates/apohara-notifications/AGENTS.md` |
+| `crates/apohara-persistence` | Cross-platform service installer | `crates/apohara-persistence/AGENTS.md` |
+| `crates/apohara-worktree` | Git worktree lifecycle (rename of isolation-engine) | `crates/apohara-worktree/AGENTS.md` |
+| `crates/apohara-coordinator` | Semantic conflict coordinator (slim, delegates state) | `crates/apohara-coordinator/AGENTS.md` |
+| `crates/apohara-hooks-server` | Agent-hooks HTTP loopback (axum sidecar) | `crates/apohara-hooks-server/AGENTS.md` |
+| `crates/apohara-attention` | Attention bands state machine (HOT/WARM/COOL/IDLE) | `crates/apohara-attention/AGENTS.md` |
+| `crates/apohara-token-accounting` | Token accounting (absolutes > deltas, per-thread) | `crates/apohara-token-accounting/AGENTS.md` |
+| `crates/apohara-mcp-bridge` | Canonical MCP config + per-provider adapters | `crates/apohara-mcp-bridge/AGENTS.md` |
+| `crates/apohara-event-humanizer` | Provider events → human-readable labels | `crates/apohara-event-humanizer/AGENTS.md` |
+| `crates/apohara-anti-thrash` | Strategy rotation tracker (anti-loop) | `crates/apohara-anti-thrash/AGENTS.md` |
+| `crates/apohara-mcp` | Internal MCP servers (ledger/runs/indexer/settings) | `crates/apohara-mcp/AGENTS.md` |
+| `crates/apohara-indexer` | tree-sitter + redb + Nomic BERT (existing, see OOM hazard) | `crates/apohara-indexer/AGENTS.md` |
+| `crates/apohara-sandbox` | seccomp-bpf + namespaces sandbox (existing) | `crates/apohara-sandbox/AGENTS.md` |
+| `packages/desktop` | Tauri v2 + React 19 desktop UI | `packages/desktop/AGENTS.md` |
+| `packages/github-bridge` | GitHub Issues → orchestration → PR | `packages/github-bridge/AGENTS.md` |
+| `src/core/orchestration/` | bun:sqlite orchestration DB + coordinator | `src/core/orchestration/AGENTS.md` |
+| `src/core/safety/` | Permission patterns + settings hierarchy | `src/core/safety/AGENTS.md` |
+| `src/core/spec/` | SPEC.md parser + plan documents | `src/core/spec/AGENTS.md` |
 
-- NEVER edit a function, class, or method without first running `gitnexus_impact` on it.
-- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
-- NEVER rename symbols with find-and-replace — use `gitnexus_rename` which understands the call graph.
-- NEVER commit changes without running `gitnexus_detect_changes()` to check affected scope.
+## Spec source of truth
 
-## Resources
+`docs/superpowers/specs/2026-05-21-apohara-v1-design.md` — read it before non-trivial changes.
 
-| Resource | Use for |
-|----------|---------|
-| `gitnexus://repo/Clarity-Code/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/Clarity-Code/clusters` | All functional areas |
-| `gitnexus://repo/Clarity-Code/processes` | All execution flows |
-| `gitnexus://repo/Clarity-Code/process/{name}` | Step-by-step execution trace |
+## Plan source of truth
 
-## CLI
+`docs/superpowers/plans/2026-05-22-apohara-v1.md` — task-by-task implementation plan.
 
-| Task | Read this skill file |
-|------|---------------------|
-| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
-| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
-| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
-| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
-| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
-| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
+## OOM hazard with `cargo test`
 
-<!-- gitnexus:end -->
-## Workflow SDD (Spec Driven Development)
+**NEVER** run bare `cargo test` or `cargo test -p apohara-indexer`. The Nomic BERT model is ~400MB and `cargo test` spawns lib + integration binaries in parallel, OOM-ing the machine. See spec §10 R1.
 
-For features of medium/high complexity:
+Always run ONE test binary at a time:
+- `cargo test -p apohara-indexer --lib`
+- `cargo test -p apohara-indexer --test memory_integration`
+- `cargo test -p apohara-indexer --test indexer_persistence`
 
-1. **INIT**: Explore codebase with GitNexus, RepoMap, and semantic search.
-2. **PROPOSAL**: Draft a brief spec with goal, scope, and risks.
-3. **DESIGN**: Define architecture, affected files, and interfaces.
-4. **TASKS**: Break into atomic parallelizable tasks.
-5. **IMPL**: Execute each task with clean context.
-6. **VERIFY**: Validate against original spec before closing.
+For mock mode in CI/dev: `APOHARA_MOCK_EMBEDDINGS=1` skips the model load.
 
-**Auto-activation triggers**:
-- More than 3 new files
-- Changes across multiple modules
-- Refactors with cross-cutting impact
+## Cross-cutting disciplines (spec §0)
 
-The 7.0 stack uses this pattern to reduce hallucinations and enforce a formal spec phase before touching code.
+Before making changes, review the 33 disciplines in `docs/superpowers/specs/2026-05-21-apohara-v1-design.md#0-disciplinas-transversales`. They are NOT suggestions — they're guardrails that prevent entire bug classes.
 
-## Knowledge Lint (via Engram)
+Highlights:
+- §0.1 Centralized IPC listeners (never per-component)
+- §0.4 Env sanitization on all spawns (no API keys to subprocesses)
+- §0.7 ts-rs Single Source of Truth (never edit `packages/apohara-shared/types.ts` by hand)
+- §0.8 Atomic file writes (mkstemp + rename)
+- §0.14 Token accounting: absolutes > deltas
+- §0.16 enum_dispatch instead of `Box<dyn>` for providers
 
-Run every ~5 sessions or when asked:
+## What NOT to do
 
-1. **Contradictions** — `engram search "contradiction" --project Apohara`
-2. **Stale data** — flag entries unused for 90+ days
-3. **Orphans** — concepts with zero cross-references → suggest links
-4. **Coverage gaps** — modules without Engram entries → suggest documenting
+- **Do NOT** edit `packages/apohara-shared/types.ts` manually — regenerate via `bun run generate-types`
+- **Do NOT** commit to `main` directly — open a PR (this is a public repo from Stage 11 onwards)
+- **Do NOT** add OAuth flows for providers — CLI wrappers only (Pablo's hard rule, see `~/.claude/projects/.../memory/feedback_providers_cli_wrapper.md`)
+- **Do NOT** add providers to the active roster beyond `claude-code-cli`, `codex-cli`, `opencode-go` — others are LEGACY behind `APOHARA_LEGACY_PROVIDERS=1`
 
-## Antigravity Integration
+---
 
-- Antigravity handles frontend/UI tasks in its own git worktree
-- OpenCode handles backend/analysis in a separate worktree
-- Both share MCP servers (GitNexus, Serena, Engram)
-- Never edit the same file from both tools simultaneously
-- Full workflow rules in OPENCODE.md
+*This document is auto-loaded by Claude Code / Codex / OpenCode via `CLAUDE.md` symlink.*
