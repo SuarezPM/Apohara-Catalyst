@@ -13,6 +13,7 @@
 export const DEFAULT_BLOCKLIST: RegExp[] = [
   // Generic credential patterns
   /^.*_API_KEY$/,
+  /^.*_KEY$/,
   /^.*_TOKEN$/,
   /^.*_SECRET$/,
   /^.*_PASSWORD$/,
@@ -28,6 +29,15 @@ export const DEFAULT_BLOCKLIST: RegExp[] = [
   /^GEMINI_/,
   /^GOOGLE_API_KEY$/,
   /^COHERE_/,
+  /^XAI_/,
+  /^DEEPSEEK_/,
+  /^PERPLEXITY_/,
+  /^FIREWORKS_/,
+  /^PINECONE_/,
+  /^VOYAGE_/,
+  /^REPLICATE_/,
+  /^HUGGINGFACE_/,
+  /^HF_TOKEN$/,
 
   // Cloud credentials
   /^AWS_/,
@@ -35,6 +45,29 @@ export const DEFAULT_BLOCKLIST: RegExp[] = [
   /^GCP_/,
   /^GCLOUD_/,
   /^AZURE_/,
+  /^CLOUDFLARE_/,
+  /^DIGITALOCEAN_/,
+
+  // PaaS / hosting tokens
+  /^VERCEL_/,
+  /^NETLIFY_/,
+  /^HEROKU_/,
+  /^FLY_API_TOKEN$/,
+  /^RAILWAY_TOKEN$/,
+  /^RENDER_/,
+
+  // DB URLs that embed credentials (user:pass@host)
+  /^DATABASE_URL$/,
+  /^MONGODB_URI$/,
+  /^MYSQL_URL$/,
+  /^POSTGRES_URL$/,
+  /^REDIS_URL$/,
+
+  // Backend / SaaS provider prefixes
+  /^SUPABASE_/,
+  /^STRIPE_/,
+  /^SENTRY_/,
+  /^NPM_TOKEN$/,
 
   // CI provider tokens
   /^CIRCLE_/,
@@ -42,6 +75,14 @@ export const DEFAULT_BLOCKLIST: RegExp[] = [
   /^GH_TOKEN$/,
   /^GITLAB_/,
   /^BITBUCKET_/,
+
+  // Webhook / integration tokens
+  /^LINEAR_API_KEY$/,
+  /^NOTION_TOKEN$/,
+  /^SLACK_TOKEN$/,
+  /^SLACK_BOT_TOKEN$/,
+  /^DISCORD_TOKEN$/,
+  /^TELEGRAM_TOKEN$/,
 ];
 
 export interface SanitizeOptions {
@@ -65,7 +106,10 @@ export function sanitizeEnv(
       out[key] = value;
       continue;
     }
-    if (blocklist.some(re => re.test(key))) {
+    // Compare on upper-cased key so blocklist patterns (uppercase-anchored)
+    // also catch lowercase / mixed-case variants like `anthropic_api_key`.
+    const keyUpper = key.toUpperCase();
+    if (blocklist.some(re => re.test(keyUpper))) {
       continue;
     }
     out[key] = value;

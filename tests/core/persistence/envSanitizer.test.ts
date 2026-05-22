@@ -61,3 +61,56 @@ test("DEFAULT_BLOCKLIST is exported and contains expected patterns", () => {
   expect(patterns).toContain("/^.*_TOKEN$/");
   expect(patterns).toContain("/^ANTHROPIC_/");
 });
+
+test("sanitizeEnv is case-insensitive", () => {
+  const input = { anthropic_api_key: "leak", Anthropic_API_Key: "also leak", PATH: "/usr/bin" };
+  const out = sanitizeEnv(input);
+  expect(out.PATH).toBe("/usr/bin");
+  expect(out.anthropic_api_key).toBeUndefined();
+  expect(out.Anthropic_API_Key).toBeUndefined();
+});
+
+test("sanitizeEnv blocks generic *_KEY pattern (Stripe, Supabase, etc.)", () => {
+  const input = {
+    STRIPE_KEY: "sk_...",
+    SUPABASE_KEY: "anon",
+    SUPABASE_SERVICE_ROLE_KEY: "service",
+    PINECONE_API_KEY: "p",
+    HOME: "/h"
+  };
+  const out = sanitizeEnv(input);
+  expect(out.HOME).toBe("/h");
+  expect(out.STRIPE_KEY).toBeUndefined();
+  expect(out.SUPABASE_KEY).toBeUndefined();
+  expect(out.SUPABASE_SERVICE_ROLE_KEY).toBeUndefined();
+  expect(out.PINECONE_API_KEY).toBeUndefined();
+});
+
+test("sanitizeEnv blocks DB URLs with embedded credentials", () => {
+  const input = {
+    DATABASE_URL: "postgres://user:pass@host/db",
+    MONGODB_URI: "mongodb://u:p@cluster.mongo.net",
+    REDIS_URL: "redis://:secret@host:6379",
+    OTHER_URL: "https://example.com"
+  };
+  const out = sanitizeEnv(input);
+  expect(out.OTHER_URL).toBe("https://example.com");
+  expect(out.DATABASE_URL).toBeUndefined();
+  expect(out.MONGODB_URI).toBeUndefined();
+  expect(out.REDIS_URL).toBeUndefined();
+});
+
+test("sanitizeEnv extraBlocklist combines with DEFAULT_BLOCKLIST", () => {
+  const input = { CUSTOM_THING: "block", HOME: "/h" };
+  const out = sanitizeEnv(input, { extraBlocklist: [/^CUSTOM_/] });
+  expect(out.HOME).toBe("/h");
+  expect(out.CUSTOM_THING).toBeUndefined();
+});
+
+test("sanitizeEnv allow wins over block (priority)", () => {
+  // ANTHROPIC_API_KEY would normally be blocked, but allowlist wins
+  const input = { ANTHROPIC_API_KEY: "intentional override", PATH: "/usr/bin" };
+  const out = sanitizeEnv(input, { allow: ["ANTHROPIC_API_KEY"] });
+  expect(out.ANTHROPIC_API_KEY).toBe("intentional override");
+  expect(out.PATH).toBe("/usr/bin");
+});
