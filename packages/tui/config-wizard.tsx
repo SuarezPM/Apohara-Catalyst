@@ -234,10 +234,24 @@ export async function saveCredentials(
 		}
 
 		const credPath = getCredentialsPath();
-		await fs.writeFile(credPath, JSON.stringify(credentials, null, 2), "utf-8");
-
-		// Set file permissions to 600 (owner read/write only)
-		await fs.chmod(credPath, 0o600);
+		// Open with mode 0o600 BEFORE the first byte is written so the
+		// file is never world-readable. The previous pattern wrote with
+		// default perms (~0o644) and `chmod`ed afterward — anyone could
+		// read the credentials in the window between the two awaits.
+		// Also: writing through a temp file + rename keeps a crash
+		// mid-write from leaving a half-baked credentials file on disk.
+		const tmpPath = `${credPath}.tmp.${process.pid}.${Date.now()}`;
+		const fh = await fs.open(tmpPath, "w", 0o600);
+		try {
+			await fh.writeFile(JSON.stringify(credentials, null, 2));
+			await fh.datasync();
+		} finally {
+			await fh.close();
+		}
+		// Re-enforce 0o600 on the temp file in case the umask widened it
+		// (open() respects the process umask), then atomic rename.
+		await fs.chmod(tmpPath, 0o600);
+		await fs.rename(tmpPath, credPath);
 		console.log(`[config] Saved credentials to ${credPath}`);
 		return true;
 	} catch (err) {
