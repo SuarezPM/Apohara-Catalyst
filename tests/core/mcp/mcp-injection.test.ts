@@ -29,7 +29,10 @@ test("inject codex writes .codex/config.toml with sections", async () => {
   const r = await injectMcpConfig("codex-cli", sample, workspace);
   expect(r.configPath).toContain(".codex/config.toml");
   const raw = await readFile(r.configPath, "utf-8");
-  expect(raw).toContain("[mcp_servers.apohara.ledger]");
+  // Names containing `.` are emitted as quoted TOML keys so the
+  // section is one flat table rather than a nested `mcp_servers.apohara.ledger`
+  // tree. This is the bug fix for the codex.rs TOML emission concern.
+  expect(raw).toContain('[mcp_servers."apohara.ledger"]');
   expect(raw).toContain("command = \"apohara\"");
 });
 

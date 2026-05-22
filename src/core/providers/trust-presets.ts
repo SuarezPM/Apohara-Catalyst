@@ -4,10 +4,10 @@
  * Pre-write provider-native "I trust this folder" config so the CLI doesn't
  * pop an interactive trust dialog that breaks bracketed-paste and stdio flow.
  */
-import { readFile, mkdir, writeFile } from "node:fs/promises";
+import { readFile, mkdir } from "node:fs/promises";
 import { homedir as getRealHome } from "node:os";
 import { join, dirname } from "node:path";
-import { atomicWriteJson } from "../persistence/atomicWrite";
+import { atomicWriteFile, atomicWriteJson } from "../persistence/atomicWrite";
 import { getAgentConfig, type ProviderId } from "./agent-config";
 
 function userHomeDir(): string {
@@ -57,9 +57,14 @@ async function writeCodexTrust(workspacePath: string): Promise<void> {
     if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
   }
 
-  const blockHeader = `[projects."${workspacePath}"]`;
+  // Always use the TOML quoted-key form for the workspace path — paths
+  // routinely contain dots, slashes and dashes that are invalid in bare
+  // keys, and JSON.stringify gives us correct escape semantics.
+  const blockHeader = `[projects.${JSON.stringify(workspacePath)}]`;
   if (existing.includes(blockHeader)) return;
 
   const block = `\n${blockHeader}\ntrust_level = "trusted"\n`;
-  await writeFile(configPath, existing + block);
+  // §0.8 — atomic write to the user's codex config so a crash in the
+  // middle of the append can't corrupt the existing trust list.
+  await atomicWriteFile(configPath, existing + block);
 }
