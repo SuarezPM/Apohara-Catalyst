@@ -109,3 +109,50 @@ pub async fn cleanup(task_id: &str, reason: CleanupReason, repo_path: &Path) -> 
     }
     Ok(())
 }
+
+#[derive(Debug, Clone)]
+pub enum MergeResult {
+    Success,
+    Conflict { files: Vec<PathBuf> },
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum FailureReason { MergeConflict, AgentFailed, Cancelled }
+
+pub async fn merge(task_id: &str, repo_path: &Path) -> Result<MergeResult, LifecycleError> {
+    let entries = list(repo_path).await?;
+    let target = entries.iter().find(|e| e.task_id == task_id).ok_or_else(|| LifecycleError::MetaNotFound(task_id.into()))?;
+    let branch = &target.branch;
+
+    // git merge --no-ff <branch> from the main repo cwd
+    let out = Command::new("git").args(["-C", repo_path.to_str().unwrap(), "merge", "--no-ff", branch])
+        .output().await?;
+    if out.status.success() {
+        return Ok(MergeResult::Success);
+    }
+
+    // Detect conflicted files
+    let status = Command::new("git").args(["-C", repo_path.to_str().unwrap(), "diff", "--name-only", "--diff-filter=U"])
+        .output().await?;
+    let files: Vec<PathBuf> = String::from_utf8_lossy(&status.stdout)
+        .lines().map(|l| PathBuf::from(l.trim())).filter(|p| !p.as_os_str().is_empty()).collect();
+    Ok(MergeResult::Conflict { files })
+}
+
+pub async fn preserve_on_fail(task_id: &str, reason: FailureReason, repo_path: &Path) -> Result<String, LifecycleError> {
+    let entries = list(repo_path).await?;
+    let target = entries.iter().find(|e| e.task_id == task_id).ok_or_else(|| LifecycleError::MetaNotFound(task_id.into()))?;
+    let ts = chrono::Utc::now().timestamp();
+    let reason_slug = match reason {
+        FailureReason::MergeConflict => "merge_conflict",
+        FailureReason::AgentFailed => "agent_failed",
+        FailureReason::Cancelled => "cancelled",
+    };
+    let failed_branch = format!("apohara/task-{}-failed-{}", task_id, ts);
+
+    // git branch -f <failed_branch> HEAD (inside the worktree)
+    Command::new("git").args(["-C", target.path.to_str().unwrap(), "branch", "-f", &failed_branch])
+        .output().await?;
+    tracing::warn!("preserved worktree for {} (reason={}) at branch={}", task_id, reason_slug, failed_branch);
+    Ok(failed_branch)
+}
