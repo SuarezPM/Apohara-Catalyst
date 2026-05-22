@@ -84,11 +84,24 @@ impl AttentionState {
     }
 
     pub fn apply(&mut self, stim: Stimulus, now: Instant) {
+        let old_band = self.band;
         self.band = match stim {
             Stimulus::Direct => Band::Hot,
             Stimulus::Ambient => self.band.promote(),
         };
-        self.last_promote = now;
+        // Saturate: never let an out-of-order (older) event rewind the hold timer.
+        // Without `.max`, a late-arriving stimulus with `now < self.last_promote`
+        // would silently shorten the band hold and accelerate decay.
+        self.last_promote = self.last_promote.max(now);
+        if old_band != self.band {
+            tracing::debug!(
+                target = %self.target,
+                from = ?old_band,
+                to = ?self.band,
+                stimulus = ?stim,
+                "attention transition",
+            );
+        }
     }
 
     pub fn tick(&mut self, now: Instant) {
@@ -102,7 +115,14 @@ impl AttentionState {
                 return; // Idle is terminal
             }
             self.last_promote += spec.hold;
+            let from = self.band;
             self.band = cooler;
+            tracing::debug!(
+                target = %self.target,
+                from = ?from,
+                to = ?self.band,
+                "attention decay",
+            );
         }
     }
 }

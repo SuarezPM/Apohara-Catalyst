@@ -10,8 +10,9 @@ a given target (task / thread / agent / file) is over time.
 
 - **Bands:** `Hot`, `Warm`, `Cool`, `Idle`.
 - **Stimuli:** `Direct` (e.g., @mention, DM, blocked-on-this) jumps to `Hot`
-  instantly. `Ambient` (e.g., generic activity in a thread) promotes **one**
-  step, capped at `Warm`.
+  instantly. `Ambient` (e.g., generic activity in a thread) promotes
+  **directly to the `Warm` cap** (does not walk one band at a time); never
+  demotes `Hot`.
 - **Decay:** without stimulus, `tick()` walks `Hot → Warm → Cool → Idle`
   using per-band hold timers.
 
