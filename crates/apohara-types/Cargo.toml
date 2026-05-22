@@ -14,3 +14,15 @@ ts-rs.workspace = true
 uuid.workspace = true
 chrono.workspace = true
 thiserror.workspace = true
+
+[[bin]]
+name = "generate_types"
+path = "src/bin/generate_types.rs"
+required-features = ["ts-export"]
+
+[features]
+default = []
+ts-export = []
+
+[dev-dependencies]
+tempfile = "3.10"

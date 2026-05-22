@@ -15,7 +15,9 @@
 	"scripts": {
 		"postinstall": "node scripts/postinstall.js",
 		"build": "bun build src/cli.ts --target node --outdir dist",
-		"start": "bun run src/cli.ts"
+		"start": "bun run src/cli.ts",
+		"generate-types": "cargo run --bin generate_types --features ts-export -- packages/apohara-shared",
+		"generate-types:check": "bun run generate-types && git diff --exit-code packages/apohara-shared/types.ts"
 	},
 	"engines": {
 		"node": ">=22"
