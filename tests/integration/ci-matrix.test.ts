@@ -89,8 +89,12 @@ test("docker e2e is skipped on the cross-OS lane", () => {
 	expect(CI_YAML).toContain("APOHARA_SKIP_DOCKER_E2E");
 });
 
-test("APOHARA_MOCK_EMBEDDINGS is set (CLAUDE.md §8.1 OOM rule)", () => {
-	expect(CI_YAML).toContain("APOHARA_MOCK_EMBEDDINGS");
+test("APOHARA_MOCK_EMBEDDINGS is NOT set (G8.A.5 — escape hatch removed)", () => {
+	// The Nomic BERT model was swapped for sqlite-vec + blake3 feature
+	// hashing in G8.A.1, so the mock-embeddings env var is obsolete.
+	// CI must not set it; a regression-guard test in tests/unit/ covers
+	// the broader filesystem scan.
+	expect(CI_YAML).not.toContain("APOHARA_MOCK_EMBEDDINGS");
 });
 
 test("workflow has the three required steps: build, test, lint", () => {
