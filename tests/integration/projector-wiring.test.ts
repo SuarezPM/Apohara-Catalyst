@@ -3,18 +3,20 @@
  *
  * Sprint 5 G5.F.1 delivered `projectToUiCards` + `projectToSearchRows` in
  * `src/core/projector/transcript-transformer.ts`. They had zero consumers.
- * This test pins that:
- *
- *  1. TaskBoard.tsx imports `projectToUiCards` and uses it (no manual
- *     re-parse of ledger events). When TaskBoard is given an `events`
- *     prop, derived cards flow through the canonical projector.
- *  2. The Rust indexer (`crates/apohara-indexer/src/lib.rs`) carries a
- *     Sprint-8 TODO marker acknowledging that the FTS5 ingest path will
- *     consume `projectToSearchRows` output via the sqlite-vec swap.
+ * This test pins that TaskBoard.tsx imports `projectToUiCards` and uses
+ * it (no manual re-parse of ledger events). When TaskBoard is given an
+ * `events` prop, derived cards flow through the canonical projector.
  *
  * The TaskBoard exercises the projector end-to-end with realistic
- * `EventLog` inputs so a regression in either side surfaces here, not in
- * a screenshot review.
+ * `EventLog` inputs so a regression surfaces here, not in a screenshot
+ * review.
+ *
+ * NOTE: A prior Sprint-7.5 cross-task placeholder test asserted that
+ * `crates/apohara-indexer/src/lib.rs` carried a Sprint-8 TODO referencing
+ * `projectToSearchRows`. Sprint 8 (G8.A.3) wholesale-rewrote the indexer
+ * (sqlite-vec + blake3 swap) and removed the marker; the TS→Rust
+ * projector bridge on the indexer side is deferred to v1.1 and tracked
+ * elsewhere. The orphan placeholder test has been dropped.
  */
 import { expect, test, describe } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -134,16 +136,5 @@ describe("G7.5.A.2 — projector wiring", () => {
 		expect(taskBoardSrc).toMatch(
 			/from\s+["'].*core\/projector\/transcript-transformer/,
 		);
-	});
-
-	test("apohara-indexer carries Sprint-8 TODO for projectToSearchRows ingest", () => {
-		const libRs = readFileSync(
-			resolve(REPO_ROOT, "crates/apohara-indexer/src/lib.rs"),
-			"utf8",
-		);
-		// Acknowledged-temporal: Sprint 8 will replace this whole ingest path
-		// with sqlite-vec consuming `projectToSearchRows` output.
-		expect(libRs).toMatch(/sprint-8/i);
-		expect(libRs).toMatch(/projectToSearchRows/);
 	});
 });
