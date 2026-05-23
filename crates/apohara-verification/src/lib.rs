@@ -5,10 +5,12 @@
 //!
 //! G1.B.1 — ported task-by-task following TDD per module.
 
+pub mod critic_prompt;
 pub mod dual_status_ac;
 pub mod hallucination_flag;
 pub mod verification_rounds;
 
+pub use critic_prompt::{build_critic_prompt, CriticContext};
 pub use dual_status_ac::{AcSpec, AcStatus, AdminStatus, DevStatus, DualStatusAc};
 pub use hallucination_flag::{detect_hallucinations, DetectArgs, DetectResult};
 pub use verification_rounds::{
@@ -16,6 +18,8 @@ pub use verification_rounds::{
     RoundOutcome, VerificationRoundTracker, DEFAULT_MAX_ROUNDS,
 };
 
+#[cfg(test)]
+mod critic_prompt_tests;
 #[cfg(test)]
 mod dual_status_ac_tests;
 #[cfg(test)]
