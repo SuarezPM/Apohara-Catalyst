@@ -73,6 +73,21 @@ No advisory requires a code change in this sprint. All medium/unmaintained items
 
 All boundary layers green.
 
+## Regression guards (added during Sprint 10)
+
+- ✅ `tests/unit/no-secrets-in-build.test.ts` — G10.B.2 (commit `786b747`) — scans dist/ + src/ + packages/ + crates/ for 6 canonical secret patterns (sk-ant, sk-proj, AKIA, ghp_, gho_, ya29.). Test/fixture/mock paths excluded. 2 tests pass clean.
+- ✅ `tests/unit/crash-report-redaction-fuzz.test.ts` — G10.B.3 (commit `b37fcee`) — fuzz redactCrashReport with 4 canonical secret patterns embedded in message/stack/context. Asserts all redacted while preserving non-secret content. 2 tests pass.
+
+## Threat model coverage
+
+| Threat | Mitigation | Test |
+|---|---|---|
+| Provider env leak (ANTHROPIC_API_KEY, GITHUB_TOKEN, etc. exfiltrated to subprocess) | §0.4 sanitizeEnv at every spawn site | tests/core/persistence/envSanitizer (11 pass) |
+| Workspace escape (path traversal, symlink-out) | apohara-pathsafety crate (canonicalize_recursive) | crates/apohara-pathsafety (2 pass) + crates/apohara-sandbox (22 pass) |
+| Crash report exfil (secrets in stack/context) | redactCrashReport(report) before any submit | crash-report-redaction-fuzz (2 pass) |
+| Hardcoded credentials in build artifacts | no-secrets-in-build regression guard | tests/unit/no-secrets-in-build (2 pass) |
+| Privileged process | sandbox seccomp-bpf + no-setuid in npm package | crates/apohara-sandbox (22 pass; 2 e2e ignored on hardened kernels) |
+
 ## Conclusión
 
 **PROCEED.**
