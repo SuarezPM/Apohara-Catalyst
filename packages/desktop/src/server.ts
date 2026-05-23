@@ -15,7 +15,7 @@ import { existsSync, watch as fsWatch } from "node:fs";
 import { appendFile, mkdir, open, stat } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
 import { dispatchSession } from "../../../src/core/dispatch/dispatcher";
-import { runReconcilerTick } from "../../../src/core/dispatch/reconciler";
+import { runReconcilerPasses } from "../../../src/core/dispatch/reconciler";
 import {
 	watchSessionResults,
 	type Disposable,
@@ -144,21 +144,32 @@ const sessionLedgers = new Map<string, string>();
 // Override via `APOHARA_RECONCILER_INTERVAL_MS=0` to disable entirely
 // (tests, CI). `APOHARA_RECONCILER_STALL_MS` shadows the per-task
 // stall timeout (default 5 min — see `reconciler.ts`).
+// `APOHARA_RECONCILER_BLOCKED_AGING_MS` shadows the blocked-aging
+// threshold for the multi-pass orchestrator (Pass E, G5.B.2).
 const RECONCILER_INTERVAL_MS = Number(
 	process.env.APOHARA_RECONCILER_INTERVAL_MS ?? "30000",
 );
 const RECONCILER_STALL_MS = Number(
 	process.env.APOHARA_RECONCILER_STALL_MS ?? "300000",
 );
+const RECONCILER_BLOCKED_AGING_MS = Number(
+	process.env.APOHARA_RECONCILER_BLOCKED_AGING_MS ?? "300000",
+);
 if (RECONCILER_INTERVAL_MS > 0) {
 	const tick = setInterval(async () => {
 		for (const [sid, ledgerPath] of sessionLedgers) {
 			try {
-				await runReconcilerTick({
+				// G7.5.A.4: multi-pass (stall_detection + blocked_aging) replaces
+				// legacy single-pass runReconcilerTick. The return shape is
+				// `ReconcileReport` ({ passResults[], totalAffected[] }) — we
+				// don't consume it here, the passes write their own ledger
+				// events as side effects.
+				await runReconcilerPasses({
 					workspace: REPO_ROOT,
 					sessionId: sid,
 					ledgerPath,
 					stallTimeoutMs: RECONCILER_STALL_MS,
+					blockedAgingMs: RECONCILER_BLOCKED_AGING_MS,
 				});
 			} catch {
 				// Best-effort — the tick CANNOT throw because the bun
