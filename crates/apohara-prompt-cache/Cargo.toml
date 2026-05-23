@@ -1,0 +1,24 @@
+[package]
+name = "apohara-prompt-cache"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+dashmap = "6"
+rusqlite = { version = "0.32", features = ["bundled"] }
+blake3 = "1"
+apohara-types = { path = "../apohara-types" }
+
+[dev-dependencies]
+tempfile = "3"
+criterion = "0.5"
+
+[[bench]]
+name = "cache_throughput"
+harness = false
