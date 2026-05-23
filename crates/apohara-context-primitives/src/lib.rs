@@ -18,7 +18,12 @@
 
 pub mod fingerprint;
 pub mod lsh;
+pub mod queueing;
 pub mod simhash;
 
 pub use lsh::{classify_match, lsh_bands, BandScheme, LshIndex, LshMatch, MatchConfidence, SignatureId};
+pub use queueing::{
+    erlang_c, lambda_critical, little_law_in_system, mmc_wait_time, utilization,
+    AdmissionDecision, Controller, ControllerConfig,
+};
 pub use simhash::{hamming_distance, simhash_64, simhash_64_from_tokens, simhash_64_shingles};
