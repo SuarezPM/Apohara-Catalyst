@@ -1,0 +1,27 @@
+[package]
+name = "apohara-hooks"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true }
+tauri = { version = "2", optional = true }
+apohara-types = { path = "../apohara-types" }
+apohara-hooks-server = { path = "../apohara-hooks-server" }
+
+[features]
+default = []
+tauri = ["dep:tauri"]
+
+[dev-dependencies]
+tempfile = "3"
+criterion = "0.5"
+
+[[bench]]
+name = "hooks_throughput"
+harness = false

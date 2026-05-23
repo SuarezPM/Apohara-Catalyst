@@ -29,6 +29,10 @@ members = [
     "crates/apohara-verification",
     "crates/apohara-safety",
     "crates/apohara-spec",
+    "crates/apohara-mcp",
+    "crates/apohara-hooks",
+    "crates/apohara-decomposer",
+    "crates/apohara-projector",
 ]
 
 [workspace.package]
