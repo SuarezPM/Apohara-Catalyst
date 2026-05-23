@@ -1,19 +1,63 @@
-//! Binary entry point for the apohara-indexer daemon.
+//! Apohara indexer CLI.
 //!
-//! Sprint 8 swap (G8.A.3) deleted the redb/Nomic-BERT-backed `server` module
-//! that this binary used to wire up. G8.A.4 will rewrite this entry point on
-//! top of the new sqlite-vec storage + JSON-RPC contract. Until then, the
-//! daemon emits a clear error so anyone running `cargo run -p apohara-indexer`
-//! mid-sprint knows what's going on (rather than getting a stale binary or
-//! a confusing `unresolved import`).
+//! Usage:
+//!   apohara-indexer index <db_path> <file>...
+//!   apohara-indexer query <db_path> <text>
 
 use anyhow::{bail, Result};
+use apohara_indexer::{insert_chunk, knn_query, open_db, IndexedChunk};
+use std::env;
+use std::path::{Path, PathBuf};
 
 fn main() -> Result<()> {
-    bail!(
-        "apohara-indexer daemon is being rebuilt on sqlite-vec — see G8.A.4 \
-         in docs/superpowers/plans/2026-05-22-apohara-v1.md (Sprint 8). The \
-         storage layer (apohara_indexer::{{open_db, insert_chunk, knn_query}}) \
-         is already available as a library."
-    );
+    let args: Vec<String> = env::args().collect();
+    if args.len() < 3 {
+        eprintln!("Usage: apohara-indexer <index|query> <db_path> [<args>...]");
+        std::process::exit(1);
+    }
+    let cmd = args[1].as_str();
+    let db_path = PathBuf::from(&args[2]);
+    let rest = &args[3..];
+
+    match cmd {
+        "index" => cmd_index(&db_path, rest),
+        "query" => cmd_query(&db_path, rest),
+        other => {
+            eprintln!("Unknown command: {}", other);
+            std::process::exit(2);
+        }
+    }
+}
+
+fn cmd_index(db_path: &Path, files: &[String]) -> Result<()> {
+    if files.is_empty() {
+        bail!("index command requires at least one file path");
+    }
+    let conn = open_db(db_path)?;
+    for path in files {
+        let body = std::fs::read_to_string(path)?;
+        let lines = body.lines().count() as u32;
+        let chunk = IndexedChunk {
+            id: format!("{}:1-{}", path, lines.max(1)),
+            file_path: path.clone(),
+            start_line: 1,
+            end_line: lines.max(1),
+            body,
+        };
+        insert_chunk(&conn, &chunk)?;
+    }
+    Ok(())
+}
+
+fn cmd_query(db_path: &Path, args: &[String]) -> Result<()> {
+    if args.is_empty() {
+        bail!("query command requires a search string");
+    }
+    let conn = open_db(db_path)?;
+    let k = 5usize;
+    let hits = knn_query(&conn, &args.join(" "), k)?;
+    for hit in hits {
+        println!("{}\t{:.4}", hit.chunk_id, hit.distance);
+    }
+    Ok(())
 }
