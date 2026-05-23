@@ -55,10 +55,6 @@ jobs:
 
       - name: Run tests
         env:
-          # Force mock embedding model so the indexer-dependent test paths
-          # skip the ~400 MB BERT load. Real model is gated behind explicit
-          # opt-out per CLAUDE.md §8.1 (OOM hazard rule).
-          APOHARA_MOCK_EMBEDDINGS: "1"
           # Skip docker-driven integration legs on runners without docker.
           # macOS / windows runners do not ship a docker daemon by default.
           APOHARA_SKIP_DOCKER_E2E: "1"
@@ -88,8 +84,6 @@ jobs:
         # `ubuntu-24.04` runner. Cross-OS clock skew on macos/windows
         # makes wall-clock budgets unreliable there.
         if: matrix.os == 'ubuntu-24.04' && matrix.node == '22'
-        env:
-          APOHARA_MOCK_EMBEDDINGS: "1"
         run: bun test tests/benchmarks
 
   # G7.D.2 — cargo-audit gate. Runs on every PR; fails on any
@@ -192,10 +186,7 @@ jobs:
 
       - name: Run npx tarball E2E
         # The test handles `npm pack` + install + `--version` on its
-        # own; this step just runs it. `APOHARA_MOCK_EMBEDDINGS=1`
-        # short-circuits any incidental indexer load on import.
-        env:
-          APOHARA_MOCK_EMBEDDINGS: "1"
+        # own; this step just runs it.
         run: bun test tests/e2e/npx-from-tarball.test.ts
 
   # G7.E.4 — Cross-platform smoke. The main `test` matrix above
