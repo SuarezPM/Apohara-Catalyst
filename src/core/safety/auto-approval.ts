@@ -13,9 +13,16 @@
  * — the cost of a false positive is too high (data loss, network
  * egress with secrets, unintended writes).
  *
- * Composition rule: a compound bash command is auto-approvable only if
- * EVERY leg is auto-approvable. One unsafe leg poisons the whole.
+ * Compound bash → never auto-approve (INV-15 protection). Even if every
+ * leg is in the safe-list, granting `allow` would bypass the scope-clamp
+ * in `permissionService.check` that restricts compound bash to
+ * scope=["once"]. We push to `prompt` so the user can confirm and
+ * scope-clamp is applied. Detection uses the canonical `splitCompound`
+ * helper (handles `&&`, `||`, `;`, `|`, `&`, `$()`, backticks, `<()`,
+ * newlines, and quoting) — never a literal regex, which would miss
+ * substitution and quoted-string edge cases.
  */
+import { splitCompound } from "./bashCompoundAnalyzer";
 
 export interface ToolCall {
 	/** Tool name, e.g. "Read", "Bash", "Edit". */
@@ -107,10 +114,6 @@ const HARD_DENY_TOKENS = [
 	"rsync",
 ];
 
-// Compound-command separators that split a Bash invocation into legs.
-// Each leg must be classified independently.
-const BASH_COMPOUND_SPLIT = /\s*(?:&&|\|\||;|\|)\s*/;
-
 function classifyBashLeg(cmd: string): AutoApprovalDecision {
 	const tokens = cmd.trim().split(/\s+/);
 	if (tokens.length === 0 || tokens[0] === "") {
@@ -160,23 +163,25 @@ export function classifyToolForAutoApproval(call: ToolCall): AutoApprovalDecisio
 		if (!command) {
 			return { decision: "prompt", reason: "Bash call has no command" };
 		}
-		// Compound: every leg must be auto-approvable.
-		const legs = command.split(BASH_COMPOUND_SPLIT).filter((s) => s.length > 0);
+		// INV-15: compound bash NEVER auto-approves, even if every leg is in
+		// the safe-list. Auto-approval returns `allow` which short-circuits
+		// the scope-clamp in `permissionService.check`; falling through to
+		// `prompt` lets the clamp restrict scopes to ["once"].
+		const legs = splitCompound(command);
+		if (legs.length > 1) {
+			return {
+				decision: "prompt",
+				reason: "compound bash skipped from auto-approval (INV-15 scope-clamp)",
+			};
+		}
 		if (legs.length === 0) {
 			return { decision: "prompt", reason: "Bash call is empty after splitting" };
 		}
-		for (const leg of legs) {
-			const decision = classifyBashLeg(leg);
-			if (decision.decision !== "allow") {
-				// First unsafe leg poisons the compound — surface its reason
-				// so the user understands WHICH leg blocked auto-approval.
-				return {
-					decision: "prompt",
-					reason: `compound leg "${leg}" not auto-approvable: ${decision.reason}`,
-				};
-			}
+		const decision = classifyBashLeg(legs[0]);
+		if (decision.decision !== "allow") {
+			return decision;
 		}
-		return { decision: "allow", reason: `all ${legs.length} Bash leg(s) are read-only` };
+		return decision;
 	}
 
 	// Anything mutating or unknown: prompt.
