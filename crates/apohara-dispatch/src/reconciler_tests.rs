@@ -130,3 +130,94 @@ fn reconciler_ignores_completed_dispatched_task() {
 
     std::fs::remove_dir_all(workspace).ok();
 }
+
+#[test]
+fn reconciler_detects_blocked_task_past_aging_threshold() {
+    let workspace = "/tmp/test-blocked-aging";
+    let ledger_path = format!("{}/ledger.jsonl", workspace);
+    std::fs::create_dir_all(workspace).ok();
+
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+    let blocked_ms = now_ms - 600_000;
+
+    let entry = serde_json::json!({
+        "kind": "task_blocked",
+        "task_id": "b1",
+        "ts": blocked_ms,
+    });
+    std::fs::write(&ledger_path, format!("{}\n", entry)).unwrap();
+
+    let ctx = ReconcilerCtx {
+        ledger_path: ledger_path.clone(),
+        workspace: workspace.to_string(),
+        session_id: "blocked-aging-test".to_string(),
+        blocked_aging_ms: 300_000,
+        stall_timeout_ms: 300_000,
+    };
+
+    let result = run_reconciler_passes(&ctx).unwrap();
+    let aging_pass = result
+        .pass_results
+        .iter()
+        .find(|p| p.name == "blocked_aging")
+        .unwrap();
+    assert!(
+        aging_pass.affected.contains(&"b1".to_string()),
+        "b1 should be detected as aged-blocked"
+    );
+
+    std::fs::remove_dir_all(workspace).ok();
+}
+
+#[test]
+fn reconciler_ignores_released_blocked_task() {
+    let workspace = "/tmp/test-blocked-released";
+    let ledger_path = format!("{}/ledger.jsonl", workspace);
+    std::fs::create_dir_all(workspace).ok();
+
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+    let blocked_ms = now_ms - 600_000;
+
+    let blocked = serde_json::json!({
+        "kind": "task_blocked",
+        "task_id": "b2",
+        "ts": blocked_ms,
+    });
+    let unblocked = serde_json::json!({
+        "kind": "task_unblocked",
+        "task_id": "b2",
+        "ts": blocked_ms + 1000,
+    });
+    std::fs::write(
+        &ledger_path,
+        format!("{}\n{}\n", blocked, unblocked),
+    )
+    .unwrap();
+
+    let ctx = ReconcilerCtx {
+        ledger_path: ledger_path.clone(),
+        workspace: workspace.to_string(),
+        session_id: "blocked-released-test".to_string(),
+        blocked_aging_ms: 300_000,
+        stall_timeout_ms: 300_000,
+    };
+
+    let result = run_reconciler_passes(&ctx).unwrap();
+    let aging_pass = result
+        .pass_results
+        .iter()
+        .find(|p| p.name == "blocked_aging")
+        .unwrap();
+    assert!(
+        !aging_pass.affected.contains(&"b2".to_string()),
+        "released b2 must NOT be flagged as aged-blocked"
+    );
+
+    std::fs::remove_dir_all(workspace).ok();
+}
