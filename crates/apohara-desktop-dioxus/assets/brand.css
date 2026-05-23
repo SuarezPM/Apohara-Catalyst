@@ -468,3 +468,30 @@ body {
   color: color-mix(in srgb, var(--apohara-bone), transparent 50%);
   list-style: none;
 }
+
+/* Toast (G2.C.2.2) — Sonner-equivalent fixed-corner notification.
+   Replaces the empty .toast-container stub from G2.B.4. The container
+   already lives at the bottom-right corner; each Toast slots inside
+   and slides in from the right. */
+
+.toast {
+  padding: 12px 16px;
+  background: color-mix(in srgb, var(--apohara-ink), white 6%);
+  color: var(--apohara-bone);
+  border-left: 4px solid var(--apohara-lime);
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  pointer-events: auto;
+  animation: toast-in 200ms ease-out;
+}
+.toast-success { border-left-color: var(--apohara-lime); }
+.toast-error   { border-left-color: var(--apohara-red, #d04a3c); }
+.toast-info    { border-left-color: color-mix(in srgb, var(--apohara-bone), transparent 40%); }
+.toast-warn    { border-left-color: #d29922; }
+
+@keyframes toast-in {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0);   opacity: 1; }
+}
