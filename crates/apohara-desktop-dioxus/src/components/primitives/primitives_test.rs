@@ -102,3 +102,29 @@ mod input_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod card_tests {
+    use crate::components::primitives::Card;
+    use dioxus::prelude::*;
+
+    #[test]
+    fn wraps_children_in_brand_card() {
+        let html = dioxus_ssr::render_element(rsx! {
+            Card { "hello" }
+        });
+        assert!(html.contains("class=\"card"), "card class missing: {html}");
+        assert!(html.contains("hello"), "children missing: {html}");
+    }
+
+    #[test]
+    fn merges_extra_class_when_provided() {
+        let html = dioxus_ssr::render_element(rsx! {
+            Card { extra_class: "task".to_string(), "x" }
+        });
+        assert!(
+            html.contains("card task"),
+            "extra class not merged: {html}"
+        );
+    }
+}
