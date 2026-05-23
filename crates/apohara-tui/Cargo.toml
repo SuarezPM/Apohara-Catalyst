@@ -1,0 +1,24 @@
+[package]
+name = "apohara-tui"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "apohara-tui"
+path = "src/main.rs"
+
+[dependencies]
+ratatui = "0.28"
+crossterm = "0.28"
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+apohara-types = { path = "../apohara-types" }
+apohara-dispatch = { path = "../apohara-dispatch" }
+apohara-token-accounting = { path = "../apohara-token-accounting" }
+
+[dev-dependencies]
+insta = { version = "1", features = ["yaml"] }
