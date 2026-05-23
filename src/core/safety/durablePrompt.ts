@@ -17,7 +17,7 @@
  * explicit `flush()` API instead.
  */
 
-import { appendEntry, loadEntries } from "./durablePrompt-jsonl.js";
+import { appendEntry, compactLedger, loadEntries, type LedgerEntry } from "./durablePrompt-jsonl.js";
 
 export interface PermissionRequest {
   request_id: string;
@@ -151,10 +151,52 @@ export class DurablePromptStore {
    * maps. Previously `pending` / `responses` only ever grew; over a long
    * session this both wasted memory and made `listPending()` lie about
    * what was actually awaiting input.
+   *
+   * G5.F.10 — best-effort compactLedger auto-invoke. The pre-G5.F.10
+   * version retained the consumed entry in the JSONL ledger, so a
+   * restart would re-resurrect already-answered prompts as pending and
+   * the user would see "Allow Bash(npm test:*)?" a second time even
+   * after they had previously approved it.
+   *
+   * Compaction runs asynchronously and never blocks `consume()` (which
+   * itself runs on the synchronous waitForResponse code path that drives
+   * the UI). Errors are swallowed — the in-memory state is already
+   * correct; a failed compact only delays the cleanup until the next
+   * consume.
    */
   private consume(request_id: string): void {
     this.pending.delete(request_id);
     this.responses.delete(request_id);
+    if (this.ledgerPath) {
+      void this.scheduleCompact().catch(() => {
+        /* best-effort — in-memory state is already authoritative */
+      });
+    }
+  }
+
+  /**
+   * Single-flight compaction: rebuild the on-disk ledger from the live
+   * in-memory state (pending requests + un-consumed responses). Any
+   * already-consumed entry naturally drops out. If a compact is already
+   * running we coalesce with it.
+   */
+  private compactInFlight: Promise<void> | null = null;
+  private async scheduleCompact(): Promise<void> {
+    if (!this.ledgerPath) return;
+    if (this.compactInFlight) return this.compactInFlight;
+    const path = this.ledgerPath;
+    const alive: LedgerEntry[] = [
+      ...Array.from(this.pending.values()).map(
+        (data) => ({ kind: "request" as const, data }),
+      ),
+      ...Array.from(this.responses.values()).map(
+        (data) => ({ kind: "response" as const, data }),
+      ),
+    ];
+    this.compactInFlight = compactLedger(path, alive).finally(() => {
+      this.compactInFlight = null;
+    });
+    return this.compactInFlight;
   }
 
   listPending(): PermissionRequest[] {

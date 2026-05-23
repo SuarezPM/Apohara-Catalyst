@@ -14,8 +14,9 @@
  * changes [`load`]/[`save`].
  */
 
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { atomicWriteFile } from "./persistence/atomicWrite.js";
 import { roleToTaskType, type TaskType } from "./capability-manifest";
 import type { ProviderId, TaskRole } from "./types";
 
@@ -104,7 +105,10 @@ export class CapabilityStats {
 				updatedAt: new Date().toISOString(),
 				entries: [...this.map.values()],
 			};
-			await writeFile(this.filePath, JSON.stringify(payload, null, 2), "utf-8");
+			// §0.8 atomic write — power-loss between rename and writeback
+			// would otherwise yield a zero-length `capability-stats.json`
+			// and reset the router's Thompson-Sampling state on next boot.
+			await atomicWriteFile(this.filePath, JSON.stringify(payload, null, 2));
 		});
 		return this.writeQueue;
 	}

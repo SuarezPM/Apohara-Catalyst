@@ -7,7 +7,7 @@
 //! and replays idempotent.
 
 pub mod counter;
-pub use counter::{TokenCounter, TokenSnapshot};
+pub use counter::{ThreadKey, TokenCounter, TokenSnapshot};
 
 #[cfg(test)]
 mod tests;

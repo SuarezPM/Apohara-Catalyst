@@ -1,7 +1,8 @@
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { mkdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { EventLedger } from "./ledger";
+import { atomicWriteFile } from "./persistence/atomicWrite.js";
 import { StateMachine } from "./state";
 import type { EventLog, OrchestratorState, Task } from "./types";
 
@@ -643,7 +644,10 @@ export class SummaryGenerator {
 		await mkdir(outputDir, { recursive: true });
 
 		const outputPath = join(outputDir, "summary.md");
-		await writeFile(outputPath, content, "utf-8");
+		// §0.8 atomic write — same rationale as consolidator.ts: the
+		// per-run summary lands in audit, partial writes are hard to
+		// detect post-hoc.
+		await atomicWriteFile(outputPath, content);
 
 		return outputPath;
 	}

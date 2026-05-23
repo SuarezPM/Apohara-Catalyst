@@ -54,6 +54,13 @@ export async function loadEntries(path: string): Promise<LedgerEntry[]> {
   return entries;
 }
 
+// Compaction is atomic by construction (multica #6): atomicWriteFile
+// uses mkstemp + rename, so a crash mid-compact either leaves the
+// original ledger intact OR replaces it with the compacted body — never
+// a half-written file that loadEntries would have to repair. The
+// caller's contract is therefore "compactLedger either succeeded or
+// nothing changed", which is what `tests/core/jsonl-atomic-mv.test.ts`
+// pins down.
 export async function compactLedger(
   path: string,
   alive: LedgerEntry[],

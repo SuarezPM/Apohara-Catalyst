@@ -1,8 +1,9 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { spawn } from "../lib/spawn";
 import { EventLedger } from "./ledger";
+import { atomicWriteFile } from "./persistence/atomicWrite.js";
 import type { OrchestratorState } from "./types";
 
 export interface ConsolidationResult {
@@ -355,7 +356,9 @@ This run executed ${params.allTasks.length} task(s) across ${params.successful.l
 The changes have been consolidated into branch \`${params.branchName}\`.
 `;
 
-		await writeFile(summaryPath, content, "utf-8");
+		// §0.8 atomic write — a partial summary.md would corrupt the
+		// run's audit trail and is hard to detect post-hoc.
+		await atomicWriteFile(summaryPath, content);
 
 		await this.ledger.log(
 			"summary_generated",

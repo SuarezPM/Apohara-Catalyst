@@ -104,3 +104,61 @@ test("invalidates cache entry on change", async () => {
 
   await watcher.close();
 });
+
+// G5.G.2 — hot-reload with last-known-good fallback
+test("retains last-known-good plan when the new version fails to parse", async () => {
+  const cache = new PlanStatusCache();
+  const path = join(workDir, "lkg.md");
+  await writeFile(path, PLAN("Stable v1"));
+  await cache.getFast(path); // prime LKG snapshot
+
+  const watcher = await startPlanWatcher({
+    rootPath: workDir,
+    cache,
+    debounceMs: 50,
+    hotReloadValidate: true,
+  });
+  await new Promise((r) => setTimeout(r, 200));
+
+  const invalidPromise = waitForEvent("apohara://plan-invalid");
+  // Broken YAML frontmatter — `parsePlanDocument` will throw.
+  await writeFile(path, "---\ntitle: : :::\nstatus:\n---\n\n## Objective\n\n");
+
+  const payload = (await invalidPromise) as { filepath: string; error: string };
+  expect(payload.filepath).toContain("lkg.md");
+  expect(payload.error.length).toBeGreaterThan(0);
+
+  // The cache must still resolve to the LAST KNOWN GOOD plan via
+  // `getFastOrLkg`. Direct `getFast` would re-throw because the file
+  // is genuinely broken right now.
+  const lkg = await cache.getFastOrLkg(path);
+  expect(lkg.title).toBe("Stable v1");
+
+  await watcher.close();
+});
+
+test("validated hot-reload accepts the new version when it parses cleanly", async () => {
+  const cache = new PlanStatusCache();
+  const path = join(workDir, "valid-reload.md");
+  await writeFile(path, PLAN("Initial"));
+  await cache.getFast(path);
+
+  const watcher = await startPlanWatcher({
+    rootPath: workDir,
+    cache,
+    debounceMs: 50,
+    hotReloadValidate: true,
+  });
+  await new Promise((r) => setTimeout(r, 200));
+
+  const changedPromise = waitForEvent("apohara://plan-changed");
+  await writeFile(path, PLAN("Updated"));
+
+  const payload = (await changedPromise) as { filepath: string };
+  expect(payload.filepath).toContain("valid-reload.md");
+
+  const fresh = await cache.getFast(path);
+  expect(fresh.title).toBe("Updated");
+
+  await watcher.close();
+});

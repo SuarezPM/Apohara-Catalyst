@@ -11,9 +11,15 @@
  *
  * Per spec §0.4, every spawn routes env through `sanitizeEnv()` so no
  * API keys / cloud creds leak into the wrapped CLI.
+ *
+ * G5.A.1 (nimbalyst #1.1): persistent stdin via `appendToStdin` / `endStdin`.
+ * G5.A.2 (nimbalyst #1.2): `sendMessage` parses opencode NDJSON
+ *   ({ type: "text" | "tool_use" | "step_finish" | ... }) and yields the
+ *   canonical `ProtocolEvent` stream.
  */
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { sanitizeEnv } from "../../persistence/envSanitizer";
+import { parseOpenCodeLine } from "./opencode-stream";
 import type {
   AgentProtocol,
   CreateSessionOpts,
@@ -22,7 +28,14 @@ import type {
   Message,
 } from "./AgentProtocol";
 
+interface OpenCodeSession {
+  child: ChildProcess;
+  stdinOpen: boolean;
+}
+
 export class OpenCodeProtocol implements AgentProtocol {
+  private readonly sessions = new Map<string, OpenCodeSession>();
+
   async createSession(opts: CreateSessionOpts): Promise<SpawnedSession> {
     // Sanitize first, THEN overlay opts.env. sanitizeEnv's blocklist
     // (`/^.*_TOKEN$/` etc.) would otherwise strip Apohara-controlled vars
@@ -43,6 +56,7 @@ export class OpenCodeProtocol implements AgentProtocol {
     // providerId encodes both the OS pid and a creation timestamp so we
     // can distinguish reused pids across long-running orchestrations.
     const providerId = `opencode-${child.pid}-${Date.now()}`;
+    this.sessions.set(providerId, { child, stdinOpen: true });
     return { providerId, spawnedAt: Date.now() };
   }
 
@@ -54,9 +68,65 @@ export class OpenCodeProtocol implements AgentProtocol {
     return { providerId: sessionId + "-fork", spawnedAt: Date.now() };
   }
 
-  async *sendMessage(_sessionId: string, _msg: Message): AsyncIterable<ProtocolEvent> {
+  async *sendMessage(
+    sessionId: string,
+    msg: Message,
+  ): AsyncIterable<ProtocolEvent> {
+    const sess = this.sessions.get(sessionId);
+    if (!sess) {
+      yield { kind: "complete", reason: "error" };
+      return;
+    }
+    if (sess.stdinOpen) {
+      sess.child.stdin?.write(msg.content + "\n");
+    }
+    const stdout = sess.child.stdout;
+    if (!stdout) {
+      yield { kind: "complete", reason: "finished" };
+      return;
+    }
+    let buf = "";
+    for await (const chunk of stdout as AsyncIterable<Buffer>) {
+      buf += chunk.toString("utf8");
+      let nl = buf.indexOf("\n");
+      while (nl !== -1) {
+        const line = buf.slice(0, nl);
+        buf = buf.slice(nl + 1);
+        const ev = parseOpenCodeLine(line);
+        if (ev) yield ev;
+        nl = buf.indexOf("\n");
+      }
+    }
+    if (buf.length > 0) {
+      const ev = parseOpenCodeLine(buf);
+      if (ev) yield ev;
+    }
     yield { kind: "complete", reason: "finished" };
   }
 
-  async abortSession(_sessionId: string): Promise<void> {}
+  async appendToStdin(sessionId: string, data: string): Promise<void> {
+    const sess = this.sessions.get(sessionId);
+    if (!sess) throw new Error(`no session: ${sessionId}`);
+    if (!sess.stdinOpen) throw new Error(`stdin already closed: ${sessionId}`);
+    await new Promise<void>((resolve, reject) => {
+      sess.child.stdin?.write(data, (err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+  }
+
+  async endStdin(sessionId: string): Promise<void> {
+    const sess = this.sessions.get(sessionId);
+    if (!sess) throw new Error(`no session: ${sessionId}`);
+    sess.child.stdin?.end();
+    sess.stdinOpen = false;
+  }
+
+  async abortSession(sessionId: string): Promise<void> {
+    const sess = this.sessions.get(sessionId);
+    if (!sess) return;
+    if (!sess.child.killed) sess.child.kill("SIGTERM");
+    this.sessions.delete(sessionId);
+  }
 }
