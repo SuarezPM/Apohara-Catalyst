@@ -18,7 +18,7 @@ pub mod manifest;
 pub mod scheduler_decision;
 
 pub use auto_spawn::{decide_auto_spawn, AutoSpawnDecision, AutoSpawnPolicy};
-pub use coordinator::{Coordinator, TickOutcome};
+pub use coordinator::{Coordinator, RetryReason, TickOutcome};
 
 /// Crate version, for smoke tests and version surfacing.
 pub fn version() -> &'static str {
