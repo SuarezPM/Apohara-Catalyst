@@ -47,5 +47,10 @@ export function detectPoisonedSession(session: SessionLike): boolean {
 
 export function quarantineSession(session: SessionLike): string {
   // Returns the target archive path. Caller writes the actual file.
-  return `quarantine/${session.id}-${Date.now()}.json`;
+  // Sanitize session.id against path traversal — strip slashes, dots,
+  // null bytes. A caller passing `../../etc/passwd` as session.id would
+  // otherwise escape the quarantine dir. Defensive: callers should
+  // already validate, but quarantine is a security boundary.
+  const safeId = session.id.replace(/[\/\\.\0]/g, "_") || "anon";
+  return `quarantine/${safeId}-${Date.now()}.json`;
 }
