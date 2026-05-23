@@ -11,6 +11,8 @@ thiserror = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 chrono = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
 tauri = { version = "2", optional = true }
 tempfile = "3"
 apohara-types = { path = "../apohara-types" }
