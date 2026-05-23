@@ -7,10 +7,9 @@
 //!
 //! Profiles:
 //!   - `Strict`  — every reserved word, in any non-ALL-CAPS form, is an
-//!                 error. Default.
+//!     error. Default.
 //!   - `Lenient` — the "must" trio (MUST / SHALL / REQUIRED) remains an
-//!                 error; SHOULD / MAY / RECOMMENDED / OPTIONAL become
-//!                 warnings.
+//!     error; SHOULD / MAY / RECOMMENDED / OPTIONAL become warnings.
 //!   - `Off`     — no-op; the validator returns no violations.
 //!
 //! Markdown-aware: reserved keywords inside ```fenced``` blocks and
@@ -22,18 +21,13 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Rfc2119Profile {
+    #[default]
     Strict,
     Lenient,
     Off,
-}
-
-impl Default for Rfc2119Profile {
-    fn default() -> Self {
-        Self::Strict
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -9,6 +9,7 @@
 pub mod plan_documents;
 pub mod plan_status_cache;
 pub mod rfc2119;
+pub mod watcher;
 
 pub use plan_documents::{
     parse_plan_document, parse_plan_document_str, AgentSessionOutcome, AgentSessionRef,
@@ -18,6 +19,9 @@ pub use plan_status_cache::{CacheError, PlanStatusCache};
 pub use rfc2119::{
     validate_rfc2119, Rfc2119Profile, Rfc2119Result, Rfc2119Severity, Rfc2119Violation,
 };
+pub use watcher::{
+    start_plan_watcher, PlanWatcherHandle, PlanWatcherOpts, WatcherError, WatcherEvent,
+};
 
 #[cfg(test)]
 mod plan_documents_tests;
@@ -25,3 +29,5 @@ mod plan_documents_tests;
 mod plan_status_cache_tests;
 #[cfg(test)]
 mod rfc2119_tests;
+#[cfg(test)]
+mod watcher_tests;
