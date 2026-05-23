@@ -15,8 +15,9 @@ use std::collections::HashMap;
 
 /// The 7 task statuses in column order rendered left→right by TaskBoard.
 /// Mirrors `TaskStatus` from `packages/desktop/src/store/dagStore.ts`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum TaskStatus {
+    #[default]
     Pending,
     Ready,
     Dispatched,
@@ -24,12 +25,6 @@ pub enum TaskStatus {
     Done,
     Failed,
     Blocked,
-}
-
-impl Default for TaskStatus {
-    fn default() -> Self {
-        Self::Pending
-    }
 }
 
 /// UI projection of a DAG task. Mirrors the `DagTask` interface in
