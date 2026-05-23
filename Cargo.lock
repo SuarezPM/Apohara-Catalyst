@@ -269,6 +269,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "apohara-decomposer"
+version = "1.0.0"
+dependencies = [
+ "anyhow",
+ "apohara-types",
+ "criterion",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "apohara-desktop"
 version = "0.0.1-alpha"
 dependencies = [
@@ -319,6 +335,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "apohara-hooks"
+version = "1.0.0"
+dependencies = [
+ "anyhow",
+ "apohara-hooks-server",
+ "apohara-types",
+ "criterion",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "apohara-hooks-server"
 version = "1.0.0"
 dependencies = [
@@ -365,6 +398,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "apohara-mcp"
+version = "1.0.0"
+dependencies = [
+ "anyhow",
+ "apohara-mcp-bridge",
+ "apohara-types",
+ "criterion",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "apohara-mcp-bridge"
 version = "1.0.0"
 dependencies = [
@@ -400,6 +450,22 @@ version = "1.0.0"
 dependencies = [
  "dirs 5.0.1",
  "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
+name = "apohara-projector"
+version = "1.0.0"
+dependencies = [
+ "anyhow",
+ "apohara-types",
+ "criterion",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
  "tracing",
 ]
 
