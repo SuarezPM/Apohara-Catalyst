@@ -4,6 +4,29 @@
  * Abstract base: subclasses declare id, displayName, roles, and protocol.
  * Base implements spawn (env sanitization + hook env injection + trust
  * preset application + delegation to protocol).
+ *
+ * --- T4.7d — Delegation contract ---
+ *
+ * BaseAgentProvider MUST NOT spawn child processes directly. Every spawn
+ * routes through `this.protocol.createSession()`. This is the closing wire
+ * for nimbalyst #1.2: pre-T4.7a/b/c the 3 Protocol scaffolds were stubs and
+ * the only real spawn lived in `src/providers/cli-driver.ts`. T4.7a/b/c
+ * moved spawn into Claude/Codex/OpenCode Protocol classes; T4.7d pins the
+ * delegation invariant (covered by `tests/integration/protocol-delegated-spawn.test.ts`).
+ *
+ * Note: `src/providers/cli-driver.ts` is a DIFFERENT code path used by
+ * `router.ts` for one-shot LLM calls (text-in/text-out `LLMResponse`).
+ * It keeps its own `node:child_process.spawn` because its signature
+ * (`LLMMessage[] → LLMResponse`) is incompatible with the session
+ * lifecycle protocol (`CreateSessionOpts → SpawnedSession`). Both
+ * paths share `sanitizeEnv` (§0.4) and the per-binary FIFO queue
+ * (`runSerialized` — load-bearing, see CLAUDE.md past incidents).
+ *
+ * The Protocol implementations (ClaudeCodeProtocol / CodexProtocol /
+ * OpenCodeProtocol) format their providerId as `<provider>-<pid>-<ts>`,
+ * which is how `protocol-delegated-spawn.test.ts` proves the spawn
+ * actually went through the Protocol — that prefix is the Protocol's
+ * fingerprint and can only show up if BaseAgentProvider delegated.
  */
 import { sanitizeEnv } from "../persistence/envSanitizer";
 import { getApoharaDeps } from "./deps";

@@ -1,10 +1,25 @@
 /** 3-tier settings hierarchy per spec §4.6. */
 
+import { readFile } from "node:fs/promises";
+import {
+	type AnyVersionedConfig,
+	loadConfigWithMigration,
+} from "../config/versioning.js";
+import { atomicWriteJson } from "../persistence/atomicWrite.js";
+
 export interface SettingsTier {
 	source: "user_global" | "project_shared" | "project_local";
 	patterns: string[];
 	deny: string[];
 }
+
+/**
+ * Versioned shape of `settings.json` on disk. Currently identical to the
+ * config versioning chain target (v2). When new fields are added, bump the
+ * versioning chain in `core/config/versioning.ts` and add a migration there;
+ * `loadSettings` will pick them up automatically via `loadConfigWithMigration`.
+ */
+export type Settings = AnyVersionedConfig;
 
 export interface MergedSettings {
 	allow: string[];
@@ -41,4 +56,32 @@ export function mergeSettingsTiers(
 		for (const p of t.deny) deny.add(p);
 	}
 	return { allow: Array.from(allow), deny: Array.from(deny) };
+}
+
+/**
+ * Load and migrate `settings.json` from disk.
+ *
+ * Multica #17 fix (T4.4c): cables the generic versioning chain
+ * (`loadConfigWithMigration`, T4.8b) into the settings loader so adding
+ * a new field in a release does NOT break existing installs.
+ *
+ * Behavior:
+ *   - Legacy file (no `schema_version`) is auto-promoted to v1 in-place,
+ *     then migrated v1 → v2 by the versioning chain.
+ *   - Already-versioned file is passed through (and migrated forward if
+ *     `schema_version` is older than the chain target).
+ *   - A `.bak` snapshot of the pre-migration form is written by
+ *     `loadConfigWithMigration` whenever a migration step runs (it also
+ *     restores `.bak` on write failure).
+ */
+export async function loadSettings(path: string): Promise<Settings> {
+	const raw = JSON.parse(await readFile(path, "utf-8"));
+	// Auto-promote legacy (no schema_version) to v1 so the generic
+	// migration chain can take over from a known baseline.
+	if (raw.schema_version === undefined) {
+		raw.schema_version = 1;
+		await atomicWriteJson(path, raw);
+	}
+	const migrated = await loadConfigWithMigration(path, /*targetVersion=*/ 2);
+	return migrated;
 }

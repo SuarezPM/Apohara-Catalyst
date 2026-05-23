@@ -8,7 +8,7 @@
 use axum::{extract::State, http::StatusCode, response::Json};
 use serde::{Deserialize, Serialize};
 
-use crate::auth::AuthState;
+use crate::AppState;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -65,7 +65,7 @@ pub struct HookEventEnvelope {
 }
 
 pub async fn handle_event(
-    State(_state): State<AuthState>,
+    State(state): State<AppState>,
     Json(envelope): Json<HookEventEnvelope>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     // Re-fold the discriminator into payload and validate against the
@@ -92,17 +92,28 @@ pub async fn handle_event(
         "type".into(),
         serde_json::Value::String(envelope.event_type.clone()),
     );
-    let _: HookEventPayload = match serde_json::from_value(serde_json::Value::Object(tagged)) {
+    let payload: HookEventPayload = match serde_json::from_value(serde_json::Value::Object(tagged))
+    {
         Ok(p) => p,
         Err(_) => return Err(StatusCode::UNPROCESSABLE_ENTITY),
     };
 
-    // TODO Stage 2.3: forward to broadcast channel + orchestration DB.
+    // Forward to in-process subscribers (UI bridge, ledger appender,
+    // future Coordinator loop). `send` returns Err when there are no
+    // active subscribers — that's benign, just a startup-window or
+    // headless-server condition, never a hard failure.
+    if state.broadcaster.send(payload).is_err() {
+        tracing::warn!(
+            event_type = %envelope.event_type,
+            "hooks-server: no active subscribers for event"
+        );
+    }
+
     tracing::info!(
         event_type = %envelope.event_type,
         pane = %envelope.pane_key,
         task = ?envelope.task_id,
-        "hook event received"
+        "hook event broadcast"
     );
 
     Ok(Json(serde_json::json!({ "accepted": true })))

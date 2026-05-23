@@ -12,8 +12,11 @@
 
 pub mod blast_radius;
 pub mod conflict_matrix;
+pub mod coordinator;
 pub mod manifest;
 pub mod scheduler_decision;
+
+pub use coordinator::{Coordinator, TickOutcome};
 
 /// Crate version, for smoke tests and version surfacing.
 pub fn version() -> &'static str {
