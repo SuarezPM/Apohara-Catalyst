@@ -15,7 +15,7 @@
  *
  * Both functions stay side-effect-free except for the filesystem write.
  */
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 export type SkillProvider = "claude" | "codex" | "opencode";
@@ -96,4 +96,38 @@ export async function installSkillCanonical(
 	const path = join(dir, "SKILL.md");
 	await writeFile(path, args.content, "utf-8");
 	return path;
+}
+
+/**
+ * G7.5.E.2 — Convenience wrapper: read the bundled Apohara SKILL.md template
+ * (shipped by G7.5.E.1 at `templates/skill-apohara/SKILL.md`) and install it
+ * via `installSkillCanonical` for the requested provider.
+ *
+ * `homeRoot` mirrors `installSkillCanonical`: tests pass a tmp dir; production
+ * callers omit it so `process.env.HOME` is used.
+ */
+export async function installApoharaSkill(
+	provider: SkillProvider,
+	homeRoot?: string,
+): Promise<string> {
+	// `import.meta.dir` is the directory of THIS file at runtime. Under Bun's
+	// source loader it resolves to `<repo>/src/cli`, so the template is two
+	// levels up. Bundling: keep this file out of any bundle that strips the
+	// `templates/` tree from the deploy artifact (the desktop / TUI builds
+	// already ship `templates/` next to the binary).
+	const templatePath = join(
+		import.meta.dir,
+		"..",
+		"..",
+		"templates",
+		"skill-apohara",
+		"SKILL.md",
+	);
+	const content = await readFile(templatePath, "utf-8");
+	return installSkillCanonical({
+		provider,
+		name: "apohara",
+		content,
+		homeRoot,
+	});
 }

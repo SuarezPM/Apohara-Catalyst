@@ -13,6 +13,9 @@ use crate::permission::PermissionTier;
 #[cfg(target_os = "linux")]
 mod imp;
 
+#[cfg(target_os = "linux")]
+pub use imp::validate_workdir;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SandboxRequest {
     pub command: Vec<String>,
