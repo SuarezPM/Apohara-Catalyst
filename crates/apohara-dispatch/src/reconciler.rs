@@ -103,10 +103,57 @@ fn run_stall_detection_pass(ctx: &ReconcilerCtx) -> Result<PassResult> {
     })
 }
 
-fn run_blocked_aging_pass(_ctx: &ReconcilerCtx) -> Result<PassResult> {
+fn run_blocked_aging_pass(ctx: &ReconcilerCtx) -> Result<PassResult> {
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+
+    let content = std::fs::read_to_string(&ctx.ledger_path).unwrap_or_default();
+    let mut latest_blocked: std::collections::HashMap<String, u64> =
+        std::collections::HashMap::new();
+    let mut released: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    for line in content.lines() {
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        let Some(kind) = v.get("kind").and_then(|k| k.as_str()) else {
+            continue;
+        };
+        let Some(task_id) = v.get("task_id").and_then(|t| t.as_str()) else {
+            continue;
+        };
+        let ts = v.get("ts").and_then(|t| t.as_u64()).unwrap_or(0);
+
+        match kind {
+            "task_blocked" => {
+                latest_blocked.insert(task_id.to_string(), ts);
+            }
+            "task_unblocked" | "task_completed" | "task_failed" | "needs_operator" => {
+                released.insert(task_id.to_string());
+            }
+            _ => {}
+        }
+    }
+
+    let mut aged = Vec::new();
+    for (task_id, blocked_ts) in &latest_blocked {
+        if released.contains(task_id) {
+            continue;
+        }
+        if now_ms.saturating_sub(*blocked_ts) > ctx.blocked_aging_ms {
+            aged.push(task_id.clone());
+        }
+    }
+    aged.sort();
+
     Ok(PassResult {
         name: "blocked_aging".to_string(),
-        affected: vec![],
-        details: "no blocked tasks past aging threshold".to_string(),
+        details: format!("{} blocked tasks past aging threshold", aged.len()),
+        affected: aged,
     })
 }

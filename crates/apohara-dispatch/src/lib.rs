@@ -12,9 +12,13 @@ pub mod retry;
 pub mod teammate;
 pub mod careful;
 
-pub use cli_driver::{CliDriver, DispatchRequest, DispatchOutcome};
+pub use careful::CarefulMode;
+pub use cli_driver::{CliDriver, DispatchOutcome, DispatchRequest};
+pub use continuation::ContinuationTracker;
 pub use reconciler::{run_reconciler_passes, ReconcilerCtx, ReconcilerResult};
+pub use retry::{compute_retry_delay, RetryReason};
 pub use state::{BlockedReason, RunPhase, RunState, RunTransition, TransitionState};
+pub use teammate::TeammateRoster;
 
 #[cfg(test)]
 mod state_tests;
