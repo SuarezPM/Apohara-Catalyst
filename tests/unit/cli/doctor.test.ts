@@ -9,7 +9,10 @@ function tmpHome(): string {
 }
 
 describe("doctor sections", () => {
-  test("runs all 7 sections by default", () => {
+  test("runs every registered section by default", () => {
+    // G10.D.1 added 7 release-coverage sections on top of the original 7;
+    // assertion stays dynamic via ALL_SECTIONS so future additions don't
+    // require touching this test again.
     const r = doctor({ apoharaHome: tmpHome() });
     expect(r.sections.map(s => s.name)).toEqual(ALL_SECTIONS);
   });
@@ -17,7 +20,7 @@ describe("doctor sections", () => {
   test("--skip-mcp removes mcp section", () => {
     const r = doctor({ apoharaHome: tmpHome(), skip: ["mcp"] });
     expect(r.sections.find(s => s.name === "mcp")).toBeUndefined();
-    expect(r.sections.length).toBe(6);
+    expect(r.sections.length).toBe(ALL_SECTIONS.length - 1);
   });
 
   test("multiple --skip flags compose", () => {
