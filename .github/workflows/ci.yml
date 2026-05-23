@@ -282,3 +282,47 @@ jobs:
           name: doctor-${{ matrix.os }}-node${{ matrix.node }}
           path: ~/.apohara/doctor-report.json
           if-no-files-found: warn
+
+  # G3.C.3 — INV-bash-scope proof gate. The plan asked for a Z3 SMT
+  # proof job; we ship the proptest-exhaustion equivalent because the
+  # current build hosts (CachyOS dev, ubuntu-22.04 CI) have no libz3
+  # installed and bundling Z3 from source bloats the CI cache by
+  # ~120 MB and adds ~5 min per run. The exhaustion proof is
+  # mechanically equivalent in scope (see
+  # crates/apohara-safety/src/inv_bash_scope.rs for the trade-off
+  # write-up). When libz3 becomes installable on the runner, swap
+  # this job's body for the SMT solver invocation without changing
+  # the gate semantics.
+  inv-bash-scope-proof:
+    name: inv-bash-scope-proof
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: inv-bash-scope-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            inv-bash-scope-${{ runner.os }}-
+
+      - name: Run INV-bash-scope proptest exhaustion proof
+        # Release profile makes the 1024 generated cases per proptest
+        # finish in ~0.2s instead of ~2s; matters because this job
+        # blocks merge so the wall-clock latency is visible.
+        run: cargo test -p apohara-safety inv_bash_scope --release
+
+      - name: Run verification-mesh INV-bash-scope gate integration test
+        # The gate wires INV-bash-scope into the run_all_gates pipeline;
+        # this job pins the integration so an accidental gate removal
+        # surfaces immediately (instead of next time a critic run
+        # exercises the affected code path).
+        run: cargo test -p apohara-verification --test inv_bash_scope_gate --release

@@ -15,6 +15,7 @@
 - [ ] Locally verified: `npm install -g @apohara/catalyst-1.0.0-rc.1.tgz && apohara doctor`
 - [ ] **Phase 1 Rust core cierre verified**: `cargo test --workspace` 836/0 + `cargo clippy --workspace -- -D warnings` clean + `./target/release/apohara doctor` exits 0 or 2 + Tauri desktop builds (15 Rust commands registered)
 - [ ] **Phase 2 Dioxus UI cierre verified**: `cargo test --workspace` 949/0 (post dioxus rejoin) + `cargo clippy --workspace` clean + zero TS source in repo (`find . -name '*.ts' -not -path './crates/*/bindings/*' -not -path './crates/apohara-indexer/tests/fixtures/*' | wc -l` = 0) + `cargo run -p apohara-desktop-dioxus` boots
+- [ ] **Phase 3 ContextForge + INV-bash-scope cierre verified**: `cargo test --workspace` >= 1080/0 + `cargo clippy --workspace -- -D warnings` clean + `cargo build --workspace` clean + `apohara-tui` boots + prompt-cache benches meet budget + CI `inv-bash-scope-proof` job green on HEAD
 
 ## Pablo sign-off
 
