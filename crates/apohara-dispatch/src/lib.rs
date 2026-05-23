@@ -14,4 +14,7 @@ pub mod careful;
 
 pub use cli_driver::{CliDriver, DispatchRequest, DispatchOutcome};
 pub use reconciler::{run_reconciler_passes, ReconcilerCtx, ReconcilerResult};
-pub use state::{RunState, RunTransition, BlockedReason};
+pub use state::{BlockedReason, RunPhase, RunState, RunTransition, TransitionState};
+
+#[cfg(test)]
+mod state_tests;
