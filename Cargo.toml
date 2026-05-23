@@ -25,6 +25,7 @@ members = [
     "crates/apohara-transport",
     "crates/apohara-ws-hub",
     "crates/apohara-reaction-engine",
+    "crates/apohara-dispatch",
 ]
 
 [workspace.package]
