@@ -10,6 +10,7 @@
 
 pub mod auto_approval;
 pub mod bash_compound;
+pub mod durable_prompt;
 pub mod guardrail_flags;
 pub mod pattern_validator;
 pub mod patterns;
@@ -53,6 +54,8 @@ mod pattern_validator_tests;
 mod patterns_tests;
 #[cfg(test)]
 mod permission_cache_grid_tests;
+#[cfg(test)]
+mod durable_prompt_tests;
 #[cfg(test)]
 mod permission_service_tests;
 #[cfg(test)]
