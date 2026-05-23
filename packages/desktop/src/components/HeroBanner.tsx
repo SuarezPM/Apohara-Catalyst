@@ -1,5 +1,5 @@
 /**
- * HeroBanner — F11 empty-state intro card (G7.C.7).
+ * HeroBanner — Apohara Catalyst empty-state intro card.
  *
  * Renders ONLY when:
  *   - No active session is running (sessionId === null), AND
@@ -10,9 +10,14 @@
  * Inspired by `vibe-kanban`'s onboarding panel (#17) which we adopted in
  * the v1.0 spec catch-up sweep.
  *
- * The component is self-contained — it reads `tasksAtom` directly and
- * accepts `sessionId` as a prop so the parent (`App.tsx`) doesn't have
- * to drill conditional rendering.
+ * G9.A.3 rebrand: the wordmark switches to "APOHARA CATALYST" in the lime
+ * token (`--apohara-lime`) via the `.font-display` utility class (Press
+ * Start 2P). Background + accents use the Catalyst palette (ink, bone,
+ * lime) so the empty-state matches the pixel-art aesthetic introduced in
+ * G9.A.1 (CSS palette swap) and G9.A.2 (typography stack).
+ *
+ * Props are unchanged: App.tsx still passes `sessionId` + `onSeedDemo`.
+ * The mascot sprite slot lands in G9.D.3 once the asset is wired.
  */
 import { useAtomValue } from "jotai/react";
 import { tasksAtom } from "../store/dagStore.js";
@@ -38,35 +43,40 @@ export function HeroBanner({ sessionId, onSeedDemo }: HeroBannerProps) {
 		<section
 			data-testid="hero-banner"
 			role="region"
-			aria-label="Apohara welcome"
+			aria-label="Apohara Catalyst welcome"
 			style={{
 				margin: "1.5rem auto",
 				padding: "1.5rem 2rem",
 				maxWidth: 720,
-				background: "linear-gradient(135deg, #161b22 0%, #0d1117 100%)",
-				border: "1px solid #30363d",
-				borderRadius: 8,
-				color: "#e6edf3",
+				background: "var(--apohara-ink)",
+				border: "2px solid var(--apohara-lime)",
+				borderRadius: 4,
+				color: "var(--apohara-bone)",
 				textAlign: "center",
 			}}
 		>
 			<h2
+				className="font-display"
+				data-testid="hero-banner-wordmark"
 				style={{
 					margin: 0,
-					marginBottom: "0.5rem",
-					fontSize: "1.4rem",
-					fontWeight: 700,
+					marginBottom: "0.75rem",
+					fontSize: "1.1rem",
+					color: "var(--apohara-lime)",
+					letterSpacing: "3px",
+					lineHeight: 1.4,
 				}}
 			>
-				Apohara — multi-agent orchestration, local-first.
+				APOHARA CATALYST
 			</h2>
 			<p
 				data-testid="hero-banner-tagline"
 				style={{
 					margin: 0,
 					marginBottom: "1rem",
-					color: "#8b949e",
-					fontSize: "0.9rem",
+					color: "rgba(237, 239, 240, 0.7)",
+					fontFamily: "var(--font-mono)",
+					fontSize: "0.85rem",
 				}}
 			>
 				Three sanctioned CLI drivers (claude, codex, opencode), one ledger,
@@ -88,13 +98,16 @@ export function HeroBanner({ sessionId, onSeedDemo }: HeroBannerProps) {
 						onClick={onSeedDemo}
 						style={{
 							padding: "0.5rem 1rem",
-							background: "#1f6feb",
-							color: "#ffffff",
-							border: "1px solid #1f6feb",
+							background: "var(--apohara-lime)",
+							color: "var(--apohara-ink)",
+							border: "2px solid var(--apohara-lime)",
 							borderRadius: 4,
 							cursor: "pointer",
-							fontSize: "0.85rem",
-							fontWeight: 600,
+							fontFamily: "var(--font-mono)",
+							fontSize: "0.8rem",
+							fontWeight: 700,
+							letterSpacing: "1px",
+							textTransform: "uppercase",
 						}}
 					>
 						Try the demo
@@ -107,13 +120,16 @@ export function HeroBanner({ sessionId, onSeedDemo }: HeroBannerProps) {
 					rel="noreferrer noopener"
 					style={{
 						padding: "0.5rem 1rem",
-						background: "#21262d",
-						color: "#e6edf3",
-						border: "1px solid #30363d",
+						background: "transparent",
+						color: "var(--apohara-bone)",
+						border: "2px solid var(--apohara-bone)",
 						borderRadius: 4,
 						textDecoration: "none",
-						fontSize: "0.85rem",
-						fontWeight: 600,
+						fontFamily: "var(--font-mono)",
+						fontSize: "0.8rem",
+						fontWeight: 700,
+						letterSpacing: "1px",
+						textTransform: "uppercase",
 					}}
 				>
 					Read the docs
