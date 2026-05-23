@@ -4,6 +4,8 @@
 //! a flag so the main loop can drain rendering before tearing down the
 //! terminal. Pure data, no I/O — keeps unit tests trivial.
 
+use crate::views::config_wizard::WizardState;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum View {
     Dashboard,
@@ -16,6 +18,7 @@ pub enum View {
 pub struct AppState {
     pub current_view: View,
     pub running: bool,
+    pub wizard: WizardState,
 }
 
 impl AppState {
@@ -23,6 +26,7 @@ impl AppState {
         Self {
             current_view: View::Dashboard,
             running: true,
+            wizard: WizardState::new(),
         }
     }
 

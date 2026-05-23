@@ -6,7 +6,7 @@
 use crate::state::AppState;
 use ratatui::{prelude::*, widgets::*};
 
-const STEPS: &[&str] = &["welcome", "providers", "permissions", "review"];
+pub const STEPS: &[&str] = &["welcome", "providers", "permissions", "review"];
 
 #[derive(Debug, Clone)]
 pub struct WizardState {
@@ -45,11 +45,12 @@ impl Default for WizardState {
     }
 }
 
-pub fn render(_state: &AppState, frame: &mut Frame) {
-    let wiz = WizardState::new();
+pub fn render(state: &AppState, frame: &mut Frame) {
     let p = Paragraph::new(format!(
-        "Wizard step: {}\n\n(n)ext / (p)rev / Esc back",
-        wiz.current_step()
+        "Wizard step: {} ({} / {})\n\n(n)ext / (p)rev / Esc back",
+        state.wizard.current_step(),
+        state.wizard.step_index() + 1,
+        STEPS.len()
     ))
     .block(
         Block::default()
