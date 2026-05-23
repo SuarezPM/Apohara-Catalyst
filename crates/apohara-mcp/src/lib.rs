@@ -10,12 +10,17 @@
 //! task-by-task following TDD.
 
 pub mod audit_logger;
+pub mod injection;
 pub mod input_validation;
 pub mod permission_guard;
 pub mod rate_limit;
 pub mod server;
 
 pub use audit_logger::{AuditEntry, AuditError, AuditLogger, AuditStatus};
+pub use injection::{
+    build_canonical_from_endpoint, inject_mcp_config, EndpointPorts, InjectionError,
+    InjectionResult, ProviderId,
+};
 pub use input_validation::{
     optional_integer, optional_string, optional_string_array, require_record, require_string,
     McpValidationError, ValidationResult,
