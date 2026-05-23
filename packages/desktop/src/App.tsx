@@ -3,8 +3,10 @@ import { useAtomValue, useSetAtom } from "jotai/react";
 import { getDefaultStore } from "jotai/vanilla";
 import { AgentConfigPanel } from "./components/AgentConfigPanel.js";
 import { CostMeter } from "./components/CostMeter.js";
+import { HeroBanner } from "./components/HeroBanner.js";
 import { ObjectivePane } from "./components/ObjectivePane.js";
 import { PermissionDialog } from "./components/PermissionDialog.js";
+import { PermissionGridPanel } from "./components/PermissionGridPanel.js";
 import { PlansPanel } from "./components/PlansPanel.js";
 import {
 	ALL_PROVIDERS,
@@ -338,6 +340,7 @@ export function App() {
 						mode={mode}
 						rosterCsv={rosterCsv}
 					/>
+					<HeroBanner sessionId={sessionId} onSeedDemo={seedDemo} />
 					<div style={{ flex: 1, overflow: "hidden", borderTop: "1px solid #30363d" }}>
 						{viewMode === "board" ? (
 						<TaskBoard />
@@ -349,7 +352,21 @@ export function App() {
 					</div>
 				</section>
 
-				<AgentConfigPanel />
+				<aside
+					style={{
+						width: 320,
+						display: "flex",
+						flexDirection: "column",
+						gap: "0.5rem",
+						padding: "0.5rem",
+						overflowY: "auto",
+						borderLeft: "1px solid #30363d",
+						background: "#0c0c10",
+					}}
+				>
+					<AgentConfigPanel />
+					<PermissionGridPanel />
+				</aside>
 			</main>
 
 			<footer style={{ padding: "0.5rem 1rem", borderTop: "1px solid #30363d", background: "#0d1117" }}>

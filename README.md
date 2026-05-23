@@ -1,6 +1,57 @@
 # Apohara
 
-Local-first multi-agent code orchestration on top of CLI providers — no API keys, replayable by design.
+[![Build](https://github.com/SuarezPM/Apohara/actions/workflows/ci.yml/badge.svg)](https://github.com/SuarezPM/Apohara/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-1300%2B%20passing-success)](https://github.com/SuarezPM/Apohara/actions)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20114594.svg)](https://doi.org/10.5281/zenodo.20114594)
+[![npm](https://img.shields.io/npm/v/apohara)](https://www.npmjs.com/package/apohara)
+
+![Apohara dashboard](docs/img/hero.png)
+
+> **For builders who ship.** Multi-AI orchestrator that wraps your CLI subscriptions
+> (Claude Code, Codex, OpenCode) into a single local-first kanban dispatcher.
+> No OAuth. No cloud sync. No per-token pricing. Your subscriptions, your machine,
+> your control.
+
+## Pain → Relief
+
+| Pain (today) | Apohara (relief) |
+|---|---|
+| Each CLI agent runs in isolation; you copy-paste between them | One kanban; agents dispatched via your existing subscriptions |
+| OAuth flows leak your subscription tier across vendors | Apohara wraps the CLIs — your auth stays where it always was |
+| Run `claude code` and pray you didn't miss the right output | Hook events stream live to the UI; verification timeline shows what passed |
+| Three providers, three CLIs, three terminal windows | Three providers, one Apohara, one git history |
+| Lose track of which task ran which prompt | Every dispatch persisted in JSONL ledger; replay any session |
+
+## Trusted by
+
+<!--
+  Logo wall coming post-launch — F4 in the nimbalyst-landing audit. The intent
+  is a row of 6-8 logos of teams running Apohara in production, with a link
+  out to each team's case study. We'll populate this once v1.0 has been in
+  the wild for a few weeks and we have explicit permission from each team
+  to namedrop them.
+
+  Until then: this section is a placeholder so we have the slot baked into
+  the layout, and so the empty state below is intentional rather than an
+  oversight.
+-->
+
+> _Logo wall coming post-launch — we'll seed it once we have explicit
+> permission from each team running Apohara in production._
+
+## Testimonials
+
+<!--
+  Testimonial pull-quotes at v1.1 — F5 in the nimbalyst-landing audit.
+  Format: 1-2 sentences per quote, name + title + company, optional photo.
+  We need real users on real workloads before we ship pull-quotes;
+  manufactured copy lands badly with the technical buyer this README
+  targets.
+-->
+
+> _Testimonials at v1.1 — once real users have shipped real work on top of
+> Apohara, we'll quote them here with permission._
 
 ## Why Apohara
 
@@ -95,6 +146,26 @@ INV-15 (judge + critic + invariants), the bash compound guard, deny-first permis
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — system diagram, request flow, crate map
 - [`docs/github-app-setup.md`](docs/github-app-setup.md) — GitHub App registration for `github-bridge`
 - [`docs/release-flow.md`](docs/release-flow.md) — pre-release to stable promotion procedure
+
+## Download — one-line CTAs
+
+The full install matrix (Linux one-liner, Homebrew, manual download) lives in [§Install](#install) above. For the impatient:
+
+- **npx (no install):** `npx apohara doctor` then `npx apohara desktop` opens the local UI on `http://localhost:7331`.
+- **From source:** `git clone https://github.com/SuarezPM/Apohara.git && cd Apohara && bun install && bun run build`.
+- **Latest release:** grab `apohara-desktop` from [github.com/SuarezPM/Apohara/releases](https://github.com/SuarezPM/Apohara/releases) and `chmod +x` it.
+
+After any path, `apohara doctor` (7 sections, each with actionable hints) confirms the three CLI drivers are wired and your env is sanitized.
+
+## Footer
+
+Apohara is built by [SuarezPM](https://github.com/SuarezPM) under the MIT license.
+Issues, PRs, and adversarial security disclosures all welcome at
+[github.com/SuarezPM/Apohara](https://github.com/SuarezPM/Apohara).
+
+If something in v1.0 surprised you — good or bad — open an issue. Every audit in
+`docs/superpowers/specs/` lists the inspirations and the disagreements; the goal is
+that nothing about how Apohara behaves is hidden.
 
 ## License
 

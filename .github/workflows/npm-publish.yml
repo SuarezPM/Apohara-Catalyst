@@ -1,0 +1,39 @@
+name: Publish npm
+
+# G7.A.5 — tag-push triggered publish of `apohara` to npm public registry.
+# Fires alongside desktop-release.yml on the same `v*` tag; the desktop
+# pipeline uploads platform binaries while this workflow pushes the npx
+# wrapper that downloads them on demand. Requires NPM_TOKEN repo secret.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  publish:
+    name: Publish apohara to npm
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # id-token: write enables npm --provenance (sigstore attestation
+      # tied to the GitHub workflow run — see npm provenance docs).
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+      - name: Install dependencies
+        working-directory: npx-cli
+        run: npm ci
+      - name: Build CLI bundle
+        working-directory: npx-cli
+        run: npm run build
+      - name: Publish to npm (public)
+        working-directory: npx-cli
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

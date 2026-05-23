@@ -29,7 +29,7 @@ members = [
 
 [workspace.package]
 edition = "2021"
-version = "1.0.0-dev"
+version = "1.0.0"
 license = "MIT"
 authors = ["Pablo M. Suarez <suarezpm@csnat.unt.edu.ar>"]
 repository = "https://github.com/SuarezPM/Apohara"

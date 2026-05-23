@@ -27,9 +27,12 @@ test("registerAllListeners wires all listener groups", () => {
   registerAllListeners({ store, bus });
   // G5.C.2 added the statusline listener which also subscribes to
   // run-started, hook-event and context-warning.
+  // G7.C.5 added the soundListener — also subscribes to task-completed,
+  // verifier-conflict, hook-event. Use ">=" rather than exact counts so
+  // the next listener added doesn't have to ripple-edit this test.
   expect(bus.listenerCount("apohara://run-started")).toBeGreaterThanOrEqual(1);
-  expect(bus.listenerCount("apohara://task-completed")).toBe(1);
-  expect(bus.listenerCount("apohara://verifier-conflict")).toBe(1);
+  expect(bus.listenerCount("apohara://task-completed")).toBeGreaterThanOrEqual(1);
+  expect(bus.listenerCount("apohara://verifier-conflict")).toBeGreaterThanOrEqual(1);
   expect(bus.listenerCount("apohara://hook-event")).toBeGreaterThanOrEqual(1);
   expect(bus.listenerCount("apohara://plan-changed")).toBe(1);
   expect(bus.listenerCount("apohara://plan-added")).toBe(1);
@@ -44,6 +47,7 @@ test("dispose() removes all registered listeners", () => {
   handle.dispose();
   expect(bus.listenerCount("apohara://run-started")).toBe(0);
   expect(bus.listenerCount("apohara://task-completed")).toBe(0);
+  expect(bus.listenerCount("apohara://verifier-conflict")).toBe(0);
   expect(bus.listenerCount("apohara://hook-event")).toBe(0);
   expect(bus.listenerCount("apohara://context-warning")).toBe(0);
 });

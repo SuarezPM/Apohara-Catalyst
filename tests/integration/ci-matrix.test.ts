@@ -1,11 +1,21 @@
 /**
  * W3.8 — Cross-platform CI matrix expansion (verification leg).
+ * G7.E.4 — extended to coexist with the `cross-platform-smoke` job.
  *
  * The companion change in `.github/workflows/ci.yml` expands the test
  * matrix from `3 OS × 1 implicit Node = 3 jobs` to `5 OS × 2 Node =
  * 10 jobs`. This test pins the matrix definition so a future edit that
  * silently regresses the coverage (e.g. drops an OS or a Node version)
  * fails CI locally before it reaches the runners.
+ *
+ * Sprint 7 G7.D.2-6 added a second `cross-platform-smoke` matrix on
+ * the same workflow (`4 OS × 1 Node = 4 jobs`, no Node 20 lane). The
+ * `matrix produces exactly 10 jobs` assertion was originally written
+ * against a single matrix block — we now scope the count to the
+ * `test` job's matrix only by slicing the YAML at the `cross-platform-smoke:`
+ * job header. This keeps the contract precise (the *primary* test
+ * matrix is 5×2) while letting the secondary smoke job exist
+ * independently.
  *
  * Why a TS test instead of just inspecting the YAML in review?
  *
@@ -24,6 +34,8 @@
  *   4. APOHARA_SKIP_DOCKER_E2E=1 is set on the test step (macOS /
  *      windows runners lack docker; skip cleanly).
  *   5. The build step + test step + lint step are all present.
+ *   6. (G7.E.4) The cross-platform-smoke job runs on 4 OS — Linux,
+ *      macos-13, macos-14, windows-2022.
  */
 import { test, expect } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -33,6 +45,19 @@ const CI_YAML = readFileSync(
 	path.join(process.cwd(), ".github/workflows/ci.yml"),
 	"utf-8",
 );
+
+// G7.E.4: slice the YAML to the `test` job only. The cross-platform-smoke
+// job is verified separately below. Anchored on the next `  <jobname>:`
+// header following the test job to be robust against future job
+// additions (`cargo-audit`, `license-scan`, etc., which all follow `test`).
+const TEST_JOB_YAML = (() => {
+	const testJobIdx = CI_YAML.indexOf("\n  test:\n");
+	if (testJobIdx === -1) return CI_YAML;
+	const afterTest = CI_YAML.slice(testJobIdx + 1);
+	const nextJobMatch = afterTest.match(/\n {2}[a-z][a-z0-9_-]*:\n/);
+	if (!nextJobMatch) return CI_YAML.slice(testJobIdx);
+	return CI_YAML.slice(testJobIdx, testJobIdx + 1 + nextJobMatch.index!);
+})();
 
 test("matrix includes 5 OS versions (no -latest shortcuts)", () => {
 	const expected = [
@@ -88,14 +113,41 @@ test("lint step is gated to a single OS+Node combo (anti-flake)", () => {
 });
 
 test("matrix produces exactly 10 jobs (5 OS × 2 Node)", () => {
-	// Heuristic: count distinct OS entries × Node entries in the YAML.
-	const osEntries = CI_YAML
+	// Heuristic: count distinct OS entries × Node entries in the `test`
+	// job's matrix only (G7.E.4 — the `cross-platform-smoke` job has its
+	// own matrix that's asserted separately below).
+	const osEntries = TEST_JOB_YAML
 		.split(/\r?\n/)
 		.filter((l) => /^\s*-\s+(ubuntu|macos|windows)-/.test(l));
-	const nodeEntries = CI_YAML
+	const nodeEntries = TEST_JOB_YAML
 		.split(/\r?\n/)
 		.filter((l) => /^\s*-\s+"(20|22)"/.test(l));
 	expect(osEntries.length).toBe(5);
 	expect(nodeEntries.length).toBe(2);
 	expect(osEntries.length * nodeEntries.length).toBe(10);
+});
+
+// G7.E.4 — verify the secondary cross-platform-smoke job exists and
+// covers the four user-facing target platforms (Linux + macOS Intel +
+// macOS Apple Silicon + Windows nativo). This is the fast-feedback
+// canary that catches npx-shim build breaks per OS in seconds instead
+// of waiting on the full test matrix.
+test("cross-platform-smoke job covers Linux + macOS Intel + macOS M + Windows", () => {
+	expect(CI_YAML).toContain("cross-platform-smoke:");
+	// Extract just the smoke job block to avoid mistakenly matching the
+	// `test` matrix entries above.
+	const smokeIdx = CI_YAML.indexOf("\n  cross-platform-smoke:\n");
+	expect(smokeIdx).toBeGreaterThan(-1);
+	const smokeBlock = CI_YAML.slice(smokeIdx);
+	const smokeOsEntries = smokeBlock
+		.split(/\r?\n/)
+		.filter((l) => /^\s*-\s+(ubuntu|macos|windows)-/.test(l));
+	expect(smokeOsEntries.length).toBeGreaterThanOrEqual(4);
+	expect(smokeBlock).toContain("ubuntu-22.04");
+	expect(smokeBlock).toContain("macos-13");
+	expect(smokeBlock).toContain("macos-14");
+	expect(smokeBlock).toContain("windows-2022");
+	// And the smoke job must build + invoke the shim end-to-end.
+	expect(smokeBlock).toContain("bun run build");
+	expect(smokeBlock).toContain("--version");
 });

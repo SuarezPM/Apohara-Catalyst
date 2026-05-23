@@ -32,21 +32,23 @@ jobs:
           - runner: macos-13
             os-name: darwin-x64
             artifact-glob: |
-              target/release/apohara-desktop
+              target/release-renamed/apohara-desktop-*
               target/release/bundle/dmg/*.dmg
               target/release/bundle/macos/*.app
             system-deps: ""
+            cargo-target: ""
           - runner: macos-14
             os-name: darwin-arm64
             artifact-glob: |
-              target/release/apohara-desktop
+              target/release-renamed/apohara-desktop-*
               target/release/bundle/dmg/*.dmg
               target/release/bundle/macos/*.app
             system-deps: ""
+            cargo-target: ""
           - runner: ubuntu-22.04
             os-name: linux-x64
             artifact-glob: |
-              target/release/apohara-desktop
+              target/release-renamed/apohara-desktop-*
               target/release/bundle/deb/*.deb
               target/release/bundle/appimage/*.AppImage
             system-deps: |
@@ -57,13 +59,41 @@ jobs:
                 librsvg2-dev \
                 libgtk-3-dev \
                 libayatana-appindicator3-dev
+            cargo-target: ""
+          - runner: ubuntu-22.04
+            os-name: linux-arm64
+            artifact-glob: |
+              target/release-renamed/apohara-desktop-*
+              target/release/bundle/deb/*.deb
+              target/release/bundle/appimage/*.AppImage
+            system-deps: |
+              sudo apt-get update
+              sudo apt-get install -y \
+                libwebkit2gtk-4.1-dev \
+                libsoup-3.0-dev \
+                librsvg2-dev \
+                libgtk-3-dev \
+                libayatana-appindicator3-dev \
+                gcc-aarch64-linux-gnu
+              rustup target add aarch64-unknown-linux-gnu
+            cargo-target: aarch64-unknown-linux-gnu
           - runner: windows-2022
             os-name: win-x64
             artifact-glob: |
-              target/release/apohara-desktop.exe
+              target/release-renamed/apohara-desktop-*.exe
               target/release/bundle/msi/*.msi
               target/release/bundle/nsis/*.exe
             system-deps: ""
+            cargo-target: ""
+          - runner: windows-2022
+            os-name: win32-arm64
+            artifact-glob: |
+              target/release-renamed/apohara-desktop-*.exe
+              target/release/bundle/msi/*.msi
+              target/release/bundle/nsis/*.exe
+            system-deps: |
+              rustup target add aarch64-pc-windows-msvc
+            cargo-target: aarch64-pc-windows-msvc
 
     steps:
       - name: Checkout code
@@ -110,7 +140,16 @@ jobs:
         working-directory: packages/desktop
         # `bun run tauri:build` defers to the @tauri-apps/cli runner that
         # uses the local Cargo workspace member added in M017.8.
-        run: bun run tauri:build
+        # G7.A.1: when matrix.cargo-target is set (linux-arm64, win32-arm64),
+        # pass --target to cross-compile. Native targets leave it blank so
+        # tauri picks the host triple.
+        run: |
+          if [ -n "${{ matrix.cargo-target }}" ]; then
+            bun run tauri:build -- --target ${{ matrix.cargo-target }}
+          else
+            bun run tauri:build
+          fi
+        shell: bash
 
       - name: Inspect artifact sizes
         if: runner.os != 'Windows'
@@ -119,6 +158,54 @@ jobs:
           ls -lh target/release/apohara-desktop || true
           echo "--- bundles ---"
           find target/release/bundle -maxdepth 3 -type f \( -name "*.deb" -o -name "*.AppImage" -o -name "*.dmg" -o -name "*.app" -o -name "*.msi" -o -name "*.exe" \) -exec ls -lh {} +
+
+      # G7.A.2 — rename binary to platform-slugged schema expected by
+      # npx-cli/src/download.ts (`apohara-desktop-<os-name>`). Cross-compiled
+      # binaries live at target/<triple>/release/, native ones at
+      # target/release/. We probe both paths.
+      - name: Rename binary to platform-slugged name
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p target/release-renamed
+          if [ -n "${{ matrix.cargo-target }}" ] && [ -f "target/${{ matrix.cargo-target }}/release/apohara-desktop" ]; then
+            src="target/${{ matrix.cargo-target }}/release/apohara-desktop"
+          else
+            src="target/release/apohara-desktop"
+          fi
+          cp "$src" "target/release-renamed/apohara-desktop-${{ matrix.os-name }}"
+      - name: Rename binary (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path target/release-renamed
+          $cargoTarget = "${{ matrix.cargo-target }}"
+          if ($cargoTarget -and (Test-Path "target/$cargoTarget/release/apohara-desktop.exe")) {
+            $src = "target/$cargoTarget/release/apohara-desktop.exe"
+          } else {
+            $src = "target/release/apohara-desktop.exe"
+          }
+          Copy-Item $src "target/release-renamed/apohara-desktop-${{ matrix.os-name }}.exe"
+
+      # G7.A.3 — emit sha256 sidecar per renamed binary so npx-cli can
+      # verify the download (vibe-kanban atomic-upgrade pattern). Sidecar
+      # lives next to the binary, hex string only, no filename / spaces.
+      - name: Generate sha256 sidecar
+        if: runner.os != 'Windows'
+        run: |
+          cd target/release-renamed
+          for f in apohara-desktop-*; do
+            if [ -f "$f" ] && [ "${f##*.}" != "sha256" ]; then
+              sha256sum "$f" | awk '{print $1}' > "$f.sha256"
+            fi
+          done
+      - name: Generate sha256 sidecar (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Get-ChildItem "target/release-renamed/apohara-desktop-*" -Exclude *.sha256 | ForEach-Object {
+            $hash = Get-FileHash -Algorithm SHA256 $_.FullName
+            $hash.Hash.ToLower() | Out-File -NoNewline -Encoding ASCII "$($_.FullName).sha256"
+          }
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
