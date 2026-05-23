@@ -776,6 +776,7 @@ name = "apohara-verification"
 version = "1.0.0"
 dependencies = [
  "anyhow",
+ "apohara-safety",
  "apohara-types",
  "criterion",
  "regex",

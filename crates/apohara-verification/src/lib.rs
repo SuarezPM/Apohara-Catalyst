@@ -16,9 +16,9 @@ pub use critic_prompt::{build_critic_prompt, CriticContext};
 pub use dual_status_ac::{AcSpec, AcStatus, AdminStatus, DevStatus, DualStatusAc};
 pub use hallucination_flag::{detect_hallucinations, DetectArgs, DetectResult};
 pub use quality_gates::{
-    default_gates, run_all_gates, run_gates, AgentRole, ArchitectureGate, CodeQualityGate,
-    FrontendGate, GateBlock, GateInput, GateResult, MultiGateResult, PerfGate, Persona,
-    QualityGate, SecurityGate, SysadminSafetyGate,
+    default_gates, run_all_gates, run_bash_scope_gate, run_gates, AgentRole, ArchitectureGate,
+    BashScopeGate, CodeQualityGate, FrontendGate, GateBlock, GateInput, GateResult,
+    MultiGateResult, PerfGate, Persona, QualityGate, SecurityGate, SysadminSafetyGate,
 };
 pub use verification_rounds::{
     advance_round, is_exhausted, mark_escalated, new_verification_round, round_outcome,
