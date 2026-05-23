@@ -2,9 +2,11 @@
 //! in `packages/desktop/src/components/{AgentStateDot,RunningBorder,PixelCanvas}.tsx`.
 
 pub mod agent_state_dot;
+pub mod pixel_canvas;
 pub mod running_border;
 
 pub use agent_state_dot::AgentStateDot;
+pub use pixel_canvas::PixelCanvas;
 pub use running_border::RunningBorder;
 
 #[cfg(test)]
