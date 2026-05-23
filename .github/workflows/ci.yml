@@ -189,40 +189,38 @@ jobs:
         # own; this step just runs it.
         run: bun test tests/e2e/npx-from-tarball.test.ts
 
-  # G7.E.4 — Cross-platform smoke. The main `test` matrix above
-  # already runs the full suite on 5 OS × 2 Node, but a full pass
-  # takes minutes; a regression that breaks the npx shim's *build*
-  # on one platform should fail in seconds, not be discovered after
-  # the whole matrix completes. This job is the fast-feedback
-  # canary covering the three target platforms (Linux + macOS
-  # Intel + macOS Apple Silicon + Windows nativo) end-to-end on
-  # the user-facing entry: build the shim, then invoke
-  # `--version` (short-circuits before binary download per
-  # `npx-cli/src/cli.ts:94`). Decoupled from `test` so a slow
-  # suite regression on one OS doesn't mask a build-time platform
-  # incompat on another.
+  # G10.A.1 — Cross-platform smoke (3×2 matrix). Builds on Sprint 7
+  # G7.E.4 which covered the three OS families on Node 22 only.
+  # Catalyst's release contract is "Node >=20", so we now exercise
+  # both LTS lines (20 + 22) end-to-end on Linux / macOS / Windows:
+  # build shim → `npm pack` → `npm install -g` → `apohara doctor`
+  # → `apohara --version`. A regression on Node 20 that doesn't
+  # surface on Node 22 (or vice versa) used to ship silently — this
+  # matrix catches it pre-publish. macos-13 (Intel) dropped here
+  # because GitHub deprecates it Dec 2025; Apple-Silicon-only
+  # (`macos-14`) is the supported macOS surface from Sprint 10
+  # onwards. WSL2 coverage is tracked manually in the G10.A.2
+  # runbook (no native WSL runner exists on github.com hosted yet).
   cross-platform-smoke:
-    name: Cross-platform smoke (${{ matrix.os }})
+    name: cross-platform-smoke (${{ matrix.os }} / node ${{ matrix.node }})
     runs-on: ${{ matrix.os }}
     strategy:
-      # fail-fast=false: we want signal from EVERY platform, not
-      # just the first one to break. A macOS regression that hides
-      # because Linux failed first wastes a re-run cycle.
+      # fail-fast=false: we want signal from EVERY cell, not just
+      # the first one to break. A Windows / Node-20 regression that
+      # hides because Linux / Node-22 failed first wastes a re-run
+      # cycle and masks platform-specific bugs.
       fail-fast: false
       matrix:
-        os:
-          - ubuntu-22.04   # Linux
-          - macos-13       # macOS Intel
-          - macos-14       # macOS Apple Silicon (M-series)
-          - windows-2022   # Windows nativo
+        os: [ubuntu-22.04, macos-14, windows-2022]
+        node: ['20', '22']
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: "22"
+          node-version: ${{ matrix.node }}
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -234,18 +232,53 @@ jobs:
 
       - name: Build npx shim
         # `npx-cli/src/cli.ts` → `dist/cli.js` via `bun build`. The
-        # shim is the entry point for `npx apohara@latest`, so a
-        # build break here ships broken installs. `working-directory`
-        # is the GitHub-Actions-native cross-OS way (works on
-        # Windows runners where `(cd ... && ...)` shell subshell
-        # syntax breaks under PowerShell default).
+        # shim is the entry point for `npx @apohara/catalyst@latest`,
+        # so a build break here ships broken installs. We need this
+        # to run BEFORE `npm pack` because `package.json` declares
+        # `"files": ["dist", "README.md"]` — without dist, the
+        # tarball is empty. `working-directory` is the GHA-native
+        # cross-OS way (works on Windows where PowerShell subshell
+        # syntax breaks bash idioms).
         working-directory: npx-cli
         run: bun run build
 
-      - name: Smoke — apohara --version
+      - name: Install package as user would
+        # `npm pack` produces `apohara-catalyst-<version>.tgz`
+        # (scoped name `@apohara/catalyst` flattens to that prefix).
+        # Installing globally puts `apohara` on PATH via the `bin`
+        # mapping in package.json. `shell: bash` because the cd +
+        # glob expansion needs POSIX semantics (Windows runners
+        # default to PowerShell, which mangles `./apohara-catalyst-*.tgz`).
+        run: |
+          cd npx-cli
+          npm pack
+          npm install -g ./apohara-catalyst-*.tgz
+        shell: bash
+
+      - name: apohara doctor (must exit 0 or 2)
+        # `doctor` returns 0 (all green) or 2 (warnings, e.g. no
+        # provider CLIs installed on the runner — expected here). 1
+        # would be a real failure (crash, unreadable config, etc.).
+        # `|| [ $? -eq 2 ]` accepts both green-paths. `shell: bash`
+        # for the `$?` idiom.
+        run: apohara doctor || [ $? -eq 2 ]
+        shell: bash
+
+      - name: apohara --version
         # `--version` short-circuits before any binary resolution
-        # (no download, no PATH lookup) — so this stays
-        # network-free and exercises only the ESM resolution +
-        # `package.json` lookup path. Asserts the exit code via
-        # the runner's default (non-zero fails the job).
-        run: node npx-cli/dist/cli.js --version
+        # (no download, no PATH lookup beyond the global install) —
+        # asserts the package's own version string surfaces.
+        run: apohara --version
+
+      - name: Upload doctor report
+        # `~/.apohara/doctor-report.json` is the structured artifact
+        # `apohara doctor` writes regardless of exit code. Uploading
+        # under a per-cell name keeps the 6 reports distinguishable
+        # in the run summary. `if-no-files-found: warn` because some
+        # very-early failures may not reach the report-write step.
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: doctor-${{ matrix.os }}-node${{ matrix.node }}
+          path: ~/.apohara/doctor-report.json
+          if-no-files-found: warn
