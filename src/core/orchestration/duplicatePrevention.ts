@@ -7,8 +7,12 @@ export interface TaskShape {
 }
 
 export function computeTaskFingerprint(task: TaskShape): string {
+  // JSON.stringify provides collision-safe encoding: a workspacePath
+  // containing `|` (e.g. "foo|bar") can't masquerade as another field's
+  // value. Length-prefixed delimiter alternative was rejected for
+  // readability — JSON is canonical and well-understood.
   return createHash("sha256")
-    .update(`${task.provider}|${task.workspacePath}|${task.prompt}`)
+    .update(JSON.stringify([task.provider, task.workspacePath, task.prompt]))
     .digest("hex");
 }
 
