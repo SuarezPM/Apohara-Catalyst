@@ -225,13 +225,42 @@ export function doctor(opts: DoctorOpts = {}): DoctorResult {
   return { ok: results.every(r => r.ok), sections: results };
 }
 
+/**
+ * G7.B.8 — actionable hint per section failure. Each entry points the
+ * user at the exact doc / config / command that fixes the failure mode
+ * for that section. Hints are emitted only when the section is `ok: false`
+ * and only in text mode (JSON keeps the raw shape for CI parsers).
+ */
+const SECTION_HINTS: Record<SectionName, string> = {
+  runtime: "Install Bun (https://bun.sh) and Rust (rustup) — see docs/troubleshooting.md#runtime-section-says-rustc-missing",
+  roster: "Install the missing CLI binary and reload PATH — see docs/troubleshooting.md#roster-section-reports-a-missing-cli",
+  policy: "Edit `.apohara.json` runnerPolicy.preset or remove offending allow-list entries — see docs/troubleshooting.md#policy-section-reports-rejected",
+  sandbox: "Run from a checkout that contains `crates/apohara-sandbox/Cargo.toml` (full source repo, not the npx wrapper).",
+  ledger: "Delete the file and rerun `apohara verify-setup` to re-bootstrap.",
+  mcp: "Delete `~/.apohara/mcp/endpoints.json` and rerun `apohara verify-setup` — see docs/troubleshooting.md#hook-events-return-http-401",
+  assigned: "Run `apohara verify-setup` to enroll LOCAL-SETUP-001 and exercise the full pipeline.",
+};
+
 export function formatText(result: DoctorResult): string {
-  const lines = result.sections.map(s => {
+  const header = result.ok
+    ? "Apohara doctor — verifying environment\n"
+    : "Apohara doctor — verifying environment\n";
+  const sectionLines = result.sections.map(s => {
     const tag = s.ok ? "OK  " : "FAIL";
     return `[${s.name.padEnd(10)}] ${tag} ${s.summary}`;
   });
-  lines.push(result.ok ? "\nApohara setup verified end-to-end." : "\nApohara doctor: one or more sections failed.");
-  return lines.join("\n");
+  const failed = result.sections.filter(s => !s.ok);
+  const hintLines: string[] = [];
+  if (failed.length > 0) {
+    hintLines.push("", "Next steps:");
+    for (const s of failed) {
+      hintLines.push(`  - [${s.name}] ${SECTION_HINTS[s.name]}`);
+    }
+  }
+  const footer = result.ok
+    ? "\nApohara setup verified end-to-end."
+    : "\nApohara doctor: one or more sections failed.";
+  return [header, ...sectionLines, ...hintLines, footer].join("\n");
 }
 
 export function parseArgs(argv: string[]): { json: boolean; skip: SectionName[] } {

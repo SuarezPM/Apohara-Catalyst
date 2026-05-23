@@ -73,3 +73,188 @@ jobs:
         # still build + test, just skip the lint pass.
         if: matrix.os == 'ubuntu-24.04' && matrix.node == '22'
         run: bunx biome format --write
+
+      - name: Bundle size guard (G7.D.4)
+        # Only enforces the npx-cli budget at the test stage. The
+        # desktop binary guard runs inside `desktop-release.yml`
+        # because the matrix here doesn't cross-compile Rust.
+        if: matrix.os == 'ubuntu-24.04' && matrix.node == '22'
+        run: |
+          (cd npx-cli && bun run build)
+          bash scripts/check-bundle-size.sh
+
+      - name: Smoke benchmarks (G7.D.5)
+        # Single-OS canary — the budgets are tuned for the GitHub
+        # `ubuntu-24.04` runner. Cross-OS clock skew on macos/windows
+        # makes wall-clock budgets unreliable there.
+        if: matrix.os == 'ubuntu-24.04' && matrix.node == '22'
+        env:
+          APOHARA_MOCK_EMBEDDINGS: "1"
+        run: bun test tests/benchmarks
+
+  # G7.D.2 — cargo-audit gate. Runs on every PR; fails on any
+  # advisory (`--deny warnings`). Pinned to ubuntu-22.04 because
+  # cargo-audit's binary install is fastest on Linux runners.
+  cargo-audit:
+    name: cargo-audit
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry + cargo-audit binary
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/cargo-audit
+            ~/.cargo/registry
+            ~/.cargo/advisory-db
+          key: cargo-audit-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            cargo-audit-${{ runner.os }}-
+
+      - name: Install cargo-audit
+        # `--locked` keeps the audit tool deterministic across runs;
+        # `|| true` makes the install idempotent when the cache hit
+        # already restored the binary.
+        run: |
+          if ! command -v cargo-audit >/dev/null; then
+            cargo install cargo-audit --locked
+          fi
+
+      - name: Run cargo audit
+        # `--deny warnings` blocks merge on any RUSTSEC advisory,
+        # including unmaintained / yanked. Tighten the noose further
+        # if needed via `--ignore RUSTSEC-yyyy-nnnn` in a follow-up.
+        run: cargo audit --deny warnings
+
+  # G7.D.3 — license + duplicate + source scan via cargo-deny.
+  # Independent of cargo-audit so a single noisy advisory doesn't
+  # mask a license regression.
+  license-scan:
+    name: license-scan (cargo-deny)
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo-deny binary
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/cargo-deny
+            ~/.cargo/registry
+          key: cargo-deny-${{ runner.os }}-${{ hashFiles('deny.toml') }}
+          restore-keys: |
+            cargo-deny-${{ runner.os }}-
+
+      - name: Install cargo-deny
+        run: |
+          if ! command -v cargo-deny >/dev/null; then
+            cargo install cargo-deny --locked
+          fi
+
+      - name: Run cargo deny check (licenses + bans + sources + advisories)
+        # `check` runs every section in `deny.toml`. The license
+        # allowlist is the contract; new transitive licenses fail
+        # here BEFORE they ship.
+        run: cargo deny check
+
+  # G7.D.6 — npx tarball E2E. Verifies `npm pack` → install →
+  # `--version` works end-to-end on a freshly built shim. The
+  # in-repo bun test does the same but on a clean ubuntu runner
+  # (no Bun-only quirks).
+  npx-tarball-e2e:
+    name: npx-tarball-e2e
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.13"
+
+      - name: Install root dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run npx tarball E2E
+        # The test handles `npm pack` + install + `--version` on its
+        # own; this step just runs it. `APOHARA_MOCK_EMBEDDINGS=1`
+        # short-circuits any incidental indexer load on import.
+        env:
+          APOHARA_MOCK_EMBEDDINGS: "1"
+        run: bun test tests/e2e/npx-from-tarball.test.ts
+
+  # G7.E.4 — Cross-platform smoke. The main `test` matrix above
+  # already runs the full suite on 5 OS × 2 Node, but a full pass
+  # takes minutes; a regression that breaks the npx shim's *build*
+  # on one platform should fail in seconds, not be discovered after
+  # the whole matrix completes. This job is the fast-feedback
+  # canary covering the three target platforms (Linux + macOS
+  # Intel + macOS Apple Silicon + Windows nativo) end-to-end on
+  # the user-facing entry: build the shim, then invoke
+  # `--version` (short-circuits before binary download per
+  # `npx-cli/src/cli.ts:94`). Decoupled from `test` so a slow
+  # suite regression on one OS doesn't mask a build-time platform
+  # incompat on another.
+  cross-platform-smoke:
+    name: Cross-platform smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # fail-fast=false: we want signal from EVERY platform, not
+      # just the first one to break. A macOS regression that hides
+      # because Linux failed first wastes a re-run cycle.
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-22.04   # Linux
+          - macos-13       # macOS Intel
+          - macos-14       # macOS Apple Silicon (M-series)
+          - windows-2022   # Windows nativo
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.13"
+
+      - name: Install root dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build npx shim
+        # `npx-cli/src/cli.ts` → `dist/cli.js` via `bun build`. The
+        # shim is the entry point for `npx apohara@latest`, so a
+        # build break here ships broken installs. `working-directory`
+        # is the GitHub-Actions-native cross-OS way (works on
+        # Windows runners where `(cd ... && ...)` shell subshell
+        # syntax breaks under PowerShell default).
+        working-directory: npx-cli
+        run: bun run build
+
+      - name: Smoke — apohara --version
+        # `--version` short-circuits before any binary resolution
+        # (no download, no PATH lookup) — so this stays
+        # network-free and exercises only the ESM resolution +
+        # `package.json` lookup path. Asserts the exit code via
+        # the runner's default (non-zero fails the job).
+        run: node npx-cli/dist/cli.js --version

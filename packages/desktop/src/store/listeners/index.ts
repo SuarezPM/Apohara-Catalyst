@@ -13,6 +13,7 @@ import { registerVerifierListeners } from "./verifierListeners.js";
 import { registerHookListeners } from "./hookListeners.js";
 import { registerPlanListeners } from "./planListeners.js";
 import { registerStatuslineListener } from "./statuslineListener.js";
+import { registerSoundListener } from "./soundListener.js";
 
 export interface Store {
   get(ref: unknown): unknown;
@@ -41,6 +42,7 @@ export function registerAllListeners(deps: ListenerDeps): RegistrationHandle {
     registerHookListeners(deps),
     registerPlanListeners(deps),
     registerStatuslineListener(deps),
+    registerSoundListener(deps),
   ];
   return {
     dispose() {

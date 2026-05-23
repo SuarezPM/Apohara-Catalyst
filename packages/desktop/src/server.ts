@@ -40,6 +40,7 @@ import { atomicWriteFile } from "../../../src/core/persistence/atomicWrite";
 import type { ProviderId } from "../../../src/core/providers/agent-config";
 import type { LLMMessage } from "../../../src/providers/router";
 import { ProviderRouter } from "../../../src/providers/router";
+import { replayAfter, resolveLastEventId } from "../../../src/core/sse-server";
 import index from "../index.html";
 
 const PORT = Number(process.env.APOHARA_DESKTOP_PORT ?? 7331);
@@ -800,6 +801,14 @@ const server = Bun.serve({
 		// Replays the full ledger file once on connect, then streams
 		// every appended line as fs.watch reports changes. Heartbeat
 		// every 15 s so proxies don't drop the connection.
+		//
+		// G7.C.4 — Honors `Last-Event-ID` header (or `?lastEventId=`
+		// fallback) so reconnecting clients only see events strictly
+		// after their last anchor. The server emits SSE `id:` lines so
+		// browser-native EventSource tracks the cursor automatically.
+		// `resolveLastEventId` rejects newline injection; `replayAfter`
+		// falls back to the full tail when the anchor is unknown (the
+		// client de-dupes by id).
 		"/api/session/:id/events": (req) => {
 			const id = req.params.id;
 			const filePath = isSafeSessionPath(id);
@@ -814,6 +823,8 @@ const server = Bun.serve({
 			if (!existsSync(filePath)) {
 				return new Response("ledger not found", { status: 404 });
 			}
+
+			const anchor = resolveLastEventId(req);
 
 			const stream = new ReadableStream({
 				async start(controller) {
@@ -837,19 +848,53 @@ const server = Bun.serve({
 							teardown();
 						}
 					};
+					/**
+					 * Emit one ledger line as an SSE frame with the line's
+					 * event id so browsers can track Last-Event-ID natively
+					 * across drops. The id has been newline-stripped by the
+					 * JSON parse, but be defensive — an event whose id
+					 * contains `\n` would corrupt the SSE frame structure.
+					 */
+					const emit = (line: string) => {
+						let evId: string | undefined;
+						try {
+							const parsed = JSON.parse(line) as { id?: unknown };
+							if (typeof parsed?.id === "string" && !/[\n\r]/.test(parsed.id)) {
+								evId = parsed.id;
+							}
+						} catch {
+							/* Malformed line: emit without id — never throws. */
+						}
+						if (evId) {
+							send(`id: ${evId}\ndata: ${line}\n\n`);
+						} else {
+							send(`data: ${line}\n\n`);
+						}
+					};
+
+					// 1) Initial replay — narrowed to "events after anchor"
+					// when the client sent Last-Event-ID. The watcher below
+					// picks up from `offset = file size at replay time`.
+					try {
+						const lines = await replayAfter(filePath, anchor);
+						for (const line of lines) emit(line);
+						// Prime offset to the current file end so the watcher
+						// only emits NEW appends after this point.
+						const st = await stat(filePath).catch(() => null);
+						if (st) offset = st.size;
+					} catch {
+						/* best-effort; watcher will catch up */
+					}
 					const drainOnce = async () => {
 						const delta = await readDelta(filePath, offset).catch(() => ({
 							lines: [],
 							nextOffset: offset,
 						}));
 						for (const line of delta.lines) {
-							send(`data: ${line}\n\n`);
+							emit(line);
 						}
 						offset = delta.nextOffset;
 					};
-
-					// 1) Replay historical lines and prime the offset.
-					await drainOnce();
 
 					// 2) Watch the file for new appends.
 					const watcher = fsWatch(filePath, () => {

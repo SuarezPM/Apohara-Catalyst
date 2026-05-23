@@ -1,0 +1,100 @@
+# G7.D.3 — cargo-deny configuration.
+#
+# This file is the contract for the `license-scan` CI job and any
+# local pre-release dependency review. The license allowlist is
+# deliberately conservative — every entry was audited against the
+# Apohara distribution model (MIT-licensed binary tarballs published
+# on GitHub Releases and npm).
+#
+# How to use locally:
+#   cargo install cargo-deny --locked
+#   cargo deny check
+#
+# When you have a NEW transitive dep with a license not in `allow`:
+#   1. Confirm it's compatible with redistributing MIT binaries.
+#   2. Add it here AND mention the audit in the PR description.
+#   3. Never use the `[licenses.exceptions]` table to silently
+#      whitelist a single crate without justification — that bypass
+#      defeats the gate.
+
+[graph]
+# Build the graph for every target the desktop binary supports.
+# Lets cargo-deny catch a Windows-only dep with a bad license that
+# wouldn't surface on Linux runners.
+targets = [
+    { triple = "x86_64-unknown-linux-gnu" },
+    { triple = "aarch64-unknown-linux-gnu" },
+    { triple = "x86_64-apple-darwin" },
+    { triple = "aarch64-apple-darwin" },
+    { triple = "x86_64-pc-windows-msvc" },
+    { triple = "aarch64-pc-windows-msvc" },
+]
+all-features = false
+no-default-features = false
+
+[output]
+feature-depth = 1
+
+[advisories]
+# Mirror cargo-audit's posture: deny known vulns, warn on
+# unmaintained crates. The cargo-audit job is the primary CVE
+# gate (G7.D.2); cargo-deny is the LICENSE + DUPE gate. We keep
+# the advisory check on so a single `cargo deny check` covers
+# both posts when run locally.
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+yanked = "warn"
+ignore = []
+
+[licenses]
+# Explicit allowlist. Anything not here triggers a fail.
+# Order: alphabetical to keep diffs minimal.
+allow = [
+    "0BSD",                        # tinyvec_macros, a few small no-deps crates
+    "Apache-2.0",                  # most of the async ecosystem
+    "Apache-2.0 WITH LLVM-exception", # LLVM-derived crates (e.g. wasmtime)
+    "BSD-2-Clause",                # pkg-config-like crates
+    "BSD-3-Clause",                # nom, encoding_rs subset
+    "BSL-1.0",                     # Boost Software License (xxhash-rust)
+    "CC0-1.0",                     # public-domain-equivalent (e.g. notify subset)
+    "ISC",                         # libloading, ring (older)
+    "MIT",                         # majority of the ecosystem
+    "MIT-0",                       # public-domain-equivalent variant
+    "MPL-2.0",                     # webpki-roots — copyleft per-file only, OK to redistribute
+    "Unicode-3.0",                 # ICU update (icu_*, replaces older Unicode-DFS-2016)
+    "Unicode-DFS-2016",            # ICU (older)
+    "Zlib",                        # deflate / inflate derivatives
+]
+# Default: deny anything not in `allow`. The deprecated `copyleft`
+# / `allow-osi-fsf-free` / `default` knobs were removed in
+# cargo-deny 0.14; the post-0.14 contract is "if it's not in
+# `allow`, it's denied". Confidence threshold raised because SPDX
+# detection on dual-licensed crates sometimes lands at 0.85.
+confidence-threshold = 0.93
+
+[[licenses.clarify]]
+# `ring` ships an in-repo LICENSE that mixes ISC, OpenSSL, and
+# MIT-equivalent terms. SPDX detection trips on it; clarify so
+# the gate doesn't false-positive every release.
+name = "ring"
+expression = "ISC AND MIT AND OpenSSL"
+license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+highlight = "all"
+# We DO NOT ban specific crates here. The point of this section
+# is the `wildcards = "deny"` gate — wildcard versions in
+# Cargo.toml have bitten us once already (a `tokio = "*"` slip
+# pinned us to a yanked patch). Add explicit bans only with a
+# named incident in the PR description.
+
+[sources]
+# Only crates.io + GitHub. Forbid every other registry — a
+# private fork sneaking into a dep tree is exactly the kind of
+# regression this gate exists to catch.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

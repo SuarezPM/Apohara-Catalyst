@@ -1,6 +1,6 @@
 {
 	"name": "apohara",
-	"version": "0.1.0",
+	"version": "1.0.0",
 	"description": "Apohara — multi-AI orchestrator CLI (npx wrapper)",
 	"type": "module",
 	"main": "dist/cli.js",

@@ -163,4 +163,42 @@ describe("formatText", () => {
     });
     expect(out).toContain("failed");
   });
+
+  // G7.B.8 — actionable hint footer per failing section
+  test("emits Next steps section listing actionable hints per failing section", () => {
+    const out = formatText({
+      ok: false,
+      sections: [
+        { name: "runtime", ok: true, summary: "Bun 1.3" },
+        { name: "roster", ok: false, summary: "missing: claude" },
+        { name: "mcp", ok: false, summary: "bad endpoints.json" },
+      ] as { name: SectionName; ok: boolean; summary: string }[],
+    });
+    expect(out).toContain("Next steps:");
+    expect(out).toContain("[roster]");
+    expect(out).toContain("[mcp]");
+    expect(out).toContain("docs/troubleshooting.md");
+    // OK sections should NOT appear in the hints footer
+    expect(out).not.toMatch(/^\s*-\s*\[runtime\]/m);
+  });
+
+  test("does not emit Next steps section when all green", () => {
+    const out = formatText({
+      ok: true,
+      sections: [
+        { name: "runtime", ok: true, summary: "Bun 1.3" },
+        { name: "ledger", ok: true, summary: "fresh install" },
+      ] as { name: SectionName; ok: boolean; summary: string }[],
+    });
+    expect(out).not.toContain("Next steps");
+    expect(out).toContain("verified");
+  });
+
+  test("opens with the diagnostic banner header", () => {
+    const out = formatText({
+      ok: true,
+      sections: [{ name: "runtime", ok: true, summary: "Bun 1.3" }] as { name: SectionName; ok: boolean; summary: string }[],
+    });
+    expect(out).toContain("Apohara doctor — verifying environment");
+  });
 });
