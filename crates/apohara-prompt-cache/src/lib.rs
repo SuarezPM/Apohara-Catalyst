@@ -12,4 +12,5 @@
 //!
 //! G3.B.2 — ported task-by-task following TDD.
 
+pub mod hot;
 pub mod key;
