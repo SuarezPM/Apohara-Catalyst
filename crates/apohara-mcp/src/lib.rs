@@ -9,9 +9,11 @@
 //! the existing dialect adapters). G1.C.1 port — modules ported
 //! task-by-task following TDD.
 
+pub mod audit_logger;
 pub mod input_validation;
 pub mod rate_limit;
 
+pub use audit_logger::{AuditEntry, AuditError, AuditLogger, AuditStatus};
 pub use input_validation::{
     optional_integer, optional_string, optional_string_array, require_record, require_string,
     McpValidationError, ValidationResult,
