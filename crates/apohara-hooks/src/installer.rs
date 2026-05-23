@@ -120,7 +120,7 @@ fn atomic_write(final_path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     tmp.write_all(bytes)?;
     tmp.as_file_mut().sync_all()?;
     tmp.persist(final_path)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.error))?;
+        .map_err(|e| std::io::Error::other(e.error))?;
     Ok(())
 }
 
