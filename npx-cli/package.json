@@ -1,0 +1,36 @@
+{
+	"name": "apohara",
+	"version": "0.1.0",
+	"description": "Apohara — multi-AI orchestrator CLI (npx wrapper)",
+	"type": "module",
+	"main": "dist/cli.js",
+	"bin": {
+		"apohara": "dist/cli.js"
+	},
+	"files": [
+		"dist",
+		"README.md"
+	],
+	"scripts": {
+		"build": "bun build src/cli.ts --target node --outfile dist/cli.js"
+	},
+	"engines": {
+		"node": ">=20"
+	},
+	"keywords": [
+		"ai",
+		"orchestrator",
+		"claude",
+		"codex",
+		"opencode",
+		"agent"
+	],
+	"author": "Pablo (SuarezPM)",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/SuarezPM/apohara"
+	},
+	"homepage": "https://github.com/SuarezPM/apohara",
+	"bugs": "https://github.com/SuarezPM/apohara/issues"
+}
