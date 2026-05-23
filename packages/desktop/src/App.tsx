@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAtomValue, useSetAtom } from "jotai/react";
 import { getDefaultStore } from "jotai/vanilla";
 import { Provider as TooltipProvider } from "@radix-ui/react-tooltip";
+import { Group as PanelGroup, Panel, Separator as PanelResizeHandle, useDefaultLayout } from "react-resizable-panels";
 import { Toaster } from "sonner";
 import { AgentConfigPanel } from "./components/AgentConfigPanel.js";
 import { CostMeter } from "./components/CostMeter.js";
@@ -293,6 +294,14 @@ export function App() {
 
 	const rosterCsv = useMemo(() => [...roster].sort().join(","), [roster]);
 
+	// Persist the main 3-column layout (Plans | Workspace | Agents) across sessions
+	// via the lib's built-in localStorage adapter. Panel ids must match below.
+	const mainLayout = useDefaultLayout({
+		id: "apohara-main-layout",
+		panelIds: ["plans", "workspace", "agents"],
+		storage: typeof window !== "undefined" ? window.localStorage : undefined,
+	});
+
 	return (
 		<TooltipProvider delayDuration={400} skipDelayDuration={150}>
 		<div className="apohara-app" style={{ display: "flex", flexDirection: "column", height: "100vh", background: "#0c0c10", color: "#e6edf3" }}>
@@ -334,42 +343,69 @@ export function App() {
 			</header>
 
 			<main style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-				<PlansPanel />
-
-				<section style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-					<ObjectivePane
-						onRun={setSessionId}
-						active={!!sessionId}
-						mode={mode}
-						rosterCsv={rosterCsv}
-					/>
-					<HeroBanner sessionId={sessionId} onSeedDemo={seedDemo} />
-					<div style={{ flex: 1, overflow: "hidden", borderTop: "1px solid #30363d" }}>
-						{viewMode === "board" ? (
-						<TaskBoard />
-					) : viewMode === "terminal" ? (
-						<TerminalView />
-					) : (
-						<SwarmCanvas events={ledger.events} />
-					)}
-					</div>
-				</section>
-
-				<aside
-					style={{
-						width: 320,
-						display: "flex",
-						flexDirection: "column",
-						gap: "0.5rem",
-						padding: "0.5rem",
-						overflowY: "auto",
-						borderLeft: "1px solid #30363d",
-						background: "#0c0c10",
-					}}
+				<PanelGroup
+					id="apohara-main-layout"
+					orientation="horizontal"
+					defaultLayout={mainLayout.defaultLayout}
+					onLayoutChanged={mainLayout.onLayoutChanged}
+					style={{ flex: 1, display: "flex" }}
 				>
-					<AgentConfigPanel />
-					<PermissionGridPanel />
-				</aside>
+					<Panel id="plans" defaultSize={20} minSize={12} maxSize={40}>
+						<PlansPanel />
+					</Panel>
+					<PanelResizeHandle
+						style={{
+							width: 4,
+							background: "#30363d",
+							cursor: "col-resize",
+						}}
+					/>
+					<Panel id="workspace" defaultSize={60} minSize={30}>
+						<section style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+							<ObjectivePane
+								onRun={setSessionId}
+								active={!!sessionId}
+								mode={mode}
+								rosterCsv={rosterCsv}
+							/>
+							<HeroBanner sessionId={sessionId} onSeedDemo={seedDemo} />
+							<div style={{ flex: 1, overflow: "hidden", borderTop: "1px solid #30363d" }}>
+								{viewMode === "board" ? (
+								<TaskBoard />
+							) : viewMode === "terminal" ? (
+								<TerminalView />
+							) : (
+								<SwarmCanvas events={ledger.events} />
+							)}
+							</div>
+						</section>
+					</Panel>
+					<PanelResizeHandle
+						style={{
+							width: 4,
+							background: "#30363d",
+							cursor: "col-resize",
+						}}
+					/>
+					<Panel id="agents" defaultSize={20} minSize={15} maxSize={40}>
+						<aside
+							style={{
+								height: "100%",
+								display: "flex",
+								flexDirection: "column",
+								gap: "0.5rem",
+								padding: "0.5rem",
+								overflowY: "auto",
+								borderLeft: "1px solid #30363d",
+								background: "#0c0c10",
+								boxSizing: "border-box",
+							}}
+						>
+							<AgentConfigPanel />
+							<PermissionGridPanel />
+						</aside>
+					</Panel>
+				</PanelGroup>
 			</main>
 
 			<footer style={{ padding: "0.5rem 1rem", borderTop: "1px solid #30363d", background: "#0d1117" }}>
