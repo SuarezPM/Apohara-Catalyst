@@ -12,23 +12,32 @@ name = "apohara-indexer"
 path = "src/main.rs"
 
 [dependencies]
+# Workspace-inherited (single source of version truth — see root Cargo.toml's
+# [workspace.dependencies]).
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
+
+# Crate-local deps (not in [workspace.dependencies] — version pinned here).
 tree-sitter = "0.24"
 tree-sitter-typescript = "0.23"
 tree-sitter-rust = "0.23"
+# rusqlite "bundled" statically compiles SQLite + extension support; "load_extension"
+# enables sqlite3_auto_extension via ffi (see storage.rs::ensure_vec_extension_registered).
 rusqlite = { version = "0.32", features = ["bundled", "load_extension"] }
 sqlite-vec = "0.1"
 blake3 = "1.5"
-anyhow = "1.0.102"
-tracing = "0.1.44"
+# `dirs` is in workspace.dependencies at 5.0; this crate had it pinned to 6.0.
+# Keep the explicit pin so the user-facing path resolution doesn't regress
+# behavior changes between 5.x and 6.x.
 dirs = "6.0.0"
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.149"
-thiserror = "2.0"
-tokio = { version = "1", features = ["full"] }
-tracing-subscriber = "0.3"
-uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 tempfile = "3"
 serial_test = "3"
-libc = "0.2"
+libc = { workspace = true }
