@@ -636,6 +636,7 @@ dependencies = [
  "criterion",
  "globset",
  "hex",
+ "proptest",
  "regex",
  "serde",
  "serde_json",
