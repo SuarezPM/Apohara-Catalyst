@@ -10,6 +10,7 @@ pub mod additional_context;
 pub mod compact_reinjection;
 pub mod context_warnings;
 pub mod events;
+pub mod learnings_dump;
 
 pub use additional_context::{
     compose_additional_context_response, verify_additional_context_response, ComposeSources,
@@ -27,6 +28,10 @@ pub use events::{
     parse_hook_event, HookCommonContext, HookEvent, ParseHookEventError, PermissionScope,
     StopReason,
 };
+pub use learnings_dump::{
+    DumpOptions, LearningCategory, LearningEntry, LearningsCollector, LearningsHookEvent,
+    LearningsHookOutcome, LearningsSnapshot, RenderedAdditionalContext,
+};
 
 #[cfg(test)]
 mod additional_context_tests;
@@ -36,3 +41,5 @@ mod compact_reinjection_tests;
 mod context_warnings_tests;
 #[cfg(test)]
 mod events_tests;
+#[cfg(test)]
+mod learnings_dump_tests;
