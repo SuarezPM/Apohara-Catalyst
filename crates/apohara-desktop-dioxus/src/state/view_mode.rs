@@ -10,17 +10,12 @@ use dioxus::prelude::*;
 /// The 3 desktop view modes. Mirrors the `ViewMode` literal union from
 /// `viewStore.ts`. `Graph` is the default to match the TS `loadInitial()`
 /// fallback.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ViewMode {
+    #[default]
     Graph,
     Board,
     Terminal,
-}
-
-impl Default for ViewMode {
-    fn default() -> Self {
-        Self::Graph
-    }
 }
 
 /// Root signal carrying the active view.
