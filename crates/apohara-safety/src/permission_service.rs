@@ -129,7 +129,7 @@ pub fn check(
 fn suggest_pattern(inv: &ToolInvocation) -> String {
     if inv.tool == "Bash" {
         if let Some(cmd) = inv.input.get("command").and_then(|v| v.as_str()) {
-            let first = cmd.trim().split_whitespace().next().unwrap_or("");
+            let first = cmd.split_whitespace().next().unwrap_or("");
             return format!("Bash({first}:*)");
         }
     }

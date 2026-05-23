@@ -43,7 +43,7 @@ impl GuardrailFlagCode {
         }
     }
 
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn try_from_code(s: &str) -> Option<Self> {
         Some(match s {
             "PROMPT_INJECTION_DETECTED" => Self::PromptInjectionDetected,
             "RATE_LIMIT_EXCEEDED" => Self::RateLimitExceeded,
@@ -141,7 +141,7 @@ pub fn flag_for(code: GuardrailFlagCode) -> &'static GuardrailFlag {
 }
 
 pub fn flag_from_str(s: &str) -> Option<&'static GuardrailFlag> {
-    GuardrailFlagCode::from_str(s).map(flag_for)
+    GuardrailFlagCode::try_from_code(s).map(flag_for)
 }
 
 pub fn all_guardrail_flags() -> &'static [GuardrailFlag] {
