@@ -21,3 +21,6 @@ mod state_tests;
 
 #[cfg(test)]
 mod cli_driver_tests;
+
+#[cfg(test)]
+mod reconciler_tests;
