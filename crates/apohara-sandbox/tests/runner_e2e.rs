@@ -50,6 +50,7 @@ fn workspace_write_echo_succeeds() {
         permission: PermissionTier::WorkspaceWrite,
         timeout: Some(Duration::from_secs(5)),
         task_id: None,
+        workspace_root: None,
     }) else {
         return;
     };
@@ -78,6 +79,7 @@ fn workspace_write_captures_stderr() {
         permission: PermissionTier::WorkspaceWrite,
         timeout: Some(Duration::from_secs(5)),
         task_id: None,
+        workspace_root: None,
     }) else {
         return;
     };
@@ -98,6 +100,7 @@ fn readonly_blocks_execve_of_anything() {
         permission: PermissionTier::ReadOnly,
         timeout: Some(Duration::from_secs(5)),
         task_id: None,
+        workspace_root: None,
     }) else {
         return;
     };
@@ -134,6 +137,7 @@ fn empty_command_rejected_before_fork() {
             permission: PermissionTier::WorkspaceWrite,
             timeout: None,
             task_id: None,
+            workspace_root: None,
         })
         .unwrap_err();
     assert!(

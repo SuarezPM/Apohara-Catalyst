@@ -170,7 +170,7 @@ fn build_sanitized_env() -> Vec<CString> {
     for (key, value) in std::env::vars_os() {
         let Some(key_str) = key.to_str() else { continue };
         let Some(value_str) = value.to_str() else { continue };
-        let is_allowed = ENV_ALLOW_NAMES.iter().any(|n| *n == key_str);
+        let is_allowed = ENV_ALLOW_NAMES.contains(&key_str);
         if !is_allowed && is_secret_env_name(key_str) {
             continue;
         }
