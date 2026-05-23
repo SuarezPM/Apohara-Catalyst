@@ -1,4 +1,4 @@
-use apohara_worktree::naming::{random_slug, parse_slug};
+use apohara_worktree::naming::{random_slug, parse_slug, SUFFIX_HEX_LEN};
 
 #[test]
 fn random_slug_matches_pattern() {
@@ -6,14 +6,14 @@ fn random_slug_matches_pattern() {
     let parts: Vec<&str> = s.split('-').collect();
     assert_eq!(parts.len(), 3, "expected 3 parts, got {}", s);
     assert!(parts[2].chars().all(|c| c.is_ascii_hexdigit()));
-    assert_eq!(parts[2].len(), 6);
+    assert_eq!(parts[2].len(), SUFFIX_HEX_LEN);
 }
 
 #[test]
 fn parse_slug_round_trip() {
     let s = random_slug();
     let parsed = parse_slug(&s).expect("valid slug");
-    assert_eq!(parsed.suffix.len(), 6);
+    assert_eq!(parsed.suffix.len(), SUFFIX_HEX_LEN);
 }
 
 #[test]
