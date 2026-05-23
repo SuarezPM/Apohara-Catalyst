@@ -1,12 +1,23 @@
 // Apohara desktop — Tauri v2 entry point.
 
+use std::sync::Arc;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let plan_status_cache = Arc::new(apohara_spec::plan_status_cache::PlanStatusCache::new());
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell()) // placeholder until real plugins land
+        .manage(plan_status_cache)
         .invoke_handler(tauri::generate_handler![
             open_event_ledger,
-            apohara_dispatch::tauri_bridge::rust_dispatch
+            apohara_dispatch::tauri_bridge::rust_dispatch,
+            apohara_verification::tauri_bridge::quality_gates_evaluate,
+            apohara_safety::tauri_bridge::safety_check_permission,
+            apohara_safety::tauri_bridge::safety_analyze_bash_compound,
+            apohara_safety::tauri_bridge::safety_match_pattern,
+            apohara_spec::tauri_bridge::spec_load_plan,
+            apohara_spec::tauri_bridge::spec_get_plan_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running apohara-desktop");

@@ -190,7 +190,7 @@ pub struct AssembledResult {
 // --- Minimal base64 (avoid an extra dep; bytes don't need streaming).
 
 fn b64_encode(input: &[u8]) -> String {
-    let mut out = String::with_capacity((input.len() + 2) / 3 * 4);
+    let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
     let chunks = input.chunks_exact(3);
     let remainder = chunks.remainder();
     for c in chunks {
@@ -232,7 +232,7 @@ fn b64_decode(s: &str) -> Result<Vec<u8>, ()> {
         }
     }
     let bytes = s.as_bytes();
-    if bytes.len() % 4 != 0 {
+    if !bytes.len().is_multiple_of(4) {
         return Err(());
     }
     let mut out = Vec::with_capacity(bytes.len() / 4 * 3);
