@@ -40,7 +40,7 @@ async fn broadcast_with_no_subscribers_does_not_panic() {
     // would ALSO return Ok in the no-subscribers case, masking the bug).
     let result = bc.send(sample_payload());
     assert!(
-        matches!(result, Err(_)),
+        result.is_err(),
         "expected Err(SendError) when no subscribers, got Ok"
     );
 }
