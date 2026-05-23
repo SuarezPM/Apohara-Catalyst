@@ -303,3 +303,34 @@ body {
   /* width reserved for the first stub render; tweaked when toasts flow */
   min-width: 320px;
 }
+
+/* RunningBorder (G2.B.2) — animated lime gradient border for in-flight
+   work. 1:1 port of `.running-border` from packages/desktop/src/index.css.
+   The component only toggles the class; the gradient + keyframe live
+   here so the visual matches the React original byte-for-byte. */
+
+@keyframes apohara-running-border {
+  0%   { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+
+.running-border {
+  position: relative;
+  isolation: isolate;
+}
+.running-border::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  z-index: -1;
+  background: linear-gradient(
+    90deg,
+    var(--apohara-lime) 0%,
+    var(--apohara-lime-bright, color-mix(in srgb, var(--apohara-lime), white 30%)) 25%,
+    var(--apohara-lime) 50%,
+    var(--apohara-lime-bright, color-mix(in srgb, var(--apohara-lime), white 30%)) 75%,
+    var(--apohara-lime) 100%
+  );
+  background-size: 200% 200%;
+  animation: apohara-running-border 2s linear infinite;
+}

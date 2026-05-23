@@ -2,7 +2,7 @@
 //!
 //! Reference: `packages/desktop/src/components/AgentStateDot.tsx`.
 
-use super::AgentStateDot;
+use super::{AgentStateDot, RunningBorder};
 use dioxus::prelude::*;
 
 // ============================================================================
@@ -79,4 +79,46 @@ fn agent_state_dot_falls_back_to_state_label() {
         html.contains("aria-label=\"agent done\""),
         "default aria-label missing: {html}"
     );
+}
+
+// ============================================================================
+// RunningBorder — Sprint 17 G2.B.2 step 2
+// ============================================================================
+
+#[test]
+fn running_border_applies_class_when_active() {
+    fn TestApp() -> Element {
+        rsx! {
+            RunningBorder { active: true,
+                span { "child" }
+            }
+        }
+    }
+    let mut vdom = VirtualDom::new(TestApp);
+    vdom.rebuild_in_place();
+    let html = dioxus_ssr::render(&vdom);
+    assert!(
+        html.contains("running-border"),
+        "running-border class missing when active: {html}"
+    );
+    assert!(html.contains("child"), "child content missing: {html}");
+}
+
+#[test]
+fn running_border_omits_class_when_inactive() {
+    fn TestApp() -> Element {
+        rsx! {
+            RunningBorder { active: false,
+                span { "child" }
+            }
+        }
+    }
+    let mut vdom = VirtualDom::new(TestApp);
+    vdom.rebuild_in_place();
+    let html = dioxus_ssr::render(&vdom);
+    assert!(
+        !html.contains("running-border"),
+        "running-border class should not appear when inactive: {html}"
+    );
+    assert!(html.contains("child"), "child content missing: {html}");
 }
