@@ -48,11 +48,58 @@ pub fn run_reconciler_passes(ctx: &ReconcilerCtx) -> Result<ReconcilerResult> {
     Ok(ReconcilerResult { pass_results, total_affected })
 }
 
-fn run_stall_detection_pass(_ctx: &ReconcilerCtx) -> Result<PassResult> {
+fn run_stall_detection_pass(ctx: &ReconcilerCtx) -> Result<PassResult> {
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+
+    let content = std::fs::read_to_string(&ctx.ledger_path).unwrap_or_default();
+    let mut latest_dispatched: std::collections::HashMap<String, u64> =
+        std::collections::HashMap::new();
+    let mut completed: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    for line in content.lines() {
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        let Some(kind) = v.get("kind").and_then(|k| k.as_str()) else {
+            continue;
+        };
+        let Some(task_id) = v.get("task_id").and_then(|t| t.as_str()) else {
+            continue;
+        };
+        let ts = v.get("ts").and_then(|t| t.as_u64()).unwrap_or(0);
+
+        match kind {
+            "task_dispatched" => {
+                latest_dispatched.insert(task_id.to_string(), ts);
+            }
+            "task_completed" | "task_failed" => {
+                completed.insert(task_id.to_string());
+            }
+            _ => {}
+        }
+    }
+
+    let mut stalled = Vec::new();
+    for (task_id, dispatched_ts) in &latest_dispatched {
+        if completed.contains(task_id) {
+            continue;
+        }
+        if now_ms.saturating_sub(*dispatched_ts) > ctx.stall_timeout_ms {
+            stalled.push(task_id.clone());
+        }
+    }
+    stalled.sort();
+
     Ok(PassResult {
         name: "stall_detection".to_string(),
-        affected: vec![],
-        details: "no stalls detected".to_string(),
+        details: format!("{} stalled tasks", stalled.len()),
+        affected: stalled,
     })
 }
 
