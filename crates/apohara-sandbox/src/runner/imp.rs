@@ -32,6 +32,7 @@
 //! fails, the parent reads 4 bytes and reports a clean "execve_failed"
 //! violation.
 
+use apohara_pathsafety::{canonicalize_recursive, PathSafetyError, MAX_SYMLINK_HOPS};
 use nix::fcntl::OFlag;
 use nix::sys::wait::{waitpid, WaitStatus};
 use nix::unistd::{
@@ -46,6 +47,62 @@ use std::time::Instant;
 use crate::error::{Result, SandboxError};
 use crate::namespace::enter_isolated_namespaces;
 use crate::runner::{SandboxRequest, SandboxResult};
+
+/// G7.5.A.10 — validate `workdir` against `workspace_root` BEFORE spawn,
+/// using `apohara_pathsafety::canonicalize_recursive` so we can surface
+/// `DanglingSymlink` / `SymlinkLoop` / `EscapesRoot` as distinct errors
+/// instead of an opaque `io::Error`. `std::fs::canonicalize` collapses
+/// the three into one — losing the signal that distinguishes "broken
+/// config" (dangling) from "attack attempt" (escape).
+///
+/// Callers that don't supply a `workspace_root` skip validation: the
+/// seccomp + namespace bundle is still in effect, so this stays
+/// backward-compatible for legacy payloads.
+pub fn validate_workdir(req: &SandboxRequest) -> Result<()> {
+    let Some(root) = &req.workspace_root else {
+        return Ok(());
+    };
+    let root_canon = canonicalize_recursive(root, MAX_SYMLINK_HOPS).map_err(|e| {
+        map_pathsafety(e, "workspace_root", root)
+    })?;
+    let workdir_canon =
+        canonicalize_recursive(&req.workdir, MAX_SYMLINK_HOPS).map_err(|e| {
+            map_pathsafety(e, "workdir", &req.workdir)
+        })?;
+    if !workdir_canon.starts_with(&root_canon) {
+        return Err(SandboxError::NamespaceError(format!(
+            "workdir EscapesRoot: workdir={} canonical={} root={}",
+            req.workdir.display(),
+            workdir_canon.display(),
+            root_canon.display(),
+        )));
+    }
+    Ok(())
+}
+
+/// Map the rich pathsafety error variants into the sandbox's flat
+/// `NamespaceError` channel while preserving the variant name in the
+/// message so callers can grep / dispatch on it.
+fn map_pathsafety(
+    e: PathSafetyError,
+    label: &str,
+    path: &std::path::Path,
+) -> SandboxError {
+    let kind = match &e {
+        PathSafetyError::DanglingSymlink { .. } => "DanglingSymlink",
+        PathSafetyError::SymlinkLoop { .. } => "SymlinkLoop",
+        PathSafetyError::EscapesRoot { .. } => "EscapesRoot",
+        PathSafetyError::SymlinkEscape { .. } => "SymlinkEscape",
+        PathSafetyError::ParentTraversal(_) => "ParentTraversal",
+        PathSafetyError::EqualToRoot => "EqualToRoot",
+        PathSafetyError::InvalidCharsInIdentifier(_) => "InvalidCharsInIdentifier",
+        PathSafetyError::Io(_) => "Io",
+    };
+    SandboxError::NamespaceError(format!(
+        "{label} {kind}({}): {e}",
+        path.display()
+    ))
+}
 
 /// Hard cap on the bytes we'll buffer from the grandchild's stdout/stderr.
 /// A runaway or hostile child can otherwise write gigabytes and OOM the
@@ -133,33 +190,13 @@ fn build_sanitized_env() -> Vec<CString> {
 pub fn run_linux(req: SandboxRequest) -> Result<SandboxResult> {
     let started = Instant::now();
 
-    // §3.1 — refuse early when `workdir` escapes the user's declared
-    // workspace_root. We resolve symlinks via `canonicalize` so the
-    // check sees the real on-disk path, then verify it stays under the
-    // canonicalized root. Callers that don't pass a `workspace_root`
-    // (older code) skip this validation — defence in depth via the
-    // seccomp + namespace bundle still applies.
-    if let Some(root) = &req.workspace_root {
-        let root_canon = std::fs::canonicalize(root).map_err(|e| {
-            SandboxError::NamespaceError(format!(
-                "workspace_root canonicalize({}): {e}",
-                root.display()
-            ))
-        })?;
-        let workdir_canon = std::fs::canonicalize(&req.workdir).map_err(|e| {
-            SandboxError::NamespaceError(format!(
-                "workdir canonicalize({}): {e}",
-                req.workdir.display()
-            ))
-        })?;
-        if !workdir_canon.starts_with(&root_canon) {
-            return Err(SandboxError::NamespaceError(format!(
-                "workdir {} escapes workspace_root {}",
-                workdir_canon.display(),
-                root_canon.display(),
-            )));
-        }
-    }
+    // §3.1 + G7.5.A.10 — refuse early when `workdir` escapes the user's
+    // declared workspace_root. Uses `canonicalize_recursive` to detect
+    // DanglingSymlink, SymlinkLoop, and EscapesRoot as distinct error
+    // variants. Callers that don't pass a `workspace_root` (older code)
+    // skip this validation — defence in depth via the seccomp +
+    // namespace bundle still applies.
+    validate_workdir(&req)?;
 
     // Pipes for the grandchild's stdout, stderr, and exec-error channel.
     // Each pair is (read_end, write_end). CLOEXEC on the exec-error pipe
