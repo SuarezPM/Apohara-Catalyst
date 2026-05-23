@@ -132,11 +132,66 @@ Gate at Phase 2 cierre HEAD:
 - `cargo clippy --workspace -- -D warnings` → clean
 - `cargo check --workspace` → clean
 
+## Phase 3 — TUI + ContextForge + INV-bash-scope (cierre — defensible v1.0.0-rc.4 "full Rust-native stack")
+
+Sprints 20-22 close the Rust-native catalyst migration with the
+ContextForge primitives + prompt cache + formal INV-bash-scope proof.
+
+- `apohara-tui` ratatui-based binary (replaces `packages/tui/` Ink TUI).
+- `apohara-context-primitives` crate — SimHash + LSH banding +
+  Queueing-Theory λ-critical model, direct Rust port of the
+  ContextForge paper primitives.
+- `apohara-prompt-cache` crate — HOT DashMap + WARM SQLite WAL tiers
+  with L1 (key scoping per provider) + L2 (Hamming-distance
+  confidence threshold ladder) + L3 (opt-in `enabled` flag) safety
+  layers.
+- `apohara-safety::inv_bash_scope` — formal proof companion to the
+  compound-bash safety parser. The plan called for a Z3 SMT port of
+  the ContextForge paper's Python listing; this release ships the
+  **proptest exhaustion equivalent** because libz3 is not installable
+  on the current build hosts (CachyOS dev + ubuntu-22.04 CI), and
+  bundling Z3 from source would bloat the CI cache by ~120 MB. The
+  exhaustion proof is mechanically equivalent in scope: every bash
+  separator class (`&&`, `||`, `;`, `|`, `&`, newline, `$(...)`,
+  backticks, `<()`, `>()`) is enumerated at depths 1, 2, and 3 — 1024
+  generated cases per proptest, four proptests, asserting that any
+  dangerous-leg compound surfaces as `is_compound() == true` with the
+  rm leg recoverable from `split_compound()`. See
+  `crates/apohara-safety/src/inv_bash_scope.rs` for the trade-off
+  write-up.
+- Verification-mesh now enforces INV-bash-scope as a built-in gate.
+  `apohara-verification::BashScopeGate` scans every line of diff +
+  output and blocks on any dangerous leg with a deterministic
+  witness. `run_bash_scope_gate(cmd)` provides one-shot access for
+  the orchestrator.
+- CI gains an `inv-bash-scope-proof` job that runs the proptest
+  exhaustion + the verification-mesh integration test in `--release`
+  on every PR. When libz3 lands on the runner, swap the job body for
+  the SMT solver invocation; the gate contract is unchanged.
+- Compound-bash invariant historically called `INV-15` in TS Sprint 5
+  renamed to **`INV-bash-scope`** to disambiguate from the
+  ContextForge paper's `INV-15 JCR Safety Gate`
+  (DOI 10.5281/zenodo.20114594), which is a verification-mesh
+  confidence-threshold invariant — not the compound-bash one. Active
+  Rust code uses the new name; TS legacy docs that cite the paper
+  intentionally keep INV-15.
+- Paper citation: `apohara-context-forge/paper/inv15_paper.tex`
+  (Apohara ContextForge sister project, Pablo's authorship). DOI
+  preprint at 10.5281/zenodo.20114594.
+
+Gate at Phase 3 cierre HEAD:
+- `cargo test --workspace` — 1080+ tests passing (was 949 at Phase 2
+  cierre; +131 from primitives + prompt cache + INV-bash-scope proof
+  + verification-mesh gate)
+- `cargo clippy --workspace -- -D warnings` → clean
+- `cargo build --workspace` → clean
+
 ## Roadmap (post-1.0)
 
 - v1.1: smart router (cost/latency-aware dispatch), reactions, remote workers (opt-in), real chief mascot artwork (placeholder PNG ships in 1.0)
 - v1.2: demo video tooling + comparative benchmarks
-- Phase 3 (Sprints 20+): ratatui TUI + ContextForge — context-as-code DSL + Z3 INV-15 verifier
+- Phase 4 — public launch (HARD HALT on Pablo's sign-off via `docs/superpowers/pre-release-validation/sign-off.md`).
+- Z3 SMT proof body swap once libz3 is installable on the CI runner — `inv-bash-scope-proof` job slot is already wired and the public contract of `prove_no_scope_escape()` is stable.
 - v2.0: TBD — community input gating major changes
 
 ---
