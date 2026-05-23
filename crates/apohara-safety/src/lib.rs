@@ -20,6 +20,7 @@ pub mod permission_service;
 pub mod pure_profiles;
 pub mod runner_policy;
 pub mod settings_hierarchy;
+pub mod tauri_bridge;
 
 pub use auto_approval::{classify_tool_for_auto_approval, AutoApprovalDecision};
 pub use bash_compound::{is_compound, split_compound};
