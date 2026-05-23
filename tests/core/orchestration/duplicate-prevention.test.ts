@@ -27,3 +27,12 @@ test("DuplicateGuard accepts duplicate after window expires", async () => {
   await new Promise((r) => setTimeout(r, 60));
   expect(g.shouldAccept(task)).toBe(true);
 });
+
+test("fingerprint resists delimiter collision (workspace contains pipe)", () => {
+  // Pre-fix: provider="a", workspace="b|c", prompt="x" → "a|b|c|x"
+  //         provider="a|b", workspace="c", prompt="x" → "a|b|c|x" ← COLLISION
+  // Post-fix: JSON.stringify produces distinct serializations.
+  const a = computeTaskFingerprint({ provider: "a", workspacePath: "b|c", prompt: "x" });
+  const b = computeTaskFingerprint({ provider: "a|b", workspacePath: "c", prompt: "x" });
+  expect(a).not.toBe(b);
+});
