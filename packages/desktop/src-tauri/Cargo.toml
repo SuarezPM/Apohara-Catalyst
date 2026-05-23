@@ -22,6 +22,10 @@ apohara-dispatch = { path = "../../../crates/apohara-dispatch", features = ["tau
 apohara-verification = { path = "../../../crates/apohara-verification", features = ["tauri"] }
 apohara-safety = { path = "../../../crates/apohara-safety", features = ["tauri"] }
 apohara-spec = { path = "../../../crates/apohara-spec", features = ["tauri"] }
+apohara-mcp = { path = "../../../crates/apohara-mcp", features = ["tauri"] }
+apohara-hooks = { path = "../../../crates/apohara-hooks", features = ["tauri"] }
+apohara-decomposer = { path = "../../../crates/apohara-decomposer", features = ["tauri"] }
+apohara-projector = { path = "../../../crates/apohara-projector", features = ["tauri"] }
 
 [features]
 default = ["custom-protocol"]
