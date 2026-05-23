@@ -122,12 +122,10 @@ impl CacheTelemetry {
 
     /// Mean lookup latency in microseconds, or 0 if no lookups yet.
     pub fn avg_micros(&self) -> u64 {
-        let total = self.total_lookups();
-        if total == 0 {
-            0
-        } else {
-            self.sum_micros.load(Ordering::Relaxed) / total
-        }
+        self.sum_micros
+            .load(Ordering::Relaxed)
+            .checked_div(self.total_lookups())
+            .unwrap_or(0)
     }
 
     /// `(hits) / (hits + misses)` as a value in `[0.0, 1.0]`. `Disabled`

@@ -115,6 +115,10 @@ impl WarmCache {
             .context("count rows")?;
         Ok(n as u64)
     }
+
+    pub fn is_empty(&self) -> Result<bool> {
+        Ok(self.len()? == 0)
+    }
 }
 
 #[cfg(test)]
