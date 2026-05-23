@@ -34,8 +34,9 @@
  *   4. APOHARA_SKIP_DOCKER_E2E=1 is set on the test step (macOS /
  *      windows runners lack docker; skip cleanly).
  *   5. The build step + test step + lint step are all present.
- *   6. (G7.E.4) The cross-platform-smoke job runs on 4 OS — Linux,
- *      macos-13, macos-14, windows-2022.
+ *   6. (G7.E.4 + G10.A.1) The cross-platform-smoke job runs on 3 OS —
+ *      Linux, macos-14 (Apple Silicon only — Intel deprecated Dec 2025),
+ *      windows-2022 — across Node 20 + 22.
  */
 import { test, expect } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -132,25 +133,42 @@ test("matrix produces exactly 10 jobs (5 OS × 2 Node)", () => {
 });
 
 // G7.E.4 — verify the secondary cross-platform-smoke job exists and
-// covers the four user-facing target platforms (Linux + macOS Intel +
-// macOS Apple Silicon + Windows nativo). This is the fast-feedback
+// covers the user-facing target platforms (Linux + macOS Apple Silicon +
+// Windows nativo). G10.A.1 (4a051a2) dropped macos-13 because GitHub
+// deprecates Intel macOS runners December 2025. This is the fast-feedback
 // canary that catches npx-shim build breaks per OS in seconds instead
 // of waiting on the full test matrix.
-test("cross-platform-smoke job covers Linux + macOS Intel + macOS M + Windows", () => {
+test("cross-platform-smoke job covers Linux + macOS (Apple Silicon) + Windows × Node 20/22", () => {
 	expect(CI_YAML).toContain("cross-platform-smoke:");
 	// Extract just the smoke job block to avoid mistakenly matching the
 	// `test` matrix entries above.
 	const smokeIdx = CI_YAML.indexOf("\n  cross-platform-smoke:\n");
 	expect(smokeIdx).toBeGreaterThan(-1);
 	const smokeBlock = CI_YAML.slice(smokeIdx);
-	const smokeOsEntries = smokeBlock
-		.split(/\r?\n/)
-		.filter((l) => /^\s*-\s+(ubuntu|macos|windows)-/.test(l));
-	expect(smokeOsEntries.length).toBeGreaterThanOrEqual(4);
-	expect(smokeBlock).toContain("ubuntu-22.04");
-	expect(smokeBlock).toContain("macos-13");
-	expect(smokeBlock).toContain("macos-14");
-	expect(smokeBlock).toContain("windows-2022");
+	// G10.A.1 uses inline-list YAML (`os: [a, b, c]`) instead of
+	// dash-bullets; extract OS tokens from the `os:` line directly.
+	const osLine = smokeBlock.match(/^\s*os:\s*\[([^\]]+)\]/m);
+	expect(osLine).not.toBeNull();
+	const smokeOsEntries = osLine![1]
+		.split(",")
+		.map((s) => s.trim())
+		.filter(Boolean);
+	expect(smokeOsEntries.length).toBe(3);
+	expect(smokeOsEntries).toContain("ubuntu-22.04");
+	expect(smokeOsEntries).toContain("macos-14");
+	expect(smokeOsEntries).toContain("windows-2022");
+	// G10.A.1: Intel macOS deprecated by GitHub Dec 2025 — must NOT appear
+	// in the smoke matrix.
+	expect(smokeOsEntries).not.toContain("macos-13");
+	// Node lanes: 20 and 22 (LTS). Inline-list form `node: ['20', '22']`.
+	const nodeLine = smokeBlock.match(/^\s*node:\s*\[([^\]]+)\]/m);
+	expect(nodeLine).not.toBeNull();
+	const smokeNodeEntries = nodeLine![1]
+		.split(",")
+		.map((s) => s.trim().replace(/^['"]|['"]$/g, ""))
+		.filter(Boolean);
+	expect(smokeNodeEntries).toContain("20");
+	expect(smokeNodeEntries).toContain("22");
 	// And the smoke job must build + invoke the shim end-to-end.
 	expect(smokeBlock).toContain("bun run build");
 	expect(smokeBlock).toContain("--version");
