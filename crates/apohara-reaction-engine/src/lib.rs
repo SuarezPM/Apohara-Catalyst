@@ -62,7 +62,7 @@ mod tests {
 
     #[test]
     fn version_is_workspace_version() {
-        // Cargo workspace.package.version = "1.0.0-dev"
-        assert_eq!(version(), "1.0.0-dev");
+        // Cargo workspace.package.version = "1.0.0"
+        assert_eq!(version(), "1.0.0");
     }
 }
