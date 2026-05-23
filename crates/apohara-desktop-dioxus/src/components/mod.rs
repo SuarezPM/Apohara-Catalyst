@@ -16,6 +16,7 @@ pub use composition::{
 };
 pub use dialogs::{PermissionDialog, PermissionScope, ToastDialog};
 pub use hard::{CodeDiffPane, SwarmCanvas};
+// `TerminalPane` re-export lands en el commit verde (G2.D.1.2).
 pub use hero_banner::HeroBanner;
 pub use layout::{ProviderRoster, TaskBoard};
 pub use polish::CommandPalette;
