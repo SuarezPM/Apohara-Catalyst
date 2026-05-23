@@ -18,6 +18,14 @@ pub fn run() {
             apohara_safety::tauri_bridge::safety_match_pattern,
             apohara_spec::tauri_bridge::spec_load_plan,
             apohara_spec::tauri_bridge::spec_get_plan_status,
+            apohara_mcp::tauri_bridge::mcp_bootstrap_servers,
+            apohara_mcp::tauri_bridge::mcp_inject_config,
+            apohara_hooks::tauri_bridge::hooks_install_for_provider,
+            apohara_hooks::tauri_bridge::hooks_dispatch_event,
+            apohara_decomposer::tauri_bridge::decomposer_run,
+            apohara_decomposer::tauri_bridge::decomposer_parse_task,
+            apohara_projector::tauri_bridge::projector_to_ui_cards,
+            apohara_projector::tauri_bridge::projector_to_search_rows,
         ])
         .run(tauri::generate_context!())
         .expect("error while running apohara-desktop");

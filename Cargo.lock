@@ -289,7 +289,11 @@ dependencies = [
 name = "apohara-desktop"
 version = "0.0.1-alpha"
 dependencies = [
+ "apohara-decomposer",
  "apohara-dispatch",
+ "apohara-hooks",
+ "apohara-mcp",
+ "apohara-projector",
  "apohara-safety",
  "apohara-spec",
  "apohara-verification",
@@ -344,8 +348,10 @@ dependencies = [
  "apohara-types",
  "chrono",
  "criterion",
+ "hex",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tauri",
  "tempfile",
  "thiserror 2.0.18",
@@ -405,10 +411,14 @@ version = "1.0.0"
 dependencies = [
  "anyhow",
  "apohara-mcp-bridge",
+ "apohara-safety",
  "apohara-types",
+ "async-trait",
  "axum",
  "chrono",
  "criterion",
+ "dirs 5.0.1",
+ "futures",
  "hex",
  "hyper",
  "rand 0.8.6",
@@ -423,6 +433,7 @@ dependencies = [
  "tokio",
  "tower",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
