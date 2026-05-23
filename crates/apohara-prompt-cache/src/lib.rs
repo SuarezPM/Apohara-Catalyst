@@ -15,4 +15,5 @@
 pub mod hot;
 pub mod key;
 pub mod safety_layers;
+pub mod telemetry;
 pub mod warm;
