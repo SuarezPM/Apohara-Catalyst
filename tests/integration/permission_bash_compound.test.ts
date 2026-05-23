@@ -64,16 +64,19 @@ describe("INV-15: bash compound never allows 'always' scope", () => {
     expect(d.kind).toBe("deny");
   });
 
-  test("regression: single 'git status' still offers full scope set", () => {
+  test("regression: single 'git status' is auto-approved (allow)", () => {
+    // After G7.5.A.9 wired classifyToolForAutoApproval between deny and
+    // cache, single safe-list bash commands (e.g. `git status`) legitimately
+    // short-circuit to `allow` with reason="auto_approved". Compound bash
+    // still bypasses auto-approval (see "compound with ';'" above) so the
+    // INV-15 scope-clamp continues to gate ["once"] for those.
     const d = check("s1", bash("git status"), {
       cache: new PermissionCache(),
       settings: settings(),
     });
-    expect(d.kind).toBe("ask");
-    if (d.kind === "ask") {
-      expect(d.available_scopes).toContain("always");
-      expect(d.available_scopes).toContain("session");
-      expect(d.available_scopes).toContain("once");
+    expect(d.kind).toBe("allow");
+    if (d.kind === "allow") {
+      expect(d.reason).toBe("auto_approved");
     }
   });
 });
