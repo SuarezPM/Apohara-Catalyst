@@ -213,3 +213,29 @@ mod permissions_tests {
         });
     }
 }
+
+#[cfg(test)]
+mod view_mode_tests {
+    use super::with_runtime;
+    use crate::state::view_mode::{set_view_mode, ViewMode, VIEW_MODE};
+    use dioxus::prelude::ReadableExt;
+
+    #[test]
+    fn default_is_graph() {
+        with_runtime(|| {
+            // Reset to default first because other tests may have mutated it.
+            set_view_mode(ViewMode::Graph);
+            assert_eq!(*VIEW_MODE.read(), ViewMode::Graph);
+        });
+    }
+
+    #[test]
+    fn set_updates_signal() {
+        with_runtime(|| {
+            set_view_mode(ViewMode::Board);
+            assert_eq!(*VIEW_MODE.read(), ViewMode::Board);
+            set_view_mode(ViewMode::Terminal);
+            assert_eq!(*VIEW_MODE.read(), ViewMode::Terminal);
+        });
+    }
+}
