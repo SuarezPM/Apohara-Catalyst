@@ -61,3 +61,22 @@ Justification: every single critical criterion passes (build, IPC, SSR, render p
 - Install `dioxus-cli 0.7.9` locally (`sudo pacman -S dioxus-cli` once policy allows, or `cargo install dioxus-cli --version 0.7.9 --locked`).
 - Run `crates/apohara-desktop-dioxus/scripts/dev.sh` once to confirm subsecond hot-reload wall-clock and record the real p50 in `g1-a-bench.md` (or a new `g2-bench.md`).
 - Use `HeroBanner` as the canonical pattern reference for the 4 paralelos in G2.B.1-B.4.
+
+## Workspace isolation note (compatibility footnote)
+
+`crates/apohara-desktop-dioxus/` is **NOT** a member of the workspace at `Cargo.toml`. Reason: `dioxus-desktop 0.7.9` pins `wry ^0.53`, which Cargo's lockfile unification then forces onto `tauri-runtime-wry` — but `tauri 2.9.5` (used by `packages/desktop/src-tauri`) needs `tauri-runtime-wry 2.11.1`, which needs `wry 0.55`. Two incompatible wry majors cannot coexist in one lockfile.
+
+The Dioxus crate therefore carries its own `[workspace]` directive (a single-crate workspace) and its own `Cargo.lock` under `crates/apohara-desktop-dioxus/target/`. Verification commands become:
+
+```bash
+# workspace (existing Tauri shell, all Rust core crates)
+cargo test --workspace
+cargo clippy --workspace -- -D warnings
+
+# Dioxus bake-off (standalone)
+( cd crates/apohara-desktop-dioxus && cargo test )
+( cd crates/apohara-desktop-dioxus && cargo clippy --all-targets -- -D warnings )
+( cd crates/apohara-desktop-dioxus && cargo build --release )
+```
+
+This isolation dissolves automatically in Sprint 19 when `packages/desktop/src-tauri` is deleted: at that point the dioxus crate can rejoin `workspace.members` and the lockfile collapses to a single graph.
