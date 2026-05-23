@@ -1,0 +1,8 @@
+# Crate-local cargo overrides for the Dioxus desktop bake-off.
+#
+# We intentionally do NOT pin a custom linker here (workspace defaults to
+# rust-lld via cargo 1.95 wiring). Hot-reload speed comes from Dioxus
+# subsecond, not linker tricks.
+
+[build]
+# Reserved for crate-specific build tweaks if needed in Phase 2 Wave A/B/C.
