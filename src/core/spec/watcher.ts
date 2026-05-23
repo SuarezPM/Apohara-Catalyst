@@ -50,7 +50,6 @@ export async function startPlanWatcher(opts: PlanWatcherOpts): Promise<PlanWatch
     ignoreInitial: true,
     persistent: true,
     ignored: /(^|[\\/])\../,
-    onlyFiles: true,
     awaitWriteFinish: { stabilityThreshold: debounceMs, pollInterval: 20 },
   });
 
