@@ -25,6 +25,7 @@ tauri = ["dep:tauri"]
 [dev-dependencies]
 tempfile = "3"
 criterion = "0.5"
+proptest = "1"
 
 [[bench]]
 name = "safety_throughput"

@@ -12,6 +12,7 @@ pub mod auto_approval;
 pub mod bash_compound;
 pub mod durable_prompt;
 pub mod guardrail_flags;
+pub mod inv_bash_scope;
 pub mod pattern_validator;
 pub mod patterns;
 pub mod permission_cache;
@@ -24,6 +25,7 @@ pub mod tauri_bridge;
 
 pub use auto_approval::{classify_tool_for_auto_approval, AutoApprovalDecision};
 pub use bash_compound::{is_compound, split_compound};
+pub use inv_bash_scope::{invariant_holds, is_proven_safe, prove_no_scope_escape, ProofResult};
 pub use guardrail_flags::{
     all_guardrail_flags, flag_for, flag_from_str, GuardrailFlag, GuardrailFlagCode,
     GuardrailSeverity,
@@ -49,6 +51,8 @@ mod auto_approval_tests;
 mod bash_compound_tests;
 #[cfg(test)]
 mod guardrail_profiles_tests;
+#[cfg(test)]
+mod inv_bash_scope_test;
 #[cfg(test)]
 mod pattern_validator_tests;
 #[cfg(test)]
