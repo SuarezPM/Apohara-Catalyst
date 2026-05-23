@@ -3,11 +3,11 @@
 //! Reference: `packages/desktop/src/components/TerminalPane.tsx`.
 //!
 //! Targets under test:
-//!   - `TerminalState::new(cols, rows)`        → headless terminal grid.
-//!   - `TerminalState::process_output(bytes)`  → drains ANSI control codes
-//!                                                through the vte processor.
-//!   - `TerminalState::visible_text()`         → flattened screen rows.
-//!   - `TerminalPane { pty_id }` Dioxus component → SSR markup with a
+//!   - `TerminalState::new(cols, rows)` — headless terminal grid.
+//!   - `TerminalState::process_output(bytes)` — drains ANSI control codes
+//!     through the vte processor.
+//!   - `TerminalState::visible_text()` — flattened screen rows.
+//!   - `TerminalPane { pty_id }` Dioxus component — SSR markup with a
 //!     `data-terminal-pane` attribute the integration layer can hook into.
 
 use super::terminal_pane::{TerminalPane, TerminalState};
