@@ -6,24 +6,49 @@
 //! to the orchestration DB + tokio broadcast channel.
 
 pub mod auth;
+pub mod broadcast;
 pub mod endpoint_file;
 pub mod event;
 
+#[cfg(test)]
+mod broadcast_tests;
+
 use auth::{bearer_auth, AuthState};
 use axum::{
-    extract::{DefaultBodyLimit, State},
+    extract::{DefaultBodyLimit, FromRef, State},
     middleware,
     response::Json,
     routing::{get, post},
     Router,
 };
+use broadcast::Broadcaster;
 use endpoint_file::{delete_if_exists, endpoint_file_path, write_atomic, EndpointDescriptor};
+use event::HookEventPayload;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
+
+/// Composite state shared by all `/event` and `/health` handlers and by the
+/// bearer-auth middleware (via `FromRef<AppState> for AuthState`).
+///
+/// Carries:
+/// - [`AuthState`] — bearer token for the loopback contract.
+/// - [`Broadcaster<HookEventPayload>`] — in-process fan-out to UI bridge,
+///   ledger appender, and (Stage 2.6) the Coordinator loop.
+#[derive(Clone)]
+pub struct AppState {
+    pub auth: AuthState,
+    pub broadcaster: Broadcaster<HookEventPayload>,
+}
+
+impl FromRef<AppState> for AuthState {
+    fn from_ref(app: &AppState) -> Self {
+        app.auth.clone()
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum HooksError {
@@ -100,6 +125,14 @@ impl HooksServer {
         let auth_state = AuthState {
             bearer_token: Arc::new(config.bearer_token.clone()),
         };
+        // Capacity 256 trades a few KiB of memory for headroom: hook bursts
+        // (e.g. tight tool-use loops) can outrun a single slow subscriber
+        // before the lagged-receiver semantics kick in.
+        let broadcaster: Broadcaster<HookEventPayload> = Broadcaster::new(256);
+        let app_state = AppState {
+            auth: auth_state.clone(),
+            broadcaster,
+        };
 
         // Cap on the maximum body any handler will receive. axum's
         // default (2 MiB) is high for the small hook events we accept;
@@ -111,8 +144,8 @@ impl HooksServer {
             .route("/health", get(health))
             .route("/event", post(crate::event::handle_event))
             .layer(DefaultBodyLimit::max(HOOK_BODY_LIMIT))
-            .layer(middleware::from_fn_with_state(auth_state.clone(), bearer_auth))
-            .with_state(auth_state);
+            .layer(middleware::from_fn_with_state(auth_state, bearer_auth))
+            .with_state(app_state);
 
         let listener = TcpListener::bind(config.bind_addr).await?;
         let bound = listener.local_addr()?;

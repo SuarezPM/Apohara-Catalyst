@@ -1,14 +1,23 @@
 /**
  * Durable permission prompt store per spec §4.6.
  *
- * Stage 5 ships an in-memory implementation: enqueueRequest stores a pending
- * request, setResponse records the user's decision, and waitForResponse polls
- * until either a response arrives or the timeout (10 min default) elapses.
+ * Two backing modes share the same public shape:
+ *  - In-memory (default — `new DurablePromptStore()`): identical to the
+ *    Stage 5 implementation, no I/O.
+ *  - JSONL-backed (`new DurablePromptStore({ ledgerPath })`): every
+ *    enqueueRequest / setResponse is also appended to a JSONL file so a
+ *    fresh process can call `load()` and recover pending prompts and
+ *    already-recorded responses across restarts (the "Stage 8" durability
+ *    requirement — prompts survive a React unmount/remount or a Bun
+ *    process crash).
  *
- * Stage 8 will swap the backing store for the JSONL ledger so prompts survive
- * a React unmount/remount (the original durability requirement). The public
- * shape stays the same so consumers don't have to change.
+ * The on-disk appends are best-effort and fire-and-forget: durability
+ * never blocks the synchronous call sites that drive the UI. A caller
+ * that wants strong durability guarantees should await on a future
+ * explicit `flush()` API instead.
  */
+
+import { appendEntry, loadEntries } from "./durablePrompt-jsonl.js";
 
 export interface PermissionRequest {
   request_id: string;
@@ -29,18 +38,87 @@ export interface PermissionResponse {
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes per spec.
 const DEFAULT_POLL_MS = 100;
 
+export interface DurablePromptStoreOptions {
+  /**
+   * When set, the store appends every enqueueRequest / setResponse to this
+   * JSONL ledger and can recover state on `load()`. When unset, behavior is
+   * identical to the previous in-memory implementation (no I/O).
+   */
+  ledgerPath?: string;
+}
+
 export class DurablePromptStore {
   private pending = new Map<string, PermissionRequest>();
   private responses = new Map<string, PermissionResponse>();
+  private ledgerPath?: string;
+
+  constructor(opts: DurablePromptStoreOptions = {}) {
+    this.ledgerPath = opts.ledgerPath;
+  }
 
   enqueueRequest(req: PermissionRequest): void {
     this.pending.set(req.request_id, req);
+    if (this.ledgerPath) {
+      void appendEntry(this.ledgerPath, { kind: "request", data: req }).catch(
+        () => {
+          /* best-effort durability — never block the UI on disk */
+        },
+      );
+    }
   }
 
   setResponse(resp: PermissionResponse): void {
     this.responses.set(resp.request_id, resp);
+    if (this.ledgerPath) {
+      void appendEntry(this.ledgerPath, { kind: "response", data: resp }).catch(
+        () => {
+          /* best-effort durability */
+        },
+      );
+    }
   }
 
+  /**
+   * True when a request was enqueued but no matching response has been
+   * recorded yet (and the prompt hasn't been consumed by a successful
+   * `waitForResponse`).
+   */
+  isPending(request_id: string): boolean {
+    return this.pending.has(request_id) && !this.responses.has(request_id);
+  }
+
+  /**
+   * Replay the JSONL ledger into the in-memory maps. Safe to call multiple
+   * times: each entry just re-sets the corresponding map slot. No-op when
+   * no ledgerPath was configured.
+   */
+  async load(): Promise<void> {
+    if (!this.ledgerPath) return;
+    const entries = await loadEntries(this.ledgerPath);
+    for (const entry of entries) {
+      if (entry.kind === "request") {
+        this.pending.set(entry.data.request_id, entry.data);
+      } else {
+        this.responses.set(entry.data.request_id, entry.data);
+      }
+    }
+  }
+
+  /**
+   * Block until a response for `request_id` is recorded, or until
+   * `timeoutMs` elapses. On success the prompt is consumed (removed
+   * from both in-memory maps) and the response is returned. On timeout
+   * the pending entry is dropped and `null` is returned.
+   *
+   * NOTE on durability: consume() removes the entry from the in-memory
+   * maps but the JSONL ledger retains the full history. A `load()`
+   * after a restart re-resurrects consumed entries as pending — the
+   * response is also re-loaded and will be re-consumed by the next
+   * waitForResponse. For most cases (deny + once-scope) this is OK.
+   * For (allow + session) a future `compactLedger()` invocation at
+   * consume-time would prevent the re-prompt. See `compactLedger()`
+   * in durablePrompt-jsonl.ts.
+   */
   async waitForResponse(
     request_id: string,
     timeoutMs: number = DEFAULT_TIMEOUT_MS,

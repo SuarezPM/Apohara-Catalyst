@@ -135,7 +135,12 @@ export async function runDispatchInstruction(
 	);
 
 	try {
-		const llmResponse = await callCliDriver(driver, messages);
+		// Thread the explicit `workspace` through so the runner-policy
+		// gate inside `callCliDriver` resolves the correct
+		// `<workspace>/.apohara.json` (not whatever the bun process is
+		// cwd'd into right now — see callCliDriver doc-comment for the
+		// TOCTOU rationale on concurrent worktrees).
+		const llmResponse = await callCliDriver(driver, messages, workspace);
 		await emitPhase(
 			opts.ledgerPath,
 			inst.taskId,

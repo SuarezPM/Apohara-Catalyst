@@ -12,3 +12,4 @@ serde_json.workspace = true
 thiserror.workspace = true
 ts-rs.workspace = true
 tracing.workspace = true
+jsonc-parser = { version = "0.32", features = ["cst"] }

@@ -28,7 +28,20 @@
 
 import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { sanitizeEnv } from "../core/persistence/envSanitizer";
+import { compileRunnerExecutionPlan } from "../core/safety/runnerPolicy/planCompiler";
+import {
+	STRICT,
+	BALANCED,
+	ADVISORY,
+	EXTERNAL_SANDBOX,
+} from "../core/safety/runnerPolicy/presets";
+import type {
+	ExecutionPlan,
+	PolicyPreset,
+	RunnerExecutionPolicy,
+} from "../core/safety/runnerPolicy/types";
 import type { ProviderId } from "../core/types";
 import type { LLMMessage, LLMResponse } from "./router";
 
@@ -304,13 +317,144 @@ export async function loadCliDriverRegistry(): Promise<
 }
 
 /**
+ * T4.3 — Resolve the runner policy for a spawn from the workspace
+ * `.apohara.json`. Closes the Stage 5 integration gap that `doctor.ts`
+ * was advertising as "deferred": the runner-policy module shipped with
+ * compiler + presets + fsSnapshot, but the spawn entry point in this
+ * file never invoked it, so policy enforcement was effectively dark
+ * code on the cli-driver path.
+ *
+ * Resolution order:
+ *   1. Read `<workspace>/.apohara.json` if present.
+ *   2. Pick the named preset (`Strict | Balanced | Advisory |
+ *      ExternalSandbox`); unknown / missing / malformed → fall back
+ *      to `Balanced`, which is the safe default for v1.0 ("block push
+ *      to main + standard destructive commands, allow general network").
+ *   3. Hand the policy to `compileRunnerExecutionPlan` and return the
+ *      compiled `ExecutionPlan`. Compilation is the same code path the
+ *      Stage 5 tests already cover; we don't duplicate it.
+ *
+ * The plan is NOT applied here — `runOnce` decides whether to abort
+ * the spawn (on `rejected=true`) or splice it into the child env via
+ * `buildRunnerPolicyEnv`. Splitting compilation from application means
+ * the planCompiler stays a pure function and tests can pin its output
+ * without invoking the spawn machinery.
+ *
+ * Malformed `.apohara.json` is intentionally non-fatal: we already
+ * have the `Balanced` safe default, and crashing the orchestrator
+ * because a user typo'd a config file would be a worse failure mode
+ * than degrading to the default policy. The fallback is logged via
+ * stderr so doctor.ts can pick it up if needed.
+ */
+export async function resolveRunnerPolicyForSpawn(
+	workspace: string,
+): Promise<ExecutionPlan> {
+	const preset = await readPresetFromApoharaJson(workspace);
+	const policy = pickPolicy(preset, workspace);
+	return compileRunnerExecutionPlan(policy);
+}
+
+/**
+ * Build the env fragment that exposes the compiled plan to the
+ * subprocess. We pass it via `APOHARA_RUNNER_POLICY=<JSON>` so child
+ * tools (sandbox helpers, hook scripts, agentrail probes) can decode
+ * the same plan the orchestrator compiled without re-reading the
+ * `.apohara.json` file (which may have changed between resolution
+ * and spawn — using the in-flight plan eliminates that TOCTOU race).
+ *
+ * Returns a plain object that the caller can merge into the spawn
+ * env after `sanitizeEnv` has filtered the parent env down. This
+ * matches the §0.4 discipline: `sanitizeEnv` removes secrets, and
+ * only afterwards do we splice in Apohara-controlled variables.
+ */
+export function buildRunnerPolicyEnv(plan: ExecutionPlan): {
+	APOHARA_RUNNER_POLICY: string;
+} {
+	return { APOHARA_RUNNER_POLICY: JSON.stringify(plan) };
+}
+
+async function readPresetFromApoharaJson(
+	workspace: string,
+): Promise<PolicyPreset> {
+	const path = join(workspace, ".apohara.json");
+	try {
+		const text = await readFile(path, "utf-8");
+		const parsed = JSON.parse(text) as {
+			runnerPolicy?: { preset?: string };
+		};
+		const preset = parsed?.runnerPolicy?.preset;
+		if (isKnownPreset(preset)) return preset;
+		// Unknown preset name in config — keep going with Balanced.
+		return "Balanced";
+	} catch (e) {
+		// Missing file = first-run install; malformed JSON = user typo.
+		// Either way we degrade to Balanced rather than crash the spawn.
+		// ENOENT is the common case (no `.apohara.json` yet) and we stay
+		// silent on it; everything else is worth a warning.
+		const code = (e as NodeJS.ErrnoException).code;
+		if (code !== "ENOENT") {
+			console.warn(
+				`cli-driver: failed to parse ${path}, falling back to Balanced preset: ${
+					(e as Error).message
+				}`,
+			);
+		}
+		return "Balanced";
+	}
+}
+
+function isKnownPreset(s: unknown): s is PolicyPreset {
+	return (
+		s === "Strict" ||
+		s === "Balanced" ||
+		s === "Advisory" ||
+		s === "ExternalSandbox" ||
+		s === "Custom"
+	);
+}
+
+function pickPolicy(preset: PolicyPreset, workspace?: string): RunnerExecutionPolicy {
+	switch (preset) {
+		case "Strict":
+			return STRICT;
+		case "Advisory":
+			return ADVISORY;
+		case "ExternalSandbox":
+			return EXTERNAL_SANDBOX;
+		case "Custom":
+			// Custom presets are user-defined; until that surface lands
+			// (post-v1.0), fall back to the safest known shape. Surface
+			// the silent downgrade so the user doesn't think their
+			// `.apohara.json` is being honored.
+			console.warn(
+				`[runner-policy] Custom preset not yet supported (T4.x); falling back to Strict.${
+					workspace ? ` Workspace: ${workspace}` : ""
+				}`,
+			);
+			return STRICT;
+		case "Balanced":
+		default:
+			return BALANCED;
+	}
+}
+
+/**
  * Run a CLI-driver provider end-to-end. Caller has already verified the
  * config exists in the registry. Test code may bypass the registry by
  * passing a config built inline.
+ *
+ * `workspace` is the directory whose `.apohara.json` governs the
+ * runner-policy compilation for this spawn. When omitted, falls back to
+ * `process.cwd()` for backward compatibility — but production callers
+ * (the dispatcher path in `runner.ts`) MUST pass the explicit workspace
+ * so concurrent worktrees don't race on a shared cwd (closes the TOCTOU
+ * window where `process.cwd()` could resolve to the wrong worktree
+ * while Apohara orchestrates multiple sessions in parallel).
  */
 export async function callCliDriver(
 	cfg: CliDriverConfig,
 	messages: LLMMessage[],
+	workspace: string = process.cwd(),
 ): Promise<LLMResponse> {
 	const system = messages
 		.filter((m) => m.role === "system")
@@ -326,7 +470,28 @@ export async function callCliDriver(
 	const argv = cfg.args({ prompt, system: system || undefined });
 	const timeoutMs = cfg.timeoutMs ?? 120_000;
 
-	return runSerialized(cfg.binary, () => runOnce(cfg, prompt, argv, timeoutMs));
+	// T4.3: compile the runner-policy plan BEFORE the spawn. The plan
+	// is keyed off the explicit `workspace` arg the dispatcher threaded
+	// in from `runDispatchInstruction`. Threading the workspace closes
+	// the TOCTOU window that `process.cwd()` opened when Apohara
+	// orchestrates multiple worktrees concurrently — each spawn now
+	// reads the right worktree's `.apohara.json` regardless of which
+	// worktree the bun process happens to be cwd'd into at spawn time.
+	// When the policy rejects (Strict + critical violations), we abort
+	// here instead of launching the subprocess. Otherwise the plan
+	// rides the spawn via `APOHARA_RUNNER_POLICY`.
+	const plan = await resolveRunnerPolicyForSpawn(workspace);
+	if (plan.rejected) {
+		throw new Error(
+			`${cfg.id}: runner policy compilation rejected the spawn (${
+				plan.rejection_reason ?? "no reason provided"
+			})`,
+		);
+	}
+
+	return runSerialized(cfg.binary, () =>
+		runOnce(cfg, prompt, argv, timeoutMs, plan),
+	);
 }
 
 async function runOnce(
@@ -334,6 +499,7 @@ async function runOnce(
 	prompt: string,
 	argv: string[],
 	timeoutMs: number,
+	plan: ExecutionPlan,
 ): Promise<LLMResponse> {
 	// §0.4: NEVER pass the parent env unsanitized — that would leak API
 	// keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.) into the CLI
@@ -347,6 +513,14 @@ async function runOnce(
 	// endpoint without having to read `~/.apohara/agent-hooks/endpoint.json`
 	// (the env path is more reliable when the agent runs as a different
 	// user from the orchestrator).
+	//
+	// `APOHARA_RUNNER_POLICY` is intentionally NOT in the allowlist:
+	// `sanitizeEnv`'s blocklist regexes never match it anyway (the
+	// allowlist entry was redundant), and we want the value the child
+	// sees to ALWAYS be the freshly-compiled one we splice in below —
+	// not whatever the parent shell happened to have. Defense in depth:
+	// if a malicious or stale parent env carries the variable, dropping
+	// it from the allowlist guarantees the orchestrator's plan wins.
 	const env = sanitizeEnv(process.env as Record<string, string | undefined>, {
 		allow: [
 			"APOHARA_DRIVEN",
@@ -356,6 +530,18 @@ async function runOnce(
 		],
 	});
 	env.APOHARA_DRIVEN = "1";
+
+	// T4.3: propagate the compiled runner-policy plan to the subprocess.
+	// Splice it into the env AFTER `sanitizeEnv` has filtered the parent
+	// env, so the policy is always the orchestrator-compiled one — never
+	// an inherited value from the parent shell. The child can
+	// `JSON.parse` this and react accordingly (sandbox helpers, hook
+	// scripts, etc.). `plan` is required (no conditional splice) so any
+	// future code path that bypasses the orchestrator policy gate gets
+	// caught by TypeScript instead of silently leaking the parent's
+	// APOHARA_RUNNER_POLICY through.
+	const policyEnv = buildRunnerPolicyEnv(plan);
+	env.APOHARA_RUNNER_POLICY = policyEnv.APOHARA_RUNNER_POLICY;
 
 	const child = spawn(cfg.binary, argv, {
 		stdio: cfg.stdin ? ["pipe", "pipe", "pipe"] : ["ignore", "pipe", "pipe"],

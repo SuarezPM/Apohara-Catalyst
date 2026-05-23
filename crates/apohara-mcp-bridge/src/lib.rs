@@ -2,6 +2,10 @@
 
 pub mod canonical;
 pub mod adapters;
+pub mod jsonc;
+
+#[cfg(test)]
+mod jsonc_tests;
 
 pub use canonical::{McpCanonical, McpServerCanonical, McpServerType};
 
