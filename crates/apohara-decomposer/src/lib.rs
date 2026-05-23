@@ -3,4 +3,11 @@
 //! Replaces `src/core/decomposer/*.ts` (TS legacy). Feature flag:
 //! APOHARA_RUST_DECOMPOSER=1 (default OFF until Phase 1 cierre).
 //!
-//! G1.C.3 skeleton — modules ported task-by-task following TDD.
+//! G1.C.3 port — modules added task-by-task following TDD.
+
+pub mod manifests;
+
+pub use manifests::{
+    parse_task_with_manifest, validate_manifest, AgentRole, ManifestError, RawTask, SymbolKind,
+    SymbolRef, TaskSymbolManifest,
+};
