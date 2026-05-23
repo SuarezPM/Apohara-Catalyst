@@ -266,6 +266,7 @@ dependencies = [
 name = "apohara-desktop"
 version = "0.0.1-alpha"
 dependencies = [
+ "apohara-dispatch",
  "serde",
  "serde_json",
  "tauri",
@@ -289,6 +290,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serial_test",
+ "tauri",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",

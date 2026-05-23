@@ -4,7 +4,10 @@
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell()) // placeholder until real plugins land
-        .invoke_handler(tauri::generate_handler![open_event_ledger])
+        .invoke_handler(tauri::generate_handler![
+            open_event_ledger,
+            apohara_dispatch::tauri_bridge::rust_dispatch
+        ])
         .run(tauri::generate_context!())
         .expect("error while running apohara-desktop");
 }
