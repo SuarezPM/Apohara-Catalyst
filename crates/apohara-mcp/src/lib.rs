@@ -10,6 +10,7 @@
 //! task-by-task following TDD.
 
 pub mod audit_logger;
+pub mod bootstrap;
 pub mod injection;
 pub mod input_validation;
 pub mod permission_guard;
@@ -18,6 +19,11 @@ pub mod server;
 pub mod servers;
 
 pub use audit_logger::{AuditEntry, AuditError, AuditLogger, AuditStatus};
+pub use bootstrap::{
+    bootstrap_mcp_servers, build_canonical_from_handle, default_audit_log_path,
+    default_endpoint_file_path, default_settings_storage_path, BootstrapHandle, BootstrapOpts,
+    EndpointDescriptor, EndpointPort, EndpointServers,
+};
 pub use injection::{
     build_canonical_from_endpoint, inject_mcp_config, EndpointPorts, InjectionError,
     InjectionResult, ProviderId,
