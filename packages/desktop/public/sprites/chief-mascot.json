@@ -1,0 +1,12 @@
+{
+  "frames": {
+    "idle":     { "x": 0,   "y": 0, "w": 64, "h": 64 },
+    "working":  { "x": 64,  "y": 0, "w": 64, "h": 64 },
+    "thinking": { "x": 128, "y": 0, "w": 64, "h": 64 },
+    "happy":    { "x": 192, "y": 0, "w": 64, "h": 64 }
+  },
+  "fps": 2,
+  "placeholder": true,
+  "source_prompt": "ecosystem/probant/docs/brand/asset-prompts.md (native american chief mascot, 64x64 pixel art, lime+ink palette)",
+  "todo": "Replace with real generated artwork via nano-banana/Veo3/SD using brand prompt above."
+}
