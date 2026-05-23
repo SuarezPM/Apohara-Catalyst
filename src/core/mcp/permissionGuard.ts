@@ -15,11 +15,30 @@
  * The class is intentionally storage-agnostic (in-memory maps). Callers
  * that need persistence wrap it; doing so here would couple the guard
  * to a particular store and make tests slower than they need to be.
+ *
+ * G7.5.A.9: guardrail-flag ingestion. When a tool's `requiredPerm` matches
+ * a registered `GuardrailFlagCode`, callers can ask the guard to surface
+ * the flag's self-describing metadata (severity, description, suggested
+ * action) via `describeRequiredFlag`. UI / audit / telemetry consume the
+ * SAME instance so labels cannot drift across surfaces.
  */
+import {
+  flagFromString,
+  type GuardrailFlagInstance,
+  type GuardrailSeverity,
+} from "../safety/guardrail-flags";
 
 export interface PermissionedToolSpec {
   tool: string;
   requiredPerm: string;
+}
+
+/** Flat view of a guardrail flag for UI/audit consumers. */
+export interface GuardrailFlagMetadata {
+  code: string;
+  severity: GuardrailSeverity;
+  description: string;
+  suggestedAction: string;
 }
 
 export class PermissionGuard {
@@ -46,5 +65,24 @@ export class PermissionGuard {
 
   visibleTools(): string[] {
     return Array.from(this.registered.keys()).filter(t => this.isToolVisible(t));
+  }
+
+  /**
+   * If `tool`'s `requiredPerm` matches a registered guardrail flag code,
+   * return its self-describing metadata; otherwise `undefined`. Used by
+   * the UI and audit sink to render a uniform label without each surface
+   * hand-rolling its own copy of the flag taxonomy.
+   */
+  describeRequiredFlag(tool: string): GuardrailFlagMetadata | undefined {
+    const req = this.registered.get(tool);
+    if (req === undefined) return undefined;
+    const flag: GuardrailFlagInstance | undefined = flagFromString(req);
+    if (!flag) return undefined;
+    return {
+      code: flag.code(),
+      severity: flag.severity(),
+      description: flag.description(),
+      suggestedAction: flag.suggestedAction(),
+    };
   }
 }

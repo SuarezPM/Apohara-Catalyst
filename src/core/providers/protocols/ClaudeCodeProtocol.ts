@@ -15,6 +15,7 @@
  */
 import { spawn, type ChildProcess } from "node:child_process";
 import { sanitizeEnv } from "../../persistence/envSanitizer.js";
+import { stripControlChars } from "../../protocols/line-framed";
 import { parseClaudeLine } from "./claude-stream";
 import type {
   AgentProtocol,
@@ -87,13 +88,15 @@ export class ClaudeCodeProtocol implements AgentProtocol {
       while (nl !== -1) {
         const line = buf.slice(0, nl);
         buf = buf.slice(nl + 1);
-        const ev = parseClaudeLine(line);
+        // G7.5.A.9: strip ANSI + C0 control bytes before parsing. Some
+        // CLIs detect a TTY parent and emit color even with --no-color.
+        const ev = parseClaudeLine(stripControlChars(line));
         if (ev) yield ev;
         nl = buf.indexOf("\n");
       }
     }
     if (buf.length > 0) {
-      const ev = parseClaudeLine(buf);
+      const ev = parseClaudeLine(stripControlChars(buf));
       if (ev) yield ev;
     }
     yield { kind: "complete", reason: "finished" };
