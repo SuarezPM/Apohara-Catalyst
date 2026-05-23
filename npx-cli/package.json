@@ -1,7 +1,7 @@
 {
-	"name": "apohara",
-	"version": "1.0.0",
-	"description": "Apohara — multi-AI orchestrator CLI (npx wrapper)",
+	"name": "@apohara/catalyst",
+	"version": "1.0.0-rc.1",
+	"description": "Apohara Catalyst — local-first multi-AI orchestrator. Catalyzes parallel dispatch across Claude / Codex / OpenCode CLIs to slash TTFT without consuming tokens.",
 	"type": "module",
 	"main": "dist/cli.js",
 	"bin": {
@@ -20,10 +20,13 @@
 	"keywords": [
 		"ai",
 		"orchestrator",
+		"catalyst",
+		"local-first",
 		"claude",
 		"codex",
 		"opencode",
-		"agent"
+		"agent",
+		"ttft"
 	],
 	"author": "Pablo (SuarezPM)",
 	"license": "MIT",
@@ -32,5 +35,8 @@
 		"url": "https://github.com/SuarezPM/apohara"
 	},
 	"homepage": "https://github.com/SuarezPM/apohara",
-	"bugs": "https://github.com/SuarezPM/apohara/issues"
+	"bugs": "https://github.com/SuarezPM/apohara/issues",
+	"publishConfig": {
+		"access": "public"
+	}
 }
