@@ -10,6 +10,11 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+regex = "1"
+globset = "0.4"
+url = "2"
 tauri = { version = "2", optional = true }
 apohara-types = { path = "../apohara-types" }
 
