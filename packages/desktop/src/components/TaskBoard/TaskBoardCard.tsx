@@ -1,4 +1,5 @@
 import type { DagTask } from "../../store/dagStore.js";
+import { AgentStateDot, type AgentState } from "../AgentStateDot.js";
 
 interface TaskBoardCardProps {
   task: DagTask;
@@ -10,6 +11,24 @@ const AGENT_ICON: Record<string, string> = {
   "codex-cli": "🧑‍💻",
   "opencode-go": "🚀",
 };
+
+function dotStateFor(status: string): AgentState {
+  switch (status) {
+    case "dispatched":
+    case "in_verification":
+      return "working";
+    case "blocked":
+    case "failed":
+      return "error";
+    case "done":
+      return "done";
+    case "ready":
+    case "pending":
+      return "idle";
+    default:
+      return "idle";
+  }
+}
 
 function fmtDuration(ms?: number): string {
   if (!ms) return "—";
@@ -44,6 +63,11 @@ export function TaskBoardCard({ task, onForceFail }: TaskBoardCardProps) {
       }}
     >
       <header style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+        <AgentStateDot
+          state={dotStateFor(task.status)}
+          size="sm"
+          label={`${task.id} ${task.status}`}
+        />
         <span aria-label={task.providerId ?? "unknown"}>{icon}</span>
         <span style={{ fontWeight: 600, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {task.id}
