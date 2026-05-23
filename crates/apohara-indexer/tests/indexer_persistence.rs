@@ -1,6 +1,10 @@
 //! Integration test for indexer persistence.
 //!
-//! Tests that data survives database close and reopen.
+//! NOTE (Sprint 8 / G8.A.3): This test targets the pre-swap redb-backed
+//! persistence layer. Gated off with `cfg(any())` so the crate compiles;
+//! G8.A.7 will write the equivalent persistence coverage against the new
+//! sqlite-vec storage (`apohara_indexer::storage`).
+#![cfg(any())]
 
 use apohara_indexer::db::NodeMetadata;
 use redb::{Database, TableDefinition};

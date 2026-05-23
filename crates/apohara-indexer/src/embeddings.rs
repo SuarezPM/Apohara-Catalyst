@@ -1,241 +1,95 @@
-use anyhow::Result;
-use candle_core::{Device, Tensor};
-use candle_nn::VarBuilder;
-use candle_transformers::models::nomic_bert::{Config, NomicBertModel as BertModel};
-use hf_hub::api::sync::ApiBuilder;
-use hf_hub::{Repo, RepoType};
-use std::path::PathBuf;
-use std::sync::Mutex;
-use tokenizers::Tokenizer;
+//! Deterministic feature-hashing embeddings (blake3-based).
+//!
+//! Replaces the previous Nomic BERT loader (G8.A.1 deleted the candle deps;
+//! G8.A.3 deletes the loader code). Quality is below transformer-based
+//! embeddings but adequate for code search MVP, and eliminates the OOM hazard
+//! from in-process model load. Deterministic + ~0 RAM + no model download.
 
-/// Embedding model used by the indexer. Two variants:
-/// - `Real`: loads Nomic BERT (~400 MB) from HuggingFace, runs CPU inference.
-/// - `Mock`: deterministic 768-dim vector keyed on a hash of the input. Used in tests
-///   to avoid loading BERT (which caused system-wide OOM under parallel test runs).
+use blake3::Hasher;
+
+/// Produce a feature-hashed embedding of `text` with `dim` buckets.
 ///
-/// Selection rules (first-match wins):
-/// 1. If feature `mock-embeddings` is active at compile time → Mock.
-/// 2. If env var `APOHARA_MOCK_EMBEDDINGS=1` at runtime → Mock.
-/// 3. Otherwise → Real (production default).
-//
-// Allow large variant: the Real variant carries BertModel + Tokenizer (~1.4 KB struct,
-// not counting the GBs of model weights they point to). The enum is only ever held
-// behind an Arc, so boxing the inner fields would add an extra indirection without
-// real memory savings.
-#[allow(clippy::large_enum_variant)]
-pub enum EmbeddingModel {
-    Real {
-        model: BertModel,
-        tokenizer: Tokenizer,
-        device: Device,
-        /// Serializes concurrent calls to `embed()`. Neither
-        /// `tokenizers::Tokenizer::encode` nor
-        /// `candle_transformers::models::nomic_bert::NomicBertModel::forward`
-        /// guarantees thread-safe `&self` mutation under concurrent access;
-        /// the previous `unsafe impl Send/Sync for EmbeddingModel` was a
-        /// "trust me" promise that the audit specifically flagged as unsound
-        /// when the indexer MCP server spawns one task per connection.
-        ///
-        /// The lock lives INSIDE the Real variant so the `embed()` signature
-        /// stays `&self` (no public-API breakage at the dozen call sites).
-        embed_lock: Mutex<()>,
-    },
-    Mock,
-}
-
-const EMBEDDING_DIM: usize = 768;
-
-impl EmbeddingModel {
-    pub fn new() -> Result<Self> {
-        if Self::should_use_mock() {
-            return Ok(Self::Mock);
-        }
-        Self::new_real()
+/// Pipeline:
+///   1. Lower-case, then split on any non-alphanumeric character (including `_`,
+///      which makes `hello_world` collide with `hello world` — desirable for
+///      code search where snake_case identifiers should match natural-language
+///      queries).
+///   2. For each token, blake3-hash it. Use bytes [0..4) as the bucket index
+///      and bit 0 of byte 4 as the +/-1 sign (signed feature hashing — reduces
+///      collision bias vs. always-positive hashing).
+///   3. L2-normalize so vec0's L2 distance / cosine give equivalent rankings.
+pub fn feature_hash_embed(text: &str, dim: usize) -> Vec<f32> {
+    let mut vec = vec![0f32; dim];
+    let lowered = text.to_lowercase();
+    let tokens: Vec<&str> = lowered
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|t| !t.is_empty())
+        .collect();
+    if tokens.is_empty() {
+        return vec;
     }
-
-    /// Returns true when the indexer is using the mock variant (no semantic similarity).
-    /// Use this in tests to skip assertions that depend on real BERT embeddings.
-    pub fn should_use_mock() -> bool {
-        if cfg!(feature = "mock-embeddings") {
-            return true;
-        }
-        std::env::var("APOHARA_MOCK_EMBEDDINGS")
-            .map(|v| v != "0" && !v.is_empty())
-            .unwrap_or(false)
+    for tok in &tokens {
+        let mut hasher = Hasher::new();
+        hasher.update(tok.as_bytes());
+        let hash = hasher.finalize();
+        let bytes = hash.as_bytes();
+        let bucket = (u32::from_le_bytes(bytes[0..4].try_into().unwrap()) as usize) % dim;
+        let sign = if bytes[4] & 1 == 0 { 1.0 } else { -1.0 };
+        vec[bucket] += sign;
     }
-
-    fn new_real() -> Result<Self> {
-        let mut cache_dir = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-        cache_dir.push(".apohara");
-        cache_dir.push("models");
-
-        let api = ApiBuilder::new().with_cache_dir(cache_dir).build()?;
-        let repo = api.repo(Repo::with_revision(
-            "nomic-ai/nomic-embed-text-v1.5".to_string(),
-            RepoType::Model,
-            "main".to_string(),
-        ));
-
-        let config_filename = repo.get("config.json")?;
-        let tokenizer_filename = repo.get("tokenizer.json")?;
-        let weights_filename = repo.get("model.safetensors")?;
-
-        let config: Config = serde_json::from_slice(&std::fs::read(&config_filename)?)?;
-
-        let device = Device::Cpu;
-        let vb = unsafe {
-            VarBuilder::from_mmaped_safetensors(
-                &[weights_filename],
-                candle_core::DType::F32,
-                &device,
-            )?
-        };
-
-        let model = BertModel::load(vb, &config)?;
-        let mut tokenizer = Tokenizer::from_file(tokenizer_filename)
-            .map_err(|e| anyhow::anyhow!("Failed to load tokenizer: {}", e))?;
-
-        let _ = tokenizer.with_truncation(Some(tokenizers::TruncationParams {
-            max_length: 8192,
-            ..Default::default()
-        }));
-
-        Ok(Self::Real {
-            model,
-            tokenizer,
-            device,
-            embed_lock: Mutex::new(()),
-        })
-    }
-
-    pub fn embed(&self, text: &str) -> Result<Vec<f32>> {
-        match self {
-            Self::Real {
-                model,
-                tokenizer,
-                device,
-                embed_lock,
-            } => {
-                // Serialize the BERT forward pass + tokenizer encode. A
-                // poisoned lock is recoverable here: an earlier panic in
-                // `embed_real` doesn't leave the model in a state that
-                // would corrupt a later caller — we ignore poison and
-                // continue. The whole call still runs to completion or
-                // returns an `anyhow::Result` error.
-                let _g = embed_lock.lock().unwrap_or_else(|p| p.into_inner());
-                Self::embed_real(text, model, tokenizer, device)
-            }
-            Self::Mock => Ok(Self::embed_mock(text)),
+    let norm: f32 = vec.iter().map(|v| v * v).sum::<f32>().sqrt();
+    if norm > 0.0 {
+        for v in vec.iter_mut() {
+            *v /= norm;
         }
     }
-
-    fn embed_real(
-        text: &str,
-        model: &BertModel,
-        tokenizer: &Tokenizer,
-        device: &Device,
-    ) -> Result<Vec<f32>> {
-        let prefix = "search_document: ";
-        let text_with_prefix = format!("{}{}", prefix, text);
-        let tokens = tokenizer
-            .encode(text_with_prefix, true)
-            .map_err(|e| anyhow::anyhow!("Failed to encode: {}", e))?;
-
-        let token_ids = tokens.get_ids();
-        let token_ids_tensor = Tensor::new(token_ids, device)?.unsqueeze(0)?;
-        let token_type_ids = Tensor::zeros_like(&token_ids_tensor)?;
-
-        let output = model.forward(&token_ids_tensor, Some(&token_type_ids), None)?;
-
-        let embeddings = (output.sum(1)? / (token_ids.len() as f64))?;
-        let embeddings = embeddings.squeeze(0)?;
-
-        let norm = embeddings.sqr()?.sum_all()?.to_scalar::<f32>()?.sqrt();
-        let normalized = (embeddings / (norm as f64))?;
-
-        Ok(normalized.to_vec1::<f32>()?)
-    }
-
-    /// Deterministic 768-dim embedding keyed on a hash of the input. Same input → same
-    /// vector across processes. Different inputs → near-orthogonal vectors. L2-normalized.
-    /// Cosine similarity between two distinct mock embeddings is small but nonzero, which
-    /// is enough for the indexer's similarity-search code paths to exercise their logic.
-    fn embed_mock(text: &str) -> Vec<f32> {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-
-        let mut hasher = DefaultHasher::new();
-        text.hash(&mut hasher);
-        let seed = hasher.finish();
-
-        // Linear congruential PRNG seeded by the hash. Deterministic, cheap, no extra deps.
-        let mut state = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-        let mut v: Vec<f32> = Vec::with_capacity(EMBEDDING_DIM);
-        for _ in 0..EMBEDDING_DIM {
-            state = state
-                .wrapping_mul(6364136223846793005)
-                .wrapping_add(1442695040888963407);
-            // Map u64 → f32 in [-0.5, 0.5)
-            let x = ((state >> 32) as u32 as f32 / u32::MAX as f32) - 0.5;
-            v.push(x);
-        }
-
-        let norm: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
-        if norm > 0.0 {
-            for x in v.iter_mut() {
-                *x /= norm;
-            }
-        }
-        v
-    }
+    vec
 }
 
 #[cfg(test)]
 mod tests {
-    // Route through crate::indexer::shared_model() so these unit tests participate in
-    // the inter-process flock and the per-process singleton. In test builds the model
-    // is `EmbeddingModel::Mock` (no BERT load).
+    use super::*;
 
     #[test]
-    fn test_embedding_dimension() {
-        let model = crate::indexer::shared_model().expect("Failed to load model");
-        let vec = model.embed("Hello world!").expect("Failed to embed short string");
-        assert_eq!(vec.len(), 768);
+    fn deterministic_same_input_same_output() {
+        let a = feature_hash_embed("hello world", 384);
+        let b = feature_hash_embed("hello world", 384);
+        assert_eq!(a, b);
     }
 
     #[test]
-    fn test_empty_string() {
-        let model = crate::indexer::shared_model().expect("Failed to load model");
-        let result = model.embed("");
-        if let Ok(vec) = result {
-            assert_eq!(vec.len(), 768);
-        }
+    fn different_inputs_different_outputs() {
+        let a = feature_hash_embed("hello world", 384);
+        let b = feature_hash_embed("goodbye moon", 384);
+        assert_ne!(a, b);
     }
 
     #[test]
-    fn test_long_string() {
-        let model = crate::indexer::shared_model().expect("Failed to load model");
-        let long_string = "hello ".repeat(400);
-        let vec_long = model.embed(&long_string).expect("Failed to embed long string");
-        assert_eq!(vec_long.len(), 768);
+    fn unit_norm() {
+        let v = feature_hash_embed("some code here fn foo bar", 384);
+        let norm: f32 = v.iter().map(|f| f * f).sum::<f32>().sqrt();
+        assert!(
+            (norm - 1.0).abs() < 1e-5 || norm == 0.0,
+            "expected unit norm, got {}",
+            norm
+        );
     }
 
     #[test]
-    fn test_mock_is_deterministic() {
-        let m = super::EmbeddingModel::Mock;
-        let a1 = m.embed("hello world").unwrap();
-        let a2 = m.embed("hello world").unwrap();
-        assert_eq!(a1, a2, "same input must produce identical mock vector");
-
-        let b = m.embed("hello world!").unwrap();
-        assert_ne!(a1, b, "different input must produce different mock vector");
-    }
-
-    #[test]
-    fn test_mock_is_normalized() {
-        let m = super::EmbeddingModel::Mock;
-        let v = m.embed("normalization test").unwrap();
-        let norm: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
-        assert!((norm - 1.0).abs() < 1e-5, "mock vector must be L2-normalized; got norm={}", norm);
+    fn semantic_nn_smoke() {
+        // The G8.A.2 contract test asserts 'hello world function' is closer to
+        // 'fn hello_world() {}' than 'struct Goodbye {}'. Tokens after underscore
+        // split: query={hello,world,function}, A={fn,hello,world}, B={struct,goodbye}.
+        // A shares 2 tokens with the query; B shares 0. Cosine should reflect that.
+        let q = feature_hash_embed("hello world function", 384);
+        let a = feature_hash_embed("fn hello_world() {}", 384);
+        let b = feature_hash_embed("struct Goodbye {}", 384);
+        let dot_a: f32 = q.iter().zip(a.iter()).map(|(x, y)| x * y).sum();
+        let dot_b: f32 = q.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
+        assert!(
+            dot_a > dot_b,
+            "expected closer to chunk_a (dot_a={}, dot_b={})",
+            dot_a, dot_b
+        );
     }
 }

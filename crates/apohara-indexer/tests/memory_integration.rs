@@ -1,6 +1,12 @@
-//! Integration tests for the memory system
+//! Integration tests for the memory system.
 //!
-//! Tests the full flow: store_memory -> search_memory
+//! NOTE (Sprint 8 / G8.A.3): These tests target the pre-swap Indexer / Memory
+//! / EmbeddingModel API that was removed alongside the Nomic BERT + redb
+//! stack. They are gated off with `cfg(any())` (always-false) so the crate
+//! compiles cleanly while G8.A.7 rewrites the memory-integration coverage on
+//! the new sqlite-vec storage. The file contents below are preserved verbatim
+//! as historical reference for what behavior G8.A.7 should re-cover.
+#![cfg(any())]
 
 use apohara_indexer::{embeddings::EmbeddingModel, Indexer, MemoryType};
 use serial_test::serial;

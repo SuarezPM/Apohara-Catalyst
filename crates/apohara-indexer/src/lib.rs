@@ -1,23 +1,16 @@
-// TODO(sprint-8): consume projectToSearchRows output via the sqlite-vec swap.
-// G5.F.1's `projectToSearchRows` (src/core/projector/transcript-transformer.ts)
-// already emits the FTS5-shaped denormalized rows (`text` + `tags`) the indexer
-// wants. The current redb + Nomic BERT pipeline below predates that projection
-// and re-derives its own shape during ingest. Sprint 8 replaces this whole
-// ingest path with sqlite-vec consuming the projector's output directly so the
-// parse cost is paid once at the ledger boundary instead of twice. Plan:
-// `docs/superpowers/plans/2026-05-22-apohara-v1.md` Stage 8 (acknowledged-
-// temporal — do NOT refactor this crate ahead of the swap; the projector
-// integration point lives on the TS side, not in lib.rs).
-pub mod parser;
-pub mod embeddings;
-pub mod index;
-pub mod db;
-pub mod indexer;
-pub mod dependency;
-pub mod server;
+//! Apohara code indexer: sqlite-vec storage + blake3 feature-hashing embeddings.
+//!
+//! Sprint 8 replaced the previous in-process Nomic BERT + redb stack
+//! (`docs/superpowers/plans/2026-05-22-apohara-v1.md` Stage 8). The MVP
+//! surface is intentionally narrow: `open_db` initializes the DB, `insert_chunk`
+//! adds a chunk + its embedding, `knn_query` finds nearest neighbors.
+//!
+//! The tree-sitter chunking + binary daemon entry point (`main.rs`) and the
+//! TS-side projector glue land in subsequent G8.A.* tasks; this lib does NOT
+//! re-export them yet.
 
-pub use parser::{parse_file, Language, FunctionSignature};
-pub use db::{Db, NodeMetadata, MemoryType};
-pub use indexer::{Indexer, SearchResult};
-pub use dependency::DependencyGraph;
-pub use server::{Server, DEFAULT_SOCKET_PATH, run_server};
+pub mod embeddings;
+pub mod parser;
+pub mod storage;
+
+pub use storage::{insert_chunk, knn_query, open_db, IndexedChunk, KnnHit, EMBED_DIM};
