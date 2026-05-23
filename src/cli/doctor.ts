@@ -14,6 +14,17 @@ import { spawnSync } from "node:child_process";
 import { existsSync, statSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { compileRunnerExecutionPlan } from "../core/safety/runnerPolicy/planCompiler";
+import {
+  STRICT,
+  BALANCED,
+  ADVISORY,
+  EXTERNAL_SANDBOX,
+} from "../core/safety/runnerPolicy/presets";
+import type {
+  RunnerExecutionPolicy,
+  PolicyPreset,
+} from "../core/safety/runnerPolicy/types";
 
 export type SectionName =
   | "runtime"
@@ -42,6 +53,12 @@ export interface DoctorResult {
 export interface DoctorOpts {
   skip?: SectionName[];
   apoharaHome?: string;
+  /**
+   * G5.D.7 / agentrail #17 — workspace whose `.apohara.json` drives the
+   * runner-policy check. Default `process.cwd()` matches the CLI
+   * invocation behavior; tests override to point at a temp workspace.
+   */
+  workspacePath?: string;
 }
 
 function cmd(bin: string, args: string[], timeoutMs = 5000): { ok: boolean; stdout: string } {
@@ -74,11 +91,74 @@ function roster(): SectionResult {
   };
 }
 
-function policy(): SectionResult {
+function isKnownPreset(s: unknown): s is PolicyPreset {
+  return (
+    s === "Strict" ||
+    s === "Balanced" ||
+    s === "Advisory" ||
+    s === "ExternalSandbox" ||
+    s === "Custom"
+  );
+}
+
+function pickPolicySync(preset: PolicyPreset): RunnerExecutionPolicy {
+  switch (preset) {
+    case "Strict":
+      return STRICT;
+    case "Advisory":
+      return ADVISORY;
+    case "ExternalSandbox":
+      return EXTERNAL_SANDBOX;
+    case "Custom":
+      // doctor reflects the same fallback the spawn path takes
+      // (cli-driver.ts pickPolicy) — Custom not yet supported.
+      return STRICT;
+    case "Balanced":
+    default:
+      return BALANCED;
+  }
+}
+
+function readPresetSync(workspace: string): PolicyPreset {
+  const path = join(workspace, ".apohara.json");
+  if (!existsSync(path)) return "Balanced";
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf-8")) as {
+      runnerPolicy?: { preset?: string };
+    };
+    const preset = parsed?.runnerPolicy?.preset;
+    return isKnownPreset(preset) ? preset : "Balanced";
+  } catch {
+    // Malformed `.apohara.json` — degrade to Balanced silently here;
+    // the spawn path already warns via stderr from cli-driver.
+    return "Balanced";
+  }
+}
+
+/**
+ * G5.D.7 / agentrail #17 — replaces the prior "Stage 5 integration
+ * pending" placeholder with a real compileRunnerExecutionPlan call.
+ * Sync-only: doctor() stays a synchronous function, so we replicate the
+ * minimal preset-resolution logic instead of awaiting
+ * resolveRunnerPolicyForSpawn (which is async to match the spawn path
+ * but is not needed here — doctor is a pure introspection).
+ */
+function policy(workspacePath: string): SectionResult {
+  const preset = readPresetSync(workspacePath);
+  const policyObj = pickPolicySync(preset);
+  const plan = compileRunnerExecutionPlan(policyObj);
+  if (plan.rejected) {
+    return {
+      name: "policy",
+      ok: false,
+      summary: `${plan.policy} REJECTED: ${plan.rejection_reason ?? "no reason"}`,
+    };
+  }
+  const enforcedCount = plan.enforcement.filter(e => e.strength === "Enforced").length;
   return {
     name: "policy",
     ok: true,
-    summary: "validateRunnerPolicyPlan dry-run deferred (Stage 5 integration pending)",
+    summary: `${plan.policy} preset · ${plan.enforcement.length} enforcement areas (${enforcedCount} enforced)`,
   };
 }
 
@@ -127,11 +207,12 @@ function assigned(apoharaHome: string): SectionResult {
 export function doctor(opts: DoctorOpts = {}): DoctorResult {
   const skip = new Set(opts.skip ?? []);
   const home = opts.apoharaHome ?? join(homedir(), ".apohara");
+  const workspace = opts.workspacePath ?? process.cwd();
   const results: SectionResult[] = [];
   const runners: Record<SectionName, () => SectionResult> = {
     runtime,
     roster,
-    policy,
+    policy: () => policy(workspace),
     sandbox,
     ledger: () => ledger(home),
     mcp: () => mcp(home),

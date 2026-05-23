@@ -21,17 +21,20 @@ class MockBus implements EventSubscriber {
   listenerCount(event: string) { return this.handlers.get(event)?.size ?? 0; }
 }
 
-test("registerAllListeners wires all 5 listener groups", () => {
+test("registerAllListeners wires all listener groups", () => {
   const store = createStore();
   const bus = new MockBus();
   registerAllListeners({ store, bus });
-  expect(bus.listenerCount("apohara://run-started")).toBe(1);
+  // G5.C.2 added the statusline listener which also subscribes to
+  // run-started, hook-event and context-warning.
+  expect(bus.listenerCount("apohara://run-started")).toBeGreaterThanOrEqual(1);
   expect(bus.listenerCount("apohara://task-completed")).toBe(1);
   expect(bus.listenerCount("apohara://verifier-conflict")).toBe(1);
-  expect(bus.listenerCount("apohara://hook-event")).toBe(1);
+  expect(bus.listenerCount("apohara://hook-event")).toBeGreaterThanOrEqual(1);
   expect(bus.listenerCount("apohara://plan-changed")).toBe(1);
   expect(bus.listenerCount("apohara://plan-added")).toBe(1);
   expect(bus.listenerCount("apohara://plan-removed")).toBe(1);
+  expect(bus.listenerCount("apohara://context-warning")).toBe(1);
 });
 
 test("dispose() removes all registered listeners", () => {
@@ -41,6 +44,8 @@ test("dispose() removes all registered listeners", () => {
   handle.dispose();
   expect(bus.listenerCount("apohara://run-started")).toBe(0);
   expect(bus.listenerCount("apohara://task-completed")).toBe(0);
+  expect(bus.listenerCount("apohara://hook-event")).toBe(0);
+  expect(bus.listenerCount("apohara://context-warning")).toBe(0);
 });
 
 test("apohara://task-completed event upserts into tasksAtom", () => {

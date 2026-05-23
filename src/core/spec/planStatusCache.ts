@@ -11,6 +11,12 @@
  * — common for any non-trivial plan. The fix is to hash the entire
  * file. The size + mtime fast-path stays in place so the hash is only
  * computed when the file has actually been touched.
+ *
+ * G5.G.2 — Last-known-good fallback. When `getFastOrLkg` is called and
+ * the underlying file fails to parse, the cache returns the previous
+ * successful parse instead of propagating the error. The watcher uses
+ * this to keep consumers reading a usable plan while the writer is
+ * mid-edit.
  */
 
 import { stat, open } from "node:fs/promises";
@@ -28,6 +34,7 @@ const HASH_CHUNK_BYTES = 64 * 1024;
 
 export class PlanStatusCache {
 	private cache = new Map<string, CacheEntry>();
+	private lkg = new Map<string, PlanDocument>();
 	private _parseCount = 0;
 
 	async getFast(filepath: string): Promise<PlanDocument> {
@@ -55,7 +62,29 @@ export class PlanStatusCache {
 			size: st.size,
 			sha,
 		});
+		this.lkg.set(filepath, plan);
 		return plan;
+	}
+
+	/**
+	 * Last-known-good fallback. Like `getFast`, but if the underlying
+	 * parse throws (e.g. mid-edit broken YAML) and a previous successful
+	 * parse exists, returns that instead of propagating the error.
+	 * Throws if there is no last-known-good entry to fall back to.
+	 */
+	async getFastOrLkg(filepath: string): Promise<PlanDocument> {
+		try {
+			return await this.getFast(filepath);
+		} catch (err) {
+			const lkg = this.lkg.get(filepath);
+			if (lkg) return lkg;
+			throw err;
+		}
+	}
+
+	/** Look up the last-known-good entry without forcing a parse. */
+	getLastKnownGood(filepath: string): PlanDocument | undefined {
+		return this.lkg.get(filepath);
 	}
 
 	private async fileSha(filepath: string): Promise<string> {

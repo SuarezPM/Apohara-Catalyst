@@ -3,6 +3,11 @@
  * Every spawned worker receives this as the first system message.
  */
 
+import {
+  buildAvailableActions,
+  type ActionContext,
+} from "./availableActions";
+
 export interface SymbolRef {
   file: string;
   symbol: string;
@@ -25,6 +30,13 @@ export interface DispatchPreambleInput {
     symbols: TaskSymbolManifest;
   };
   baseDrift?: { commitsBehind: number; recentSubjects: string[] };
+  /**
+   * agentrail #1 — when provided, the preamble appends an
+   * `AVAILABLE ACTIONS` section with the enum-shaped action list so
+   * the worker sees the same valid actions the UI does instead of
+   * inferring them from free-text guidance.
+   */
+  availableActionsContext?: ActionContext;
 }
 
 function fmtSymbols(s: SymbolRef[]): string {
@@ -41,6 +53,23 @@ Recent commits you do NOT have:
 ${opts.baseDrift.recentSubjects.map(s => `  - ${s}`).join("\n")}
 
 Proceed with caution. If your changes conflict, the consolidator will fail-merge.
+`
+    : "";
+
+  // agentrail #1 — embed enum-shaped action list when the context is
+  // known. Workers can introspect this list to know which terminal
+  // actions are valid for their dispatch instead of inferring from
+  // free-text. JSON pretty-printed so it is greppable in transcripts.
+  const actionsSection = opts.availableActionsContext
+    ? `\n## AVAILABLE ACTIONS
+
+The following actions are exposed for this dispatch (the same enum the
+UI renders). Disabled entries include a \`reason\`. You MUST NOT
+attempt actions outside this list.
+
+\`\`\`json
+${JSON.stringify(buildAvailableActions(opts.availableActionsContext), null, 2)}
+\`\`\`
 `
     : "";
 
@@ -71,5 +100,5 @@ renames: ${fmtSymbols(opts.taskSpec.symbols.renames)}
 
 If you find yourself needing to touch a symbol outside this declaration,
 STOP and emit a \`coord_manifest_drift\` message — do not proceed silently.
-${driftSection}`;
+${driftSection}${actionsSection}`;
 }

@@ -1,5 +1,6 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { atomicWriteFile } from "./persistence/atomicWrite.js";
 import type { OrchestratorState } from "./types";
 
 export class StateMachine {
@@ -10,6 +11,9 @@ export class StateMachine {
 
 	constructor(filePath?: string) {
 		this.filePath = filePath || join(process.cwd(), ".apohara", "state.json");
+		// Retained for back-compat with any caller that referenced
+		// `state.tmpPath`; the atomic write helper generates its own
+		// crypto-random sibling tmp file now (§0.8 + atomicWrite.ts).
 		this.tmpPath = `${this.filePath}.tmp`;
 		this.state = this.createInitialState();
 	}
@@ -70,10 +74,11 @@ export class StateMachine {
 		this.state = updater(this.state);
 		const data = JSON.stringify(this.state, null, 2);
 
-		// Atomic write: write to a temporary file, then rename it.
-		// This ensures we never end up with a partially written or corrupted state.json
-		await writeFile(this.tmpPath, data, "utf-8");
-		await rename(this.tmpPath, this.filePath);
+		// §0.8 atomic write — mkstemp + fdatasync + rename. The pre-G5.F.9
+		// implementation skipped fsync, so a power loss between rename and
+		// writeback could yield a zero-length post-rename file (the same
+		// failure mode `atomicWrite.ts`'s header documents).
+		await atomicWriteFile(this.filePath, data);
 	}
 
 	/**

@@ -46,4 +46,18 @@ export interface AgentProtocol {
   forkSession(sessionId: string, atTurn: number): Promise<SpawnedSession>;
   sendMessage(sessionId: string, msg: Message): AsyncIterable<ProtocolEvent>;
   abortSession(sessionId: string): Promise<void>;
+  /**
+   * G5.A.1 (nimbalyst #1.1): append bytes to a session's stdin WITHOUT
+   * closing the handle. Foundation for multi-turn (G5.A.6) — a follow-up
+   * turn is just another `appendToStdin` to the same session.
+   *
+   * Throws if the session is unknown.
+   */
+  appendToStdin(sessionId: string, data: string): Promise<void>;
+  /**
+   * G5.A.1: explicitly close the stdin handle for a session. After this,
+   * `appendToStdin` will reject. Subsequent `abortSession` still kills
+   * the child.
+   */
+  endStdin(sessionId: string): Promise<void>;
 }

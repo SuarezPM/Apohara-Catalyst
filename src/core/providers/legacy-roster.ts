@@ -42,6 +42,10 @@ class LegacyStubProtocol implements AgentProtocol {
   async forkSession(_id: string, _turn: number): Promise<SpawnedSession> { return this.fail(); }
   async *sendMessage(_id: string, _msg: Message): AsyncIterable<ProtocolEvent> { yield this.fail(); }
   async abortSession(_id: string): Promise<void> { return; }
+  // G5.A.1: persistent stdin contract. Legacy stubs always fail — they
+  // never spawn a real child, so there is no stdin to append to.
+  async appendToStdin(_id: string, _data: string): Promise<void> { this.fail(); }
+  async endStdin(_id: string): Promise<void> { this.fail(); }
 }
 
 class LegacyProvider extends BaseAgentProvider {

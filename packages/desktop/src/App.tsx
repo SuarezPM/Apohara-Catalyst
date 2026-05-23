@@ -12,6 +12,7 @@ import {
 	type ProviderId,
 	RosterPicker,
 } from "./components/RosterPicker.js";
+import { Statusline } from "./components/Statusline.js";
 import { SwarmCanvas } from "./components/SwarmCanvas.js";
 import { TaskBoard } from "./components/TaskBoard/TaskBoard.js";
 import { TerminalView } from "./components/TerminalView.js";
@@ -354,6 +355,8 @@ export function App() {
 			<footer style={{ padding: "0.5rem 1rem", borderTop: "1px solid #30363d", background: "#0d1117" }}>
 				<VerificationTimeline />
 			</footer>
+
+			<Statusline />
 
 			<PermissionDialog
 				onUserDecision={(resp) => {

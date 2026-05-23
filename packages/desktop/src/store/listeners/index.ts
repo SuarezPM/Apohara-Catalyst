@@ -12,6 +12,7 @@ import { registerTaskListeners } from "./taskListeners.js";
 import { registerVerifierListeners } from "./verifierListeners.js";
 import { registerHookListeners } from "./hookListeners.js";
 import { registerPlanListeners } from "./planListeners.js";
+import { registerStatuslineListener } from "./statuslineListener.js";
 
 export interface Store {
   get(ref: unknown): unknown;
@@ -39,6 +40,7 @@ export function registerAllListeners(deps: ListenerDeps): RegistrationHandle {
     registerVerifierListeners(deps),
     registerHookListeners(deps),
     registerPlanListeners(deps),
+    registerStatuslineListener(deps),
   ];
   return {
     dispose() {

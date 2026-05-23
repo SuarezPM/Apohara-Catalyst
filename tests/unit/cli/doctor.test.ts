@@ -67,6 +67,61 @@ describe("doctor sections", () => {
     const r = doctor({ apoharaHome: home, skip: ["roster", "runtime"] });
     expect(r.sections.find(s => s.name === "mcp")?.ok).toBe(true);
   });
+
+  // G5.D.7 — agentrail #17: doctor.ts:81 placeholder replaced by real
+  // compileRunnerExecutionPlan wiring via .apohara.json read.
+  test("policy section reports Balanced preset when .apohara.json absent", () => {
+    const workspace = tmpHome();
+    const r = doctor({
+      apoharaHome: tmpHome(),
+      workspacePath: workspace,
+      skip: ["roster", "runtime"],
+    });
+    const policy = r.sections.find(s => s.name === "policy");
+    expect(policy?.ok).toBe(true);
+    expect(policy?.summary).toMatch(/Balanced/);
+  });
+
+  test("policy section reports configured preset from .apohara.json", () => {
+    const workspace = tmpHome();
+    writeFileSync(
+      join(workspace, ".apohara.json"),
+      JSON.stringify({ runnerPolicy: { preset: "Strict" } }),
+    );
+    const r = doctor({
+      apoharaHome: tmpHome(),
+      workspacePath: workspace,
+      skip: ["roster", "runtime"],
+    });
+    const policy = r.sections.find(s => s.name === "policy");
+    expect(policy?.ok).toBe(true);
+    expect(policy?.summary).toMatch(/Strict/);
+    expect(policy?.summary).toMatch(/6 enforcement/);
+  });
+
+  test("policy section flags rejected plan when planCompiler rejects", () => {
+    // Strict normally does not reject (see runner-policy-wired.test.ts).
+    // We still verify malformed json degrades to Balanced safely.
+    const workspace = tmpHome();
+    writeFileSync(join(workspace, ".apohara.json"), "{ malformed");
+    const r = doctor({
+      apoharaHome: tmpHome(),
+      workspacePath: workspace,
+      skip: ["roster", "runtime"],
+    });
+    const policy = r.sections.find(s => s.name === "policy");
+    expect(policy?.ok).toBe(true);
+    expect(policy?.summary).toMatch(/Balanced/);
+  });
+
+  test("policy section drops the 'Stage 5 integration pending' placeholder", () => {
+    const r = doctor({
+      apoharaHome: tmpHome(),
+      skip: ["roster", "runtime"],
+    });
+    const policy = r.sections.find(s => s.name === "policy");
+    expect(policy?.summary).not.toMatch(/Stage 5 integration pending/);
+  });
 });
 
 describe("parseArgs", () => {

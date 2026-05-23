@@ -23,9 +23,9 @@ import {
 	readdir,
 	rm,
 	stat,
-	writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
+import { atomicWriteFile } from "./persistence/atomicWrite.js";
 
 /**
  * Filesystem-visible record for a worktree directory.
@@ -175,8 +175,12 @@ export class WorktreeManager {
 			createdAt: new Date().toISOString(),
 			branch: `apohara/${slug}`,
 		};
-		await writeFile(join(path, META_FILE), JSON.stringify(meta), "utf-8");
-		await writeFile(join(path, LOCK_FILE), String(process.pid), "utf-8");
+		// §0.8 atomic writes — both meta and lock must be flush-on-rename
+		// because the worktree GC's fs.watch on `baseDir` fires on the tmp
+		// filename if we used a non-atomic write, and a half-written meta
+		// would orphan the worktree for the next reconciler tick.
+		await atomicWriteFile(join(path, META_FILE), JSON.stringify(meta));
+		await atomicWriteFile(join(path, LOCK_FILE), String(process.pid));
 		return path;
 	}
 
@@ -222,7 +226,10 @@ export class WorktreeManager {
 			return false;
 		}
 
-		await writeFile(lockPath, String(process.pid), "utf-8");
+		// §0.8 atomic write — adoptOrphan races other processes touching
+		// the same lock; a partial lock would let a third process also
+		// believe it owned the worktree.
+		await atomicWriteFile(lockPath, String(process.pid));
 		return true;
 	}
 
