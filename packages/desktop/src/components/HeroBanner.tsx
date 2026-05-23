@@ -21,6 +21,7 @@
  */
 import { useAtomValue } from "jotai/react";
 import { tasksAtom } from "../store/dagStore.js";
+import { PixelCanvas, type Frame } from "./PixelCanvas.js";
 
 export interface HeroBannerProps {
 	/** Active session id; if non-null the banner hides. */
@@ -36,6 +37,22 @@ export interface HeroBannerProps {
 export function HeroBanner({ sessionId, onSeedDemo }: HeroBannerProps) {
 	const tasks = useAtomValue(tasksAtom);
 	const isEmpty = Object.keys(tasks).length === 0;
+	const taskList = Object.values(tasks ?? {});
+	const anyWorking = taskList.some((t) =>
+		["dispatched", "in_verification"].includes(t.status),
+	);
+	const anyStuck = taskList.some((t) =>
+		["blocked", "failed"].includes(t.status),
+	);
+	const allDone =
+		taskList.length > 0 && taskList.every((t) => t.status === "done");
+	const frame: Frame = anyStuck
+		? "thinking"
+		: anyWorking
+			? "working"
+			: allDone
+				? "happy"
+				: "idle";
 	if (sessionId !== null) return null;
 	if (!isEmpty) return null;
 
@@ -55,20 +72,36 @@ export function HeroBanner({ sessionId, onSeedDemo }: HeroBannerProps) {
 				textAlign: "center",
 			}}
 		>
-			<h2
-				className="font-display"
-				data-testid="hero-banner-wordmark"
+			<div
 				style={{
-					margin: 0,
+					display: "flex",
+					alignItems: "center",
+					justifyContent: "center",
+					gap: 16,
 					marginBottom: "0.75rem",
-					fontSize: "1.1rem",
-					color: "var(--apohara-lime)",
-					letterSpacing: "3px",
-					lineHeight: 1.4,
 				}}
 			>
-				APOHARA CATALYST
-			</h2>
+				<div data-testid="hero-banner-mascot" style={{ flexShrink: 0 }}>
+					<PixelCanvas
+						spriteUrl="/sprites/chief-mascot.png"
+						frame={frame}
+						size={48}
+					/>
+				</div>
+				<h2
+					className="font-display"
+					data-testid="hero-banner-wordmark"
+					style={{
+						margin: 0,
+						fontSize: "1.1rem",
+						color: "var(--apohara-lime)",
+						letterSpacing: "3px",
+						lineHeight: 1.4,
+					}}
+				>
+					APOHARA CATALYST
+				</h2>
+			</div>
 			<p
 				data-testid="hero-banner-tagline"
 				style={{
