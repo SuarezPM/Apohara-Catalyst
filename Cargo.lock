@@ -560,6 +560,7 @@ dependencies = [
  "anyhow",
  "apohara-types",
  "criterion",
+ "regex",
  "serde",
  "serde_json",
  "tauri",
