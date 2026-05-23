@@ -10,12 +10,14 @@
 //! - [`blast_radius`]: indexer-expanded reachability set with confidence
 //! - [`scheduler_decision`]: the four possible outcomes the scheduler acts on
 
+pub mod auto_spawn;
 pub mod blast_radius;
 pub mod conflict_matrix;
 pub mod coordinator;
 pub mod manifest;
 pub mod scheduler_decision;
 
+pub use auto_spawn::{decide_auto_spawn, AutoSpawnDecision, AutoSpawnPolicy};
 pub use coordinator::{Coordinator, TickOutcome};
 
 /// Crate version, for smoke tests and version surfacing.

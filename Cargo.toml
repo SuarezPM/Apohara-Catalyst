@@ -18,6 +18,13 @@ members = [
     "crates/apohara-mcp-bridge",
     "crates/apohara-hooks-server",
     "crates/apohara-coordinator",
+    "crates/apohara-ssh-server",
+    "crates/apohara-remote-worker",
+    "crates/apohara-daemon",
+    "crates/apohara-client",
+    "crates/apohara-transport",
+    "crates/apohara-ws-hub",
+    "crates/apohara-reaction-engine",
 ]
 
 [workspace.package]

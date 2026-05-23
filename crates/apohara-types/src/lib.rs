@@ -5,6 +5,8 @@
 //! from this crate (added in Task 1.2) to emit `packages/apohara-shared/types.ts`.
 
 pub mod capabilities;
+pub mod intent;
 pub mod version;
 pub use capabilities::Capability;
+pub use intent::{default_provider_for, Intent};
 pub use version::ApoharaVersion;
