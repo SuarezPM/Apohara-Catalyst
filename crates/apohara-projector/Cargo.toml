@@ -5,6 +5,8 @@ edition.workspace = true
 
 [dependencies]
 anyhow = { workspace = true }
+chrono = { workspace = true }
+indexmap = { version = "2", features = ["serde"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
