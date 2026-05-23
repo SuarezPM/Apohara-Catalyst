@@ -7,5 +7,6 @@
 pub mod app;
 pub mod commands;
 pub mod components;
+pub mod state;
 
 pub use app::App;
