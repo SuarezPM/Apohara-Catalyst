@@ -648,3 +648,57 @@ body {
   font-size: 13px;
   line-height: 1;
 }
+
+/* Statusline (G2.C.3.3) — bottom-bar status row. Color tokens per
+   ContextLevel mirror the React reference (statusStore + Statusline.tsx). */
+
+.statusline {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.3rem 0.8rem;
+  background: var(--apohara-ink);
+  border-top: 1px solid color-mix(in srgb, var(--apohara-lime), transparent 90%);
+  color: color-mix(in srgb, var(--apohara-bone), transparent 40%);
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  min-height: 24px;
+}
+.statusline-cell {
+  white-space: nowrap;
+}
+.statusline-cell--muted {
+  color: color-mix(in srgb, var(--apohara-bone), transparent 55%);
+}
+.statusline-spacer {
+  flex: 1;
+}
+.statusline-level {
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-weight: 600;
+  letter-spacing: 1px;
+}
+.statusline-level--ok {
+  color: var(--apohara-lime);
+  background: color-mix(in srgb, var(--apohara-lime), transparent 88%);
+}
+.statusline-level--caution {
+  color: #d29922;
+  background: color-mix(in srgb, #d29922, transparent 88%);
+}
+.statusline-level--warning {
+  color: #db6d28;
+  background: color-mix(in srgb, #db6d28, transparent 88%);
+}
+.statusline-level--critical {
+  color: #f85149;
+  background: color-mix(in srgb, #f85149, transparent 85%);
+}
+.statusline-banner {
+  padding: 1px 8px;
+  border-radius: 3px;
+  color: #f85149;
+  background: color-mix(in srgb, #f85149, transparent 85%);
+  font-weight: 600;
+}
