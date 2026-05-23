@@ -610,3 +610,41 @@ body {
   color: color-mix(in srgb, var(--apohara-bone), transparent 50%);
   font-size: 11px;
 }
+
+/* ViewToggle (G2.C.3.2) — chip group switching Graph / Board / Terminal.
+   1:1 of the inline styles on packages/desktop/src/components/ViewToggle.tsx,
+   moved into a class so the SSR emission stays attribute-light. */
+
+.view-toggle {
+  display: inline-flex;
+  gap: 2px;
+  background: color-mix(in srgb, var(--apohara-ink), white 4%);
+  border: 1px solid color-mix(in srgb, var(--apohara-lime), transparent 80%);
+  border-radius: 4px;
+  padding: 2px;
+}
+.view-toggle-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: color-mix(in srgb, var(--apohara-bone), transparent 35%);
+  transition: background 120ms ease, color 120ms ease;
+}
+.view-toggle-tab:hover {
+  color: var(--apohara-bone);
+}
+.view-toggle-tab--active {
+  background: color-mix(in srgb, var(--apohara-lime), transparent 80%);
+  color: var(--apohara-bone);
+}
+.view-toggle-glyph {
+  font-size: 13px;
+  line-height: 1;
+}

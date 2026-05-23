@@ -99,3 +99,61 @@ fn kanban_board_groups_tasks_into_correct_lane() {
         "done-lane card marker missing"
     );
 }
+
+// --- ViewToggle (G2.C.3.2) --------------------------------------------
+
+#[test]
+fn view_toggle_renders_three_tabs() {
+    let html = dioxus_ssr::render_element(rsx! {
+        ViewToggle { current: ViewMode::Graph }
+    });
+    assert!(
+        html.contains("data-testid=\"view-toggle\""),
+        "root testid missing: {html}"
+    );
+    assert!(
+        html.contains("data-testid=\"view-toggle-graph\""),
+        "graph tab missing"
+    );
+    assert!(
+        html.contains("data-testid=\"view-toggle-board\""),
+        "board tab missing"
+    );
+    assert!(
+        html.contains("data-testid=\"view-toggle-terminal\""),
+        "terminal tab missing"
+    );
+    assert!(html.contains("Graph"), "Graph label missing");
+    assert!(html.contains("Board"), "Board label missing");
+    assert!(html.contains("Terminal"), "Terminal label missing");
+}
+
+#[test]
+fn view_toggle_marks_current_tab_as_selected() {
+    let html = dioxus_ssr::render_element(rsx! {
+        ViewToggle { current: ViewMode::Board }
+    });
+    assert!(
+        html.contains("aria-selected=\"true\""),
+        "no aria-selected=true: {html}"
+    );
+    // The selected board tab carries data-active="true" so the App
+    // composition can read it without relying on ARIA attributes alone.
+    assert!(
+        html.contains("data-testid=\"view-toggle-board\""),
+        "board tab missing"
+    );
+    assert!(
+        html.contains("data-active=\"true\""),
+        "data-active=true missing for selected tab"
+    );
+}
+
+#[test]
+fn view_toggle_role_tablist_and_role_tab() {
+    let html = dioxus_ssr::render_element(rsx! {
+        ViewToggle { current: ViewMode::Terminal }
+    });
+    assert!(html.contains("role=\"tablist\""), "tablist role missing");
+    assert!(html.contains("role=\"tab\""), "tab role missing");
+}
