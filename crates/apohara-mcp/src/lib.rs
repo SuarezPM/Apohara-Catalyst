@@ -17,6 +17,7 @@ pub mod permission_guard;
 pub mod rate_limit;
 pub mod server;
 pub mod servers;
+pub mod tauri_bridge;
 
 pub use audit_logger::{AuditEntry, AuditError, AuditLogger, AuditStatus};
 pub use bootstrap::{
