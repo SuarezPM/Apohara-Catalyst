@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAtomValue, useSetAtom } from "jotai/react";
 import { getDefaultStore } from "jotai/vanilla";
+import { Toaster } from "sonner";
 import { AgentConfigPanel } from "./components/AgentConfigPanel.js";
 import { CostMeter } from "./components/CostMeter.js";
 import { HeroBanner } from "./components/HeroBanner.js";
@@ -383,6 +384,20 @@ export function App() {
 						headers: { "Content-Type": "application/json" },
 						body: JSON.stringify(resp),
 					}).catch(() => {});
+				}}
+			/>
+
+			<Toaster
+				theme="dark"
+				position="bottom-right"
+				toastOptions={{
+					style: {
+						background: "var(--apohara-dark-2)",
+						color: "var(--apohara-bone)",
+						border: "2px solid var(--apohara-lime)",
+						fontFamily: "var(--font-mono)",
+						borderRadius: 0,
+					},
 				}}
 			/>
 		</div>
