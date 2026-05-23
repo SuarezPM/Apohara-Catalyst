@@ -238,3 +238,35 @@ export function classifyBlocked(ev: BlockingEvent): BlockedSnapshot | null {
 			return null;
 	}
 }
+
+// ---------------------------------------------------------------------
+// G7.5.A.5 — RunTransition: unified state-mutation payload
+// ---------------------------------------------------------------------
+
+/**
+ * A state-machine transition that the dispatcher applies as a single
+ * unit. The `state` field is `RunState` for the primary claim states
+ * plus the secondary `"blocked"` tag (G5.B.3) for tasks parked awaiting
+ * operator input. When `state === "blocked"`, the `blockedReason` and
+ * `blockedSince` fields MUST be present so the reconciler's blocked-
+ * aging pass can escalate stuck inputs.
+ *
+ * The shape mirrors the optional fields on `BlockedInstruction` in
+ * `reconciler.ts` (`blockedSince`, `blockedReason`) so a transition
+ * applied to disk doesn't need a separate translation step.
+ *
+ * G7.5.A.5: introduced when wiring the `classifyBlocked` classifier
+ * through the protocol event handler — provider events with
+ * `kind: "blocked"` now flow `ProtocolEvent` → `BlockingEvent` →
+ * `BlockedSnapshot` → `RunTransition` and the resulting transition
+ * carries the specific `BlockedReason` for retry decisioning.
+ */
+export interface RunTransition {
+	state: RunState | "blocked";
+	/** Set when `state === "blocked"`. */
+	blockedReason?: BlockedReason;
+	/** Epoch ms of the block start (set when `state === "blocked"`). */
+	blockedSince?: number;
+	/** Optional provenance string. */
+	detail?: string;
+}
