@@ -239,3 +239,53 @@ mod view_mode_tests {
         });
     }
 }
+
+#[cfg(test)]
+mod sse_events_tests {
+    use super::with_runtime;
+    use crate::state::sse_events::{
+        clear_events, push_event, recent_events, SseEvent, SSE_RING_CAPACITY,
+    };
+
+    fn event(kind: &str, payload: &str) -> SseEvent {
+        SseEvent {
+            kind: kind.into(),
+            payload: payload.into(),
+            ts: 0,
+        }
+    }
+
+    #[test]
+    fn push_appends_event() {
+        with_runtime(|| {
+            clear_events();
+            push_event(event("state-init", "{}"));
+            let tail = recent_events();
+            assert_eq!(tail.last().map(|e| e.kind.clone()), Some("state-init".into()));
+        });
+    }
+
+    #[test]
+    fn clear_empties_ring() {
+        with_runtime(|| {
+            push_event(event("permission-request", "{}"));
+            clear_events();
+            assert!(recent_events().is_empty());
+        });
+    }
+
+    #[test]
+    fn ring_drops_oldest_when_full() {
+        with_runtime(|| {
+            clear_events();
+            // Push capacity + 1 — the first event should be evicted.
+            push_event(event("first", "a"));
+            for i in 0..SSE_RING_CAPACITY {
+                push_event(event("filler", &i.to_string()));
+            }
+            let tail = recent_events();
+            assert_eq!(tail.len(), SSE_RING_CAPACITY);
+            assert!(tail.iter().all(|e| e.kind != "first"));
+        });
+    }
+}

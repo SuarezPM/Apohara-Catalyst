@@ -553,3 +553,60 @@ body {
 .resizable-handle:hover {
   background: color-mix(in srgb, var(--apohara-lime), transparent 40%);
 }
+
+/* KanbanBoard (G2.C.3.1) — DnD-capable kanban surface. HTML5 native DnD
+   means we lean on the browser; this stylesheet only paints lanes and the
+   draggable card. Wave A's TaskBoard owns the "all 7 lanes" full view —
+   the kanban here collapses dispatched/blocked/failed away. */
+
+.kanban-board {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  padding: 16px;
+}
+.kanban-column {
+  background: color-mix(in srgb, var(--apohara-ink), white 2%);
+  border: 1px solid color-mix(in srgb, var(--apohara-lime), transparent 90%);
+  border-radius: 4px;
+  padding: 12px;
+  min-height: 200px;
+  display: flex;
+  flex-direction: column;
+}
+.kanban-column-header {
+  margin-bottom: 8px;
+}
+.kanban-column-title {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: color-mix(in srgb, var(--apohara-lime), white 30%);
+}
+.kanban-column-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+}
+.kanban-task {
+  background: color-mix(in srgb, var(--apohara-ink), white 4%);
+  border: 1px solid color-mix(in srgb, var(--apohara-lime), transparent 85%);
+  border-radius: 4px;
+  padding: 8px;
+  font-family: var(--font-mono);
+  cursor: grab;
+}
+.kanban-task:active {
+  cursor: grabbing;
+}
+.kanban-task-title {
+  margin: 0;
+  color: var(--apohara-bone);
+  font-size: 12px;
+  line-height: 1.3;
+}
+.kanban-task-id {
+  color: color-mix(in srgb, var(--apohara-bone), transparent 50%);
+  font-size: 11px;
+}
