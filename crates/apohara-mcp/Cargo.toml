@@ -17,6 +17,7 @@ hyper = "1.5"
 rand = "0.8"
 hex = { workspace = true }
 subtle = "2.5"
+futures = { workspace = true }
 tauri = { version = "2", optional = true }
 apohara-types = { path = "../apohara-types" }
 apohara-mcp-bridge = { path = "../apohara-mcp-bridge" }
