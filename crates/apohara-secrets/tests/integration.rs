@@ -8,11 +8,17 @@ fn roundtrip_apohara_mcp_token() {
 
     store(&scope, token).expect("store failed");
     let retrieved = lookup(&scope).expect("lookup failed");
-    assert_eq!(retrieved.as_deref(), Some(token));
+    // SecretString doesn't impl PartialEq/Deref intentionally — we go
+    // through expose() at the assertion boundary so the test still proves
+    // round-trip fidelity without forcing PartialEq onto cleartext.
+    assert_eq!(
+        retrieved.as_ref().map(|s| s.expose()),
+        Some(token)
+    );
 
     delete(&scope).expect("delete failed");
     let after = lookup(&scope).expect("lookup after delete failed");
-    assert_eq!(after, None);
+    assert!(after.is_none(), "secret must be gone after delete");
 }
 
 #[test]
