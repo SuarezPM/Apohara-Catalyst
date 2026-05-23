@@ -18,6 +18,7 @@ tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tracing = "0.1"
+apohara-dispatch = { path = "../../../crates/apohara-dispatch", features = ["tauri"] }
 
 [features]
 default = ["custom-protocol"]
