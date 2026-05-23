@@ -19,6 +19,7 @@ hex = { workspace = true }
 subtle = "2.5"
 futures = { workspace = true }
 tauri = { version = "2", optional = true }
+tempfile = "3"
 apohara-types = { path = "../apohara-types" }
 apohara-mcp-bridge = { path = "../apohara-mcp-bridge" }
 apohara-safety = { path = "../apohara-safety" }
@@ -28,7 +29,6 @@ default = []
 tauri = ["dep:tauri"]
 
 [dev-dependencies]
-tempfile = "3"
 criterion = "0.5"
 serial_test = "3"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
