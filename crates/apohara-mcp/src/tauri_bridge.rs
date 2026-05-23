@@ -6,7 +6,7 @@
 //! lean in cli/test contexts and only pulls Tauri when the desktop
 //! shell wires it.
 //!
-//! Flag: `APOHARA_RUST_MCP=1` enables the Rust path. Default OFF (TS
+//! Flag: `APOHARA_RUST_MCP=1` defaults ON post-G1.D.2 flip. Export =0 to opt out (TS
 //! legacy continues to handle MCP until Phase 1 cierre flips defaults
 //! in G1.D.2).
 
@@ -26,13 +26,13 @@ use async_trait::async_trait;
 
 /// Pure gate predicate — testable without env mutation.
 pub fn is_enabled(env_value: Option<&str>) -> bool {
-    env_value == Some("1")
+    env_value != Some("0")
 }
 
 fn check_enabled() -> Result<(), String> {
     let env = std::env::var("APOHARA_RUST_MCP").ok();
     if !is_enabled(env.as_deref()) {
-        return Err("APOHARA_RUST_MCP not enabled — falling back to TS legacy".to_string());
+        return Err("APOHARA_RUST_MCP explicitly disabled (=0) — TS legacy path active".to_string());
     }
     Ok(())
 }
@@ -145,26 +145,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn is_enabled_only_for_one() {
-        assert!(is_enabled(Some("1")));
+    fn is_enabled_default_on_only_zero_disables() {
         assert!(!is_enabled(Some("0")));
-        assert!(!is_enabled(Some("true")));
-        assert!(!is_enabled(None));
-        assert!(!is_enabled(Some("")));
+        assert!(is_enabled(Some("1")));
+        assert!(is_enabled(Some("true")));
+        assert!(is_enabled(None));
+        assert!(is_enabled(Some("")));
     }
 
     #[tokio::test]
     #[serial_test::serial(apohara_rust_mcp_flag)]
     async fn bootstrap_errors_when_flag_unset() {
-        std::env::remove_var("APOHARA_RUST_MCP");
+        std::env::set_var("APOHARA_RUST_MCP", "0");
         let err = mcp_bootstrap_servers_inner().await.unwrap_err();
-        assert!(err.contains("not enabled"), "got: {err}");
+        assert!(err.contains("explicitly disabled"), "got: {err}");
     }
 
     #[tokio::test]
     #[serial_test::serial(apohara_rust_mcp_flag)]
     async fn inject_errors_when_flag_unset() {
-        std::env::remove_var("APOHARA_RUST_MCP");
+        std::env::set_var("APOHARA_RUST_MCP", "0");
         let err = mcp_inject_config_inner(
             ProviderId::ClaudeCodeCli,
             McpCanonical { servers: vec![] },
@@ -172,7 +172,7 @@ mod tests {
         )
         .await
         .unwrap_err();
-        assert!(err.contains("not enabled"), "got: {err}");
+        assert!(err.contains("explicitly disabled"), "got: {err}");
     }
 
     #[tokio::test]

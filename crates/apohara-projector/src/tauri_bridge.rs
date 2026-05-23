@@ -4,7 +4,7 @@
 //! registration. Without the feature the gate logic + inner sync
 //! projector entry points stay testable from plain `cargo test`.
 //!
-//! Flag: `APOHARA_RUST_PROJECTOR=1` enables the Rust path. Default OFF
+//! Flag: `APOHARA_RUST_PROJECTOR=1` defaults ON post-G1.D.2 flip. Export =0 to opt out
 //! (TS legacy continues to handle projection until Phase 1 cierre flips
 //! defaults in G1.D.2).
 
@@ -14,7 +14,7 @@ use crate::transcript_transformer::{
 
 /// Pure gate predicate — testable without env mutation.
 pub fn is_enabled(env_value: Option<&str>) -> bool {
-    env_value == Some("1")
+    env_value != Some("0")
 }
 
 /// Inner UI-cards projector reused by both the Tauri command and the
@@ -23,7 +23,7 @@ pub fn projector_to_ui_cards_inner(events: Vec<EventLog>) -> Result<Vec<UiTaskCa
     let env = std::env::var("APOHARA_RUST_PROJECTOR").ok();
     if !is_enabled(env.as_deref()) {
         return Err(
-            "APOHARA_RUST_PROJECTOR not enabled — falling back to TS legacy".to_string(),
+            "APOHARA_RUST_PROJECTOR explicitly disabled (=0) — TS legacy path active".to_string(),
         );
     }
     Ok(project_to_ui_cards(&events))
@@ -35,7 +35,7 @@ pub fn projector_to_search_rows_inner(events: Vec<EventLog>) -> Result<Vec<Searc
     let env = std::env::var("APOHARA_RUST_PROJECTOR").ok();
     if !is_enabled(env.as_deref()) {
         return Err(
-            "APOHARA_RUST_PROJECTOR not enabled — falling back to TS legacy".to_string(),
+            "APOHARA_RUST_PROJECTOR explicitly disabled (=0) — TS legacy path active".to_string(),
         );
     }
     Ok(project_to_search_rows(&events))
@@ -72,12 +72,12 @@ mod tests {
     }
 
     #[test]
-    fn is_enabled_only_for_one() {
-        assert!(is_enabled(Some("1")));
+    fn is_enabled_default_on_only_zero_disables() {
         assert!(!is_enabled(Some("0")));
-        assert!(!is_enabled(Some("true")));
-        assert!(!is_enabled(None));
-        assert!(!is_enabled(Some("")));
+        assert!(is_enabled(Some("1")));
+        assert!(is_enabled(Some("true")));
+        assert!(is_enabled(None));
+        assert!(is_enabled(Some("")));
     }
 
     // Tauri bridge env-gated tests share the process env, so we group them
@@ -86,13 +86,13 @@ mod tests {
     // but cargo runs threaded by default).
     #[test]
     fn bridges_gate_on_env_flag() {
-        std::env::remove_var("APOHARA_RUST_PROJECTOR");
+        std::env::set_var("APOHARA_RUST_PROJECTOR", "0");
 
         let err_ui = projector_to_ui_cards_inner(vec![ev(Some("t1"))]).unwrap_err();
-        assert!(err_ui.contains("not enabled"), "got: {err_ui}");
+        assert!(err_ui.contains("explicitly disabled"), "got: {err_ui}");
 
         let err_rows = projector_to_search_rows_inner(vec![ev(Some("t1"))]).unwrap_err();
-        assert!(err_rows.contains("not enabled"), "got: {err_rows}");
+        assert!(err_rows.contains("explicitly disabled"), "got: {err_rows}");
 
         std::env::set_var("APOHARA_RUST_PROJECTOR", "1");
         let cards = projector_to_ui_cards_inner(vec![ev(Some("t1"))]).unwrap();

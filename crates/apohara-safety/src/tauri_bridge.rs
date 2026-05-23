@@ -4,7 +4,7 @@
 //! registration. Without the feature, the gate logic + inner functions
 //! are still testable from plain cargo.
 //!
-//! Flag: `APOHARA_RUST_SAFETY=1` enables the Rust path. Default OFF
+//! Flag: `APOHARA_RUST_SAFETY=1` defaults ON post-G1.D.2 flip. Export =0 to opt out
 //! (TS legacy continues to handle permissions until Phase 1 cierre flips
 //! defaults in G1.D.2).
 
@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 
 /// Pure gate predicate — testable without env mutation.
 pub fn is_enabled(env_value: Option<&str>) -> bool {
-    env_value == Some("1")
+    env_value != Some("0")
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,7 +44,7 @@ pub fn safety_check_permission_inner(
     let env = std::env::var("APOHARA_RUST_SAFETY").ok();
     if !is_enabled(env.as_deref()) {
         return Err(
-            "APOHARA_RUST_SAFETY not enabled — falling back to TS legacy".to_string(),
+            "APOHARA_RUST_SAFETY explicitly disabled (=0) — TS legacy path active".to_string(),
         );
     }
     // Validate every cached pattern parses before populating the cache
@@ -112,17 +112,17 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn is_enabled_only_for_one() {
-        assert!(is_enabled(Some("1")));
+    fn is_enabled_default_on_only_zero_disables() {
         assert!(!is_enabled(Some("0")));
-        assert!(!is_enabled(Some("true")));
-        assert!(!is_enabled(None));
-        assert!(!is_enabled(Some("")));
+        assert!(is_enabled(Some("1")));
+        assert!(is_enabled(Some("true")));
+        assert!(is_enabled(None));
+        assert!(is_enabled(Some("")));
     }
 
     #[test]
-    fn check_returns_err_when_flag_unset() {
-        std::env::remove_var("APOHARA_RUST_SAFETY");
+    fn check_returns_err_when_flag_zero() {
+        std::env::set_var("APOHARA_RUST_SAFETY", "0");
         let req = CheckPermissionRequest {
             session_id: "s".to_string(),
             inv: ToolInvocation::new("Read"),
@@ -130,7 +130,7 @@ mod tests {
             cached_patterns: vec![],
         };
         let err = safety_check_permission_inner(req).unwrap_err();
-        assert!(err.contains("not enabled"));
+        assert!(err.contains("explicitly disabled"));
     }
 
     #[test]

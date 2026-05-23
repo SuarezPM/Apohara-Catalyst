@@ -6,7 +6,7 @@
 //! lean in cli/test contexts and only pulls Tauri when the desktop
 //! shell wires it.
 //!
-//! Flag: `APOHARA_RUST_SPEC=1` enables the Rust path. Default OFF (TS
+//! Flag: `APOHARA_RUST_SPEC=1` defaults ON post-G1.D.2 flip. Export =0 to opt out (TS
 //! legacy continues to handle spec parsing until Phase 1 cierre flips
 //! defaults in G1.D.2).
 
@@ -18,13 +18,13 @@ use crate::plan_status_cache::{CacheError, PlanStatusCache};
 
 /// Pure gate predicate — testable without env mutation.
 pub fn is_enabled(env_value: Option<&str>) -> bool {
-    env_value == Some("1")
+    env_value != Some("0")
 }
 
 fn check_enabled() -> Result<(), String> {
     let env = std::env::var("APOHARA_RUST_SPEC").ok();
     if !is_enabled(env.as_deref()) {
-        return Err("APOHARA_RUST_SPEC not enabled — falling back to TS legacy".to_string());
+        return Err("APOHARA_RUST_SPEC explicitly disabled (=0) — TS legacy path active".to_string());
     }
     Ok(())
 }
@@ -97,31 +97,31 @@ mod tests {
     const PLAN: &str = "---\ntitle: Bridge Plan\nstatus: active\nprogress: 0.5\n---\n## Objective\nx\n## Acceptance Criteria\n- [x] one\n- [ ] two\n";
 
     #[test]
-    fn is_enabled_only_for_one() {
-        assert!(is_enabled(Some("1")));
+    fn is_enabled_default_on_only_zero_disables() {
         assert!(!is_enabled(Some("0")));
-        assert!(!is_enabled(Some("true")));
-        assert!(!is_enabled(None));
-        assert!(!is_enabled(Some("")));
+        assert!(is_enabled(Some("1")));
+        assert!(is_enabled(Some("true")));
+        assert!(is_enabled(None));
+        assert!(is_enabled(Some("")));
     }
 
     #[tokio::test]
     #[serial_test::serial(apohara_rust_spec_flag)]
     async fn spec_load_plan_errors_when_flag_unset() {
-        std::env::remove_var("APOHARA_RUST_SPEC");
+        std::env::set_var("APOHARA_RUST_SPEC", "0");
         let err = spec_load_plan_inner("/nonexistent".to_string()).await.unwrap_err();
-        assert!(err.contains("not enabled"), "got: {err}");
+        assert!(err.contains("explicitly disabled"), "got: {err}");
     }
 
     #[tokio::test]
     #[serial_test::serial(apohara_rust_spec_flag)]
-    async fn spec_get_plan_status_errors_when_flag_unset() {
-        std::env::remove_var("APOHARA_RUST_SPEC");
+    async fn spec_get_plan_status_errors_when_flag_zero() {
+        std::env::set_var("APOHARA_RUST_SPEC", "0");
         let cache = Arc::new(PlanStatusCache::new());
         let err = spec_get_plan_status_inner(cache, "/nonexistent".to_string())
             .await
             .unwrap_err();
-        assert!(err.contains("not enabled"), "got: {err}");
+        assert!(err.contains("explicitly disabled"), "got: {err}");
     }
 
     #[tokio::test]
