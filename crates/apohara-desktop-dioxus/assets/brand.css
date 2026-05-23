@@ -422,3 +422,49 @@ body {
   background: color-mix(in srgb, var(--apohara-bone), transparent 60%);
   color: var(--apohara-ink);
 }
+
+/* CommandPalette (G2.C.2.1) — cmd+K palette ported from
+   packages/desktop/src/components/CommandPalette.tsx. The React original
+   used the `cmdk` library + inline styles; we move the styling here and
+   drive the fuzzy filter inside the component with fuzzy-matcher's
+   SkimMatcherV2. Reuses .dialog-backdrop from the dialog primitives. */
+
+.command-palette {
+  min-width: 480px;
+  max-width: 640px;
+  max-height: 60vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+}
+.cmd-input {
+  width: 100%;
+  margin-bottom: 8px;
+  box-sizing: border-box;
+}
+.cmd-results {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.cmd-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--apohara-bone);
+  border-radius: 2px;
+}
+.cmd-item:hover {
+  background: color-mix(in srgb, var(--apohara-lime), transparent 88%);
+}
+.cmd-empty {
+  padding: 8px 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: color-mix(in srgb, var(--apohara-bone), transparent 50%);
+  list-style: none;
+}
