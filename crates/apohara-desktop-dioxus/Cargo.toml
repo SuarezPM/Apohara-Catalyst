@@ -29,5 +29,7 @@ dioxus-ssr = "0.7"
 criterion = { version = "0.5", features = ["html_reports"] }
 tokio = { workspace = true, features = ["macros", "rt"] }
 
-# [[bench]] lands in G2.A.5
+[[bench]]
+name = "render_bench"
+harness = false
 
