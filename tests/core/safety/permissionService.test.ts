@@ -16,9 +16,12 @@ test("cache hit returns allow:cached", () => {
 });
 
 test("settings allow returns allow:settings_allow", () => {
+  // Use a command that is NOT in the auto-approval safe-list (G7.5.A.9
+  // wiring): `npm` doesn't appear in `auto-approval.ts::SAFE_BASH_COMMANDS`,
+  // so the decision must fall through to the settings allow-list match.
   const cache = new PermissionCache();
-  const inv: ToolInvocation = { tool: "Bash", input: { command: "ls -la" } };
-  const d = check("s1", inv, { cache, settings: { allow: ["Bash(ls:*)"], deny: [] } });
+  const inv: ToolInvocation = { tool: "Bash", input: { command: "npm test" } };
+  const d = check("s1", inv, { cache, settings: { allow: ["Bash(npm:*)"], deny: [] } });
   expect(d.kind).toBe("allow");
   if (d.kind === "allow") expect(d.reason).toBe("settings_allow");
 });

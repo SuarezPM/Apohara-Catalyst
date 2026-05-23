@@ -14,6 +14,13 @@
 //! Persistence is intentionally NOT wired here: the bare struct is
 //! pure in-memory so callers can opt into whatever durability suits
 //! them (the persistence crate ships an atomic write helper).
+//!
+//! G7.5.A.9 wiring: the dashboard humanizer (TS) and the equivalent
+//! Rust consumers consult the tracker via `StrategyTracker::peek` —
+//! a non-mutating read that returns the current per-tool count. Calling
+//! `record_failure` to read the count would itself trip the threshold,
+//! so `peek` is the only safe path for read-only surfaces (UI labels,
+//! audit lines, telemetry).
 
 use serde::{Deserialize, Serialize};
 

@@ -19,6 +19,7 @@
  */
 import { spawn, type ChildProcess } from "node:child_process";
 import { sanitizeEnv } from "../../persistence/envSanitizer";
+import { stripControlChars } from "../../protocols/line-framed";
 import { parseOpenCodeLine } from "./opencode-stream";
 import type {
   AgentProtocol,
@@ -92,13 +93,14 @@ export class OpenCodeProtocol implements AgentProtocol {
       while (nl !== -1) {
         const line = buf.slice(0, nl);
         buf = buf.slice(nl + 1);
-        const ev = parseOpenCodeLine(line);
+        // G7.5.A.9: strip ANSI + C0 control bytes before parsing.
+        const ev = parseOpenCodeLine(stripControlChars(line));
         if (ev) yield ev;
         nl = buf.indexOf("\n");
       }
     }
     if (buf.length > 0) {
-      const ev = parseOpenCodeLine(buf);
+      const ev = parseOpenCodeLine(stripControlChars(buf));
       if (ev) yield ev;
     }
     yield { kind: "complete", reason: "finished" };
