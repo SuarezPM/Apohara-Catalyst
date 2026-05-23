@@ -13,6 +13,7 @@ pub mod audit_logger;
 pub mod input_validation;
 pub mod permission_guard;
 pub mod rate_limit;
+pub mod server;
 
 pub use audit_logger::{AuditEntry, AuditError, AuditLogger, AuditStatus};
 pub use input_validation::{
@@ -21,6 +22,10 @@ pub use input_validation::{
 };
 pub use permission_guard::{GuardrailFlagMetadata, PermissionGuard, PermissionedToolSpec};
 pub use rate_limit::{RateLimitConfig, TokenBucket, DEFAULT_RATE_LIMITS};
+pub use server::{
+    tool_handler, McpError, McpServer, McpServerConfig, RunningServer, ToolHandler,
+    ToolRegistration,
+};
 
 // Re-export canonical types from the bridge crate (single source of truth).
 pub use apohara_mcp_bridge::{McpCanonical, McpServerCanonical, McpServerType};
