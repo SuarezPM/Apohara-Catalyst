@@ -11,8 +11,8 @@
  *   --json             JSON mode
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, statSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { existsSync, statSync, readFileSync, statfsSync, accessSync, constants as fsConst, mkdirSync } from "node:fs";
+import { homedir, platform } from "node:os";
 import { join } from "node:path";
 import { compileRunnerExecutionPlan } from "../core/safety/runnerPolicy/planCompiler";
 import {
@@ -33,10 +33,19 @@ export type SectionName =
   | "sandbox"
   | "ledger"
   | "mcp"
-  | "assigned";
+  | "assigned"
+  // G10.D.1 — v1.0.0-rc.1 release-coverage checks.
+  | "node"
+  | "git"
+  | "os"
+  | "home"
+  | "secrets"
+  | "disk"
+  | "optional-clis";
 
 export const ALL_SECTIONS: SectionName[] = [
   "runtime", "roster", "policy", "sandbox", "ledger", "mcp", "assigned",
+  "node", "git", "os", "home", "secrets", "disk", "optional-clis",
 ];
 
 export interface SectionResult {
@@ -204,6 +213,169 @@ function assigned(apoharaHome: string): SectionResult {
   return { name: "assigned", ok: true, summary: "DB present — use `apohara verify-setup` for verdict" };
 }
 
+// ---------------------------------------------------------------------------
+// G10.D.1 — v1.0.0-rc.1 release-coverage checks.
+//
+// Sprint 10 spec §G10.D requires `apohara doctor` to cover every precondition
+// for an install-and-run release. The original 7 sections (runtime/roster/...)
+// covered Bun + Rust + provider CLIs but did not directly cover: Node 20+,
+// Git 2.40+, OS support tier, writable apohara home, secret store backend,
+// disk space, or optional tooling. These sections close those gaps.
+// ---------------------------------------------------------------------------
+
+/**
+ * Node.js >= 20 (Iron LTS). Bun runs Apohara at runtime, but bundled tooling
+ * (postinstall scripts, npm-shipped CLIs, the GitHub-bridge worker) calls into
+ * the Node version that came with the npm install. Fail if < 20.
+ */
+function nodeCheck(): SectionResult {
+  const r = cmd("node", ["--version"]);
+  if (!r.ok || !r.stdout) {
+    return { name: "node", ok: false, summary: "node not on PATH" };
+  }
+  const m = r.stdout.match(/^v(\d+)\./);
+  if (!m) {
+    return { name: "node", ok: false, summary: `unparseable: ${r.stdout}` };
+  }
+  const major = Number(m[1]);
+  if (major < 20) {
+    return { name: "node", ok: false, summary: `${r.stdout} (need >= 20)` };
+  }
+  return { name: "node", ok: true, summary: `${r.stdout} (>= 20 LTS)` };
+}
+
+/**
+ * Git >= 2.40. Worktree-based isolation (`crates/apohara-worktree`) uses
+ * features that landed in 2.40. Earlier git versions silently misbehave.
+ */
+function gitCheck(): SectionResult {
+  const r = cmd("git", ["--version"]);
+  if (!r.ok || !r.stdout) {
+    return { name: "git", ok: false, summary: "git not on PATH" };
+  }
+  // "git version 2.45.1" or similar.
+  const m = r.stdout.match(/git version (\d+)\.(\d+)(?:\.(\d+))?/);
+  if (!m) {
+    return { name: "git", ok: false, summary: `unparseable: ${r.stdout}` };
+  }
+  const major = Number(m[1]);
+  const minor = Number(m[2]);
+  if (major < 2 || (major === 2 && minor < 40)) {
+    return { name: "git", ok: false, summary: `${m[0]} (need >= 2.40)` };
+  }
+  return { name: "git", ok: true, summary: `${m[0]} (>= 2.40)` };
+}
+
+/**
+ * OS support tier. Tier 1: linux, darwin. Tier 2: win32 (smoke matrix exists
+ * but desktop features are best-effort). Anything else: untested, warn.
+ */
+function osCheck(): SectionResult {
+  const p = platform();
+  if (p === "linux" || p === "darwin") {
+    return { name: "os", ok: true, summary: `${p} (tier 1 — fully supported)` };
+  }
+  if (p === "win32") {
+    return { name: "os", ok: true, summary: `${p} (tier 2 — smoke-tested, desktop best-effort)` };
+  }
+  return { name: "os", ok: false, summary: `${p} (untested — file an issue)` };
+}
+
+/**
+ * Writable `~/.apohara/`. Auto-create if missing (idempotent), then verify
+ * write access. This is the directory every other section depends on.
+ */
+function homeCheck(apoharaHome: string): SectionResult {
+  try {
+    if (!existsSync(apoharaHome)) {
+      mkdirSync(apoharaHome, { recursive: true, mode: 0o700 });
+    }
+    accessSync(apoharaHome, fsConst.W_OK);
+    return { name: "home", ok: true, summary: `${apoharaHome} writable` };
+  } catch (e) {
+    return { name: "home", ok: false, summary: `${apoharaHome}: ${(e as Error).message}` };
+  }
+}
+
+/**
+ * Secret store backend. The Rust `apohara-secrets` crate uses `keyring-rs`,
+ * which dispatches to the OS-native store: Secret Service / kwallet (Linux),
+ * Keychain (macOS), Credential Manager (Windows). We do a *probe* — verify
+ * the crate ships in the workspace; the live keyring round-trip belongs to
+ * `apohara verify-setup` where a real secret can be stored and rolled back.
+ *
+ * On Linux we additionally check that `DBUS_SESSION_BUS_ADDRESS` is set or
+ * `dbus-launch` is available, since Secret Service requires a session bus.
+ */
+function secretsCheck(): SectionResult {
+  const cratePath = "crates/apohara-secrets/Cargo.toml";
+  if (!existsSync(cratePath)) {
+    return { name: "secrets", ok: false, summary: "apohara-secrets crate missing" };
+  }
+  if (platform() === "linux") {
+    const hasBus = !!process.env.DBUS_SESSION_BUS_ADDRESS;
+    const hasLaunch = cmd("which", ["dbus-launch"]).ok;
+    if (!hasBus && !hasLaunch) {
+      return {
+        name: "secrets",
+        ok: false,
+        summary: "no DBUS session bus and dbus-launch missing — Secret Service unavailable",
+      };
+    }
+  }
+  return { name: "secrets", ok: true, summary: "keyring backend reachable (probe only — verify-setup does live round-trip)" };
+}
+
+/**
+ * Disk space > 1GB free in workspace dir. `statfsSync` returns block-level
+ * counts: `bavail` * `bsize` = bytes available to a non-root user.
+ *
+ * Threshold: 1 GiB (2^30). Apohara's indexer + worktrees + audit logs grow
+ * over time; below 1 GB the install is one-`bun install` away from ENOSPC.
+ */
+function diskCheck(workspacePath: string): SectionResult {
+  try {
+    // statfsSync exists in Node 19+ and Bun. Cast to access f_bavail / f_bsize.
+    const st = statfsSync(workspacePath) as unknown as { bavail: number; bsize: number };
+    const freeBytes = st.bavail * st.bsize;
+    const freeGB = freeBytes / 1024 ** 3;
+    if (freeGB > 1) {
+      return { name: "disk", ok: true, summary: `${freeGB.toFixed(2)} GB free in ${workspacePath}` };
+    }
+    return {
+      name: "disk",
+      ok: false,
+      summary: `only ${freeGB.toFixed(2)} GB free in ${workspacePath} (recommend > 1 GB)`,
+    };
+  } catch (e) {
+    return { name: "disk", ok: false, summary: `statfs failed: ${(e as Error).message}` };
+  }
+}
+
+/**
+ * Optional CLIs. None of these block install — they enable specific workflows:
+ *   - gh         → cross-repo issue/PR automation (github-bridge fallback)
+ *   - hyperfine  → G10.C performance gates microbench
+ *   - playwright → desktop E2E smoke
+ *
+ * Section is `ok: true` even when missing. Summary names which were found so
+ * users can see what extra features they unlock. This matches the spec line
+ * "Optional CLIs (warnings only)".
+ */
+function optionalClisCheck(): SectionResult {
+  const opt = ["gh", "hyperfine", "playwright"];
+  const found: string[] = [];
+  const missing: string[] = [];
+  for (const bin of opt) {
+    if (cmd("which", [bin]).ok) found.push(bin);
+    else missing.push(bin);
+  }
+  const parts: string[] = [];
+  if (found.length > 0) parts.push(`found: ${found.join(", ")}`);
+  if (missing.length > 0) parts.push(`absent (optional): ${missing.join(", ")}`);
+  return { name: "optional-clis", ok: true, summary: parts.join(" · ") || "no optional CLIs probed" };
+}
+
 export function doctor(opts: DoctorOpts = {}): DoctorResult {
   const skip = new Set(opts.skip ?? []);
   const home = opts.apoharaHome ?? join(homedir(), ".apohara");
@@ -217,6 +389,13 @@ export function doctor(opts: DoctorOpts = {}): DoctorResult {
     ledger: () => ledger(home),
     mcp: () => mcp(home),
     assigned: () => assigned(home),
+    node: nodeCheck,
+    git: gitCheck,
+    os: osCheck,
+    home: () => homeCheck(home),
+    secrets: secretsCheck,
+    disk: () => diskCheck(workspace),
+    "optional-clis": optionalClisCheck,
   };
   for (const name of ALL_SECTIONS) {
     if (skip.has(name)) continue;
@@ -239,6 +418,13 @@ const SECTION_HINTS: Record<SectionName, string> = {
   ledger: "Delete the file and rerun `apohara verify-setup` to re-bootstrap.",
   mcp: "Delete `~/.apohara/mcp/endpoints.json` and rerun `apohara verify-setup` — see docs/troubleshooting.md#hook-events-return-http-401",
   assigned: "Run `apohara verify-setup` to enroll LOCAL-SETUP-001 and exercise the full pipeline.",
+  node: "Install Node 20 LTS (Iron) or later — `nvm install 20` / `pacman -S nodejs` / `brew install node@20`.",
+  git: "Upgrade Git to >= 2.40 — `pacman -Syu git` / `brew upgrade git` / https://git-scm.com/downloads.",
+  os: "Apohara supports Linux + macOS as tier 1 and Windows as tier 2 — file an issue if you need another platform.",
+  home: "Ensure `~/.apohara/` exists and is writable — `mkdir -p ~/.apohara && chmod 700 ~/.apohara`.",
+  secrets: "On Linux start a DBUS session (`eval $(dbus-launch --sh-syntax)`) or install `dbus`/`gnome-keyring`. Build the workspace from a full source checkout.",
+  disk: "Free more than 1 GB in the workspace partition — Apohara indexer + worktrees grow with usage.",
+  "optional-clis": "Optional helpers — install gh / hyperfine / playwright only if you need cross-repo, perf, or E2E flows.",
 };
 
 export function formatText(result: DoctorResult): string {
