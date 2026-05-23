@@ -1,9 +1,14 @@
 [package]
 name = "apohara-desktop-dioxus"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
+version = "1.0.0"
+edition = "2021"
+license = "MIT"
 description = "Apohara Catalyst desktop UI (Dioxus rewrite, Phase 2 bake-off)"
+
+# Standalone single-crate workspace. See workspace-root Cargo.toml `exclude`
+# entry for the wry-version-clash that forces this isolation. Will rejoin
+# the main workspace en Sprint 19 when packages/desktop/src-tauri retires.
+[workspace]
 
 [lib]
 name = "apohara_desktop_dioxus"
@@ -15,21 +20,25 @@ path = "src/main.rs"
 
 [dependencies]
 dioxus = { version = "0.7", features = ["desktop"] }
-serde = { workspace = true }
-serde_json = { workspace = true }
-tokio = { workspace = true }
-tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
-anyhow = { workspace = true }
-thiserror = { workspace = true }
-apohara-types = { path = "../apohara-types" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+anyhow = "1.0"
+thiserror = "2.0"
 
 [dev-dependencies]
 dioxus-ssr = "0.7"
 criterion = { version = "0.5", features = ["html_reports"] }
-tokio = { workspace = true, features = ["macros", "rt"] }
+tokio = { version = "1", features = ["macros", "rt"] }
 
 [[bench]]
 name = "render_bench"
 harness = false
 
+[profile.release]
+opt-level = 3
+lto = true
+strip = true
+panic = "abort"

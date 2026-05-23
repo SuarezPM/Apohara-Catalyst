@@ -1,5 +1,15 @@
 [workspace]
 resolver = "2"
+# apohara-desktop-dioxus is intentionally NOT a workspace member during the
+# Sprint 16 bake-off: dioxus-desktop 0.7.9 forces wry 0.53, which would
+# downgrade `tauri-runtime-wry` and break `packages/desktop/src-tauri`
+# (the existing Tauri shell that Sprint 19 will retire). Keeping the
+# Dioxus crate out of the shared lockfile lets both binaries compile from
+# their own per-crate target/ + Cargo.lock until the Sprint 19 deletion
+# unblocks a single-shell future. See docs/superpowers/rust-native/g2-a-decision.md.
+exclude = [
+    "crates/apohara-desktop-dioxus",
+]
 members = [
     "crates/apohara-types",
     "crates/apohara-indexer",
@@ -26,7 +36,6 @@ members = [
     "crates/apohara-ws-hub",
     "crates/apohara-reaction-engine",
     "crates/apohara-dispatch",
-    "crates/apohara-desktop-dioxus",
     "crates/apohara-verification",
     "crates/apohara-safety",
     "crates/apohara-spec",
