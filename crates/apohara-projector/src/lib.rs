@@ -7,6 +7,7 @@
 //! G1.C.4 port — modules added task-by-task following TDD.
 
 pub mod json_patch_stream;
+pub mod tauri_bridge;
 pub mod transcript_transformer;
 
 pub use json_patch_stream::{apply_patch, diff_patch, JsonPatchOp};
