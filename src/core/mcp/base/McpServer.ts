@@ -64,7 +64,10 @@ export class McpServer {
       fetch: async (req) => this.handle(req),
     });
     return {
-      bound: { hostname: server.hostname, port: server.port },
+      bound: {
+        hostname: server.hostname ?? "127.0.0.1",
+        port: server.port ?? this.config.port,
+      },
       stop: async () => { server.stop(); },
     };
   }
