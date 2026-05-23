@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAtomValue, useSetAtom } from "jotai/react";
 import { getDefaultStore } from "jotai/vanilla";
+import { Provider as TooltipProvider } from "@radix-ui/react-tooltip";
 import { Toaster } from "sonner";
 import { AgentConfigPanel } from "./components/AgentConfigPanel.js";
 import { CostMeter } from "./components/CostMeter.js";
@@ -293,6 +294,7 @@ export function App() {
 	const rosterCsv = useMemo(() => [...roster].sort().join(","), [roster]);
 
 	return (
+		<TooltipProvider delayDuration={400} skipDelayDuration={150}>
 		<div className="apohara-app" style={{ display: "flex", flexDirection: "column", height: "100vh", background: "#0c0c10", color: "#e6edf3" }}>
 			<header
 				className="topbar"
@@ -401,5 +403,6 @@ export function App() {
 				}}
 			/>
 		</div>
+		</TooltipProvider>
 	);
 }
