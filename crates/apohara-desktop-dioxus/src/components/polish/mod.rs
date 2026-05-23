@@ -12,9 +12,11 @@
 
 pub mod command_palette;
 pub mod toast;
+pub mod tooltip;
 
 pub use command_palette::CommandPalette;
 pub use toast::Toast;
+pub use tooltip::Tooltip;
 
 #[cfg(test)]
 mod command_palette_test;

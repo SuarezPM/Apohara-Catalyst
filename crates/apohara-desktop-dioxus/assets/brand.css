@@ -495,3 +495,37 @@ body {
   from { transform: translateX(100%); opacity: 0; }
   to   { transform: translateX(0);   opacity: 1; }
 }
+
+/* Tooltip (G2.C.2.3) — hover-driven popover wrapper. Pure-CSS
+   visibility (no per-tooltip signal): the .tooltip span is hidden by
+   default and revealed when .tooltip-wrapper is hovered or
+   focused-within. Matches the Radix Tooltip's default placement
+   (above, centered) for muscle memory. */
+
+.tooltip-wrapper {
+  position: relative;
+  display: inline-block;
+}
+.tooltip {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 4px;
+  padding: 4px 8px;
+  background: var(--apohara-ink);
+  color: var(--apohara-bone);
+  border: 1px solid var(--apohara-lime);
+  border-radius: 2px;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+  z-index: 1500;
+}
+.tooltip-wrapper:hover > .tooltip,
+.tooltip-wrapper:focus-within > .tooltip {
+  opacity: 1;
+}

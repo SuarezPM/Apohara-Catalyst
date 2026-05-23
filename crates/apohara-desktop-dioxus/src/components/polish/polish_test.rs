@@ -6,6 +6,47 @@
 //! commit ahead of the rest of the suite.
 
 #[cfg(test)]
+mod tooltip_tests {
+    use crate::components::polish::Tooltip;
+    use dioxus::prelude::*;
+
+    #[test]
+    fn tooltip_wraps_children() {
+        let html = dioxus_ssr::render_element(rsx! {
+            Tooltip { label: "Save the file".to_string(), "Save" }
+        });
+        assert!(html.contains("Save"), "trigger children missing: {html}");
+        assert!(
+            html.contains("tooltip-wrapper"),
+            "wrapper class missing: {html}"
+        );
+    }
+
+    #[test]
+    fn tooltip_renders_label_text() {
+        let html = dioxus_ssr::render_element(rsx! {
+            Tooltip { label: "Run apohara doctor".to_string(), "doc" }
+        });
+        assert!(
+            html.contains("Run apohara doctor"),
+            "label text missing: {html}"
+        );
+        assert!(html.contains("class=\"tooltip\""), "tooltip class missing: {html}");
+    }
+
+    #[test]
+    fn tooltip_label_uses_tooltip_role_for_a11y() {
+        let html = dioxus_ssr::render_element(rsx! {
+            Tooltip { label: "Hi".to_string(), "x" }
+        });
+        assert!(
+            html.contains("role=\"tooltip\""),
+            "ARIA role=tooltip missing: {html}"
+        );
+    }
+}
+
+#[cfg(test)]
 mod toast_tests {
     use crate::components::polish::Toast;
     use dioxus::prelude::*;
