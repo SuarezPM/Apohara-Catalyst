@@ -28,3 +28,26 @@ body {
   font-family: 'Press Start 2P', monospace;
   color: var(--apohara-lime);
 }
+
+/* HeroBanner (G2.A.4) — Sprint 9 brand showcase, ported from
+   packages/desktop/src/components/HeroBanner.tsx. Most layout lives on
+   inline styles to mirror the React component 1:1; this block adds
+   keyframe-driven accents that the upstream component delegated to the
+   running-border / pixel-art animations introduced in G9.A. */
+
+.hero-banner::after {
+  content: "";
+  display: block;
+  margin-top: 0.75rem;
+  height: 2px;
+  background: var(--apohara-lime);
+  animation: hero-banner-running 3s linear infinite;
+  transform-origin: left;
+}
+
+@keyframes hero-banner-running {
+  0%   { transform: scaleX(0); transform-origin: left; }
+  50%  { transform: scaleX(1); transform-origin: left; }
+  51%  { transform-origin: right; }
+  100% { transform: scaleX(0); transform-origin: right; }
+}

@@ -15,7 +15,9 @@ pub fn App() -> Element {
             style { "{BRAND_CSS}" }
             crate::components::HeroBanner {
                 session_id: None,
-                tagline: "Three sanctioned CLI drivers (claude, codex, opencode), one ledger, zero cloud sync.".to_string(),
+                tasks_empty: true,
+                tagline: "Three sanctioned CLI drivers (claude, codex, opencode), one ledger, zero cloud sync. Type a goal and Apohara plans, dispatches, and verifies — without leaking your API keys to any subprocess.".to_string(),
+                on_seed_demo: None,
             }
         }
     }
