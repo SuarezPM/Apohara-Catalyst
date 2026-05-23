@@ -6,7 +6,12 @@
 //!
 //! G1.B.2 port — modules added task-by-task following TDD.
 //! Critical invariant preserved from TS: INV-bash-scope (compound bash
-//! commands always require scope match; see Sprint 5 INV-15 history).
+//! commands always require scope match). Formerly `INV-15` in TS
+//! Sprint 5; renamed in Rust Sprint 22 (G3.C) to disambiguate from
+//! the unrelated `INV-15 JCR Safety Gate` from the ContextForge paper
+//! (DOI 10.5281/zenodo.20114594). See
+//! `crates/apohara-safety/src/inv_bash_scope.rs` for the formal
+//! proof companion.
 
 pub mod auto_approval;
 pub mod bash_compound;

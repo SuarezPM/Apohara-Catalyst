@@ -8,7 +8,13 @@
 //! substitution bodies as their own subcommands.
 //!
 //! See the regression test `inv_bash_scope_compound_commands_always_scoped`
-//! below for the load-bearing cases (historically INV-15 in TS Sprint 5).
+//! below for the load-bearing cases.
+//!
+//! History: this invariant was called `INV-15` in the TS legacy code
+//! (TS Sprint 5). Renamed to `INV-bash-scope` in Rust Sprint 22 (G3.C)
+//! to disambiguate from the unrelated `INV-15 JCR Safety Gate` (paper
+//! reference DOI 10.5281/zenodo.20114594), which is a verification-mesh
+//! confidence-threshold invariant — not the compound-bash one.
 
 /// Split a bash command line into its compound subcommands.
 ///
