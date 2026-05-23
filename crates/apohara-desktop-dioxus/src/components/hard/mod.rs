@@ -26,10 +26,11 @@ pub mod terminal_pane;
 
 pub use code_diff_pane::CodeDiffPane;
 pub use swarm_canvas::SwarmCanvas;
-// `pub use terminal_pane::TerminalPane;` lands en el commit verde (G2.D.1.2).
+pub use terminal_pane::TerminalPane;
 
 #[cfg(test)]
 mod code_diff_pane_test;
 #[cfg(test)]
 mod swarm_canvas_test;
-// `terminal_pane_test` se cablea cuando el componente exista (G2.D.1.2).
+#[cfg(test)]
+mod terminal_pane_test;
