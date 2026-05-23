@@ -31,6 +31,7 @@
 import { sanitizeEnv } from "../persistence/envSanitizer";
 import { getApoharaDeps } from "./deps";
 import { ProviderSessionManager } from "./mixins/ProviderSessionManager";
+import { buildSystemPrompt } from "./prompt-builders";
 import { applyTrustForProvider } from "./trust-presets";
 import type { AgentProtocol, CreateSessionOpts, SpawnedSession } from "./protocols/AgentProtocol";
 import type { ProviderId } from "./agent-config";
@@ -43,6 +44,17 @@ export interface SpawnOpts {
   worktreeId?: string;
   paneKey?: string;
   env?: Record<string, string | undefined>;
+  /**
+   * G7.5.A.1: explicit role override. Defaults to `this.roles[0]` if omitted.
+   * Used by `buildSystemPrompt` to select per-role wording in the template.
+   */
+  role?: AgentRole;
+  /**
+   * G7.5.A.1: when omitted, `BaseAgentProvider.spawn` computes a default
+   * via `buildSystemPrompt({ providerId, role, taskId, workspace })`.
+   * Callers that already have a tailored prompt pass it explicitly to
+   * override the default.
+   */
   systemPrompt?: string;
   apoharaSessionId?: string;
 }
@@ -86,18 +98,33 @@ export abstract class BaseAgentProvider {
     // whose AgentConfig declares `preflightTrust: null` (e.g., opencode-go).
     await applyTrustForProvider(this.id, opts.workspacePath);
 
-    // 4. Delegate session creation to the per-provider protocol.
+    // 4. Resolve system prompt. G7.5.A.1 (Sprint 7.5 cleanup): G5.A.3 shipped
+    // `buildSystemPrompt` as a standalone module without any consumer wiring.
+    // We now compute a default via the per-provider template when the caller
+    // didn't supply one, so the 3 active CLI providers (Claude/Codex/OpenCode)
+    // actually receive a system prompt instead of `undefined`. Explicit
+    // `opts.systemPrompt` still wins — callers with tailored prompts override.
+    const role: AgentRole = opts.role ?? (this.roles[0] as AgentRole);
+    const systemPrompt =
+      opts.systemPrompt ??
+      buildSystemPrompt(this.id, {
+        taskId: opts.taskId ?? "",
+        role,
+        workspace: opts.workspacePath,
+      });
+
+    // 5. Delegate session creation to the per-provider protocol.
     const createOpts: CreateSessionOpts = {
       workspacePath: opts.workspacePath,
       taskId: opts.taskId,
       worktreeId: opts.worktreeId,
       paneKey: opts.paneKey,
       env: apoharaEnv,
-      systemPrompt: opts.systemPrompt,
+      systemPrompt,
     };
     const session = await this.protocol.createSession(createOpts);
 
-    // 5. Register the apohara↔provider session id mapping if requested.
+    // 6. Register the apohara↔provider session id mapping if requested.
     if (opts.apoharaSessionId) {
       this.sessionManager.set(opts.apoharaSessionId, {
         providerId: session.providerId,
