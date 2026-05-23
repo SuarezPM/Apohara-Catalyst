@@ -33,6 +33,7 @@ members = [
     "crates/apohara-hooks",
     "crates/apohara-decomposer",
     "crates/apohara-projector",
+    "crates/apohara",
 ]
 
 [workspace.package]

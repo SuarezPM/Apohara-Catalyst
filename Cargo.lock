@@ -188,6 +188,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
+name = "apohara"
+version = "1.0.0"
+dependencies = [
+ "anyhow",
+ "apohara-decomposer",
+ "apohara-dispatch",
+ "apohara-hooks",
+ "apohara-mcp",
+ "apohara-projector",
+ "apohara-safety",
+ "apohara-spec",
+ "apohara-verification",
+ "clap",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "apohara-anti-thrash"
 version = "1.0.0"
 dependencies = [
