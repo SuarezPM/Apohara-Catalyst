@@ -55,3 +55,50 @@ mod button_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod input_tests {
+    use crate::components::primitives::Input;
+    use dioxus::prelude::*;
+
+    #[test]
+    fn renders_input_with_brand_class_and_default_text_type() {
+        let html = dioxus_ssr::render_element(rsx! {
+            Input { value: "".to_string() }
+        });
+        assert!(html.contains("class=\"input"), "input class missing: {html}");
+        assert!(
+            html.contains("type=\"text\""),
+            "default text type missing: {html}"
+        );
+    }
+
+    #[test]
+    fn forwards_value_and_placeholder() {
+        let html = dioxus_ssr::render_element(rsx! {
+            Input {
+                value: "hola".to_string(),
+                placeholder: "type here".to_string(),
+            }
+        });
+        assert!(html.contains("value=\"hola\""), "value missing: {html}");
+        assert!(
+            html.contains("placeholder=\"type here\""),
+            "placeholder missing: {html}"
+        );
+    }
+
+    #[test]
+    fn supports_explicit_type_override() {
+        let html = dioxus_ssr::render_element(rsx! {
+            Input {
+                value: "".to_string(),
+                input_type: "password".to_string(),
+            }
+        });
+        assert!(
+            html.contains("type=\"password\""),
+            "custom type missing: {html}"
+        );
+    }
+}
