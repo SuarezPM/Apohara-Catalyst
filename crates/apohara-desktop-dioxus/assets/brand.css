@@ -334,3 +334,91 @@ body {
   background-size: 200% 200%;
   animation: apohara-running-border 2s linear infinite;
 }
+
+/* Brand primitives (G2.B.1) — Button / Input / Card / Badge. Class-driven
+   so each component stays an attribute-light rsx! emission while CSS hot
+   reload owns the look-and-feel. Tokens map to the Sprint 9 names
+   (--apohara-lime / --apohara-ink / --apohara-bone) which are the
+   canonical ones in this stylesheet; the bare aliases (--lime / --ink /
+   --fg) live in `:root` for downstream Tailwind-style consumers. */
+
+.btn {
+  padding: 8px 16px;
+  border: 1px solid var(--apohara-lime);
+  background: transparent;
+  color: var(--apohara-lime);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: 0;
+  transition: background 150ms ease, border-color 150ms ease;
+}
+.btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--apohara-lime), transparent 85%);
+}
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.btn-primary {
+  background: var(--apohara-lime);
+  color: var(--apohara-ink);
+}
+.btn-secondary {
+  background: transparent;
+  color: var(--apohara-lime);
+}
+.btn-destructive {
+  background: var(--apohara-red, #c33);
+  color: var(--apohara-bone);
+  border-color: var(--apohara-red, #c33);
+}
+.btn-ghost {
+  background: transparent;
+  color: var(--apohara-bone);
+  border-color: transparent;
+}
+
+.card {
+  background: color-mix(in srgb, var(--apohara-ink), white 4%);
+  border: 1px solid color-mix(in srgb, var(--apohara-lime), transparent 80%);
+  border-radius: 4px;
+  padding: 16px;
+}
+
+.input {
+  padding: 8px 12px;
+  background: var(--apohara-ink);
+  color: var(--apohara-bone);
+  border: 1px solid color-mix(in srgb, var(--apohara-lime), transparent 70%);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  border-radius: 0;
+  outline: none;
+}
+.input:focus {
+  border-color: var(--apohara-lime);
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  background: var(--apohara-lime);
+  color: var(--apohara-ink);
+  font-size: 10px;
+  font-family: 'Press Start 2P', monospace;
+  letter-spacing: 1px;
+  border-radius: 0;
+}
+.badge-warn {
+  background: #d29922;
+  color: var(--apohara-ink);
+}
+.badge-danger {
+  background: var(--apohara-red, #c33);
+  color: var(--apohara-bone);
+}
+.badge-muted {
+  background: color-mix(in srgb, var(--apohara-bone), transparent 60%);
+  color: var(--apohara-ink);
+}
