@@ -8,6 +8,7 @@
 
 pub mod additional_context;
 pub mod compact_reinjection;
+pub mod context_warnings;
 pub mod events;
 
 pub use additional_context::{
@@ -18,6 +19,10 @@ pub use compact_reinjection::{
     AdditionalContextEnvelope, CompactHookEvent, CompactReinjector, ContractSnapshot, HookOutcome,
     PreCompactContract,
 };
+pub use context_warnings::{
+    classify_context_usage, ContextLevel, ContextUsageClassification, ContextUsageEvent,
+    ContextWarningMonitor, ObserveInput,
+};
 pub use events::{
     parse_hook_event, HookCommonContext, HookEvent, ParseHookEventError, PermissionScope,
     StopReason,
@@ -27,5 +32,7 @@ pub use events::{
 mod additional_context_tests;
 #[cfg(test)]
 mod compact_reinjection_tests;
+#[cfg(test)]
+mod context_warnings_tests;
 #[cfg(test)]
 mod events_tests;
