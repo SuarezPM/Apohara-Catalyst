@@ -1,0 +1,29 @@
+{
+  "version": "1.0.0",
+  "description": "Local-first multi-AI orchestrator (Apohara Catalyst, Rust-native, parallel CLI dispatch)",
+  "homepage": "https://github.com/SuarezPM/Apohara",
+  "license": "MIT",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/SuarezPM/Apohara/releases/download/v1.0.0/apohara-x86_64-pc-windows-msvc.zip",
+      "hash": "REPLACE_X86_64_WINDOWS_SHA256"
+    }
+  },
+  "bin": ["apohara.exe", "apohara-tui.exe"],
+  "post_install": [
+    "Write-Host \"apohara installed. Run 'apohara doctor' to verify env.\" -ForegroundColor Green"
+  ],
+  "checkver": {
+    "github": "https://github.com/SuarezPM/Apohara"
+  },
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/SuarezPM/Apohara/releases/download/v$version/apohara-x86_64-pc-windows-msvc.zip"
+      }
+    },
+    "hash": {
+      "url": "$url.sha256"
+    }
+  }
+}

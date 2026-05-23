@@ -1,0 +1,153 @@
+name: release-build
+
+# Phase 4 G4.A — cross-platform release build matrix.
+#
+# Triggers:
+#   * push of a `v*.*.*` tag → produces signed-by-default Cargo binaries +
+#     uploads them as GitHub release assets.
+#   * workflow_dispatch with a `version` input → on-demand dry-run that
+#     builds but does NOT publish (no release attached).
+#
+# The workflow only RELEASES BINARIES. cargo publish + AUR push + Homebrew
+# tap + Scoop manifest commits all sit behind Pablo's explicit sign-off
+# and run from the launch runbook, not from CI.
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version without v prefix (e.g. 1.0.0-rc.4) for dry-run"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-22.04
+            cross: false
+            archive: tar.gz
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-22.04
+            cross: true
+            archive: tar.gz
+          - target: x86_64-apple-darwin
+            runner: macos-14
+            cross: false
+            archive: tar.gz
+          - target: aarch64-apple-darwin
+            runner: macos-14
+            cross: false
+            archive: tar.gz
+          - target: x86_64-pc-windows-msvc
+            runner: windows-2022
+            cross: false
+            archive: zip
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+
+      # Cross-compile aarch64-linux from x86_64-linux via `cross`.
+      - name: Install cross (aarch64-linux only)
+        if: matrix.cross
+        run: cargo install cross --locked
+
+      - name: Build release binary (apohara CLI)
+        run: |
+          if [ "${{ matrix.cross }}" = "true" ]; then
+            cross build --release --target ${{ matrix.target }} -p apohara
+          else
+            cargo build --release --target ${{ matrix.target }} -p apohara
+          fi
+        shell: bash
+
+      - name: Build release binary (apohara-tui)
+        run: |
+          if [ "${{ matrix.cross }}" = "true" ]; then
+            cross build --release --target ${{ matrix.target }} -p apohara-tui
+          else
+            cargo build --release --target ${{ matrix.target }} -p apohara-tui
+          fi
+        shell: bash
+
+      - name: Stage artifacts
+        run: |
+          mkdir -p staging
+          if [ "${{ matrix.archive }}" = "zip" ]; then
+            cp target/${{ matrix.target }}/release/apohara.exe staging/
+            cp target/${{ matrix.target }}/release/apohara-tui.exe staging/
+          else
+            cp target/${{ matrix.target }}/release/apohara staging/
+            cp target/${{ matrix.target }}/release/apohara-tui staging/
+          fi
+          cp README.md LICENSE RELEASE_NOTES.md staging/ || true
+        shell: bash
+
+      - name: Archive (tar.gz)
+        if: matrix.archive == 'tar.gz'
+        run: |
+          cd staging
+          tar czf ../apohara-${{ matrix.target }}.tar.gz *
+          cd ..
+          sha256sum apohara-${{ matrix.target }}.tar.gz > apohara-${{ matrix.target }}.tar.gz.sha256
+
+      - name: Archive (zip)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path staging/* -DestinationPath apohara-${{ matrix.target }}.zip
+          Get-FileHash apohara-${{ matrix.target }}.zip -Algorithm SHA256 | Out-File apohara-${{ matrix.target }}.zip.sha256
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: apohara-${{ matrix.target }}
+          path: |
+            apohara-${{ matrix.target }}.*
+
+  release:
+    name: GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/**/apohara-*.*
+          generate_release_notes: false
+          body_path: RELEASE_NOTES.md
+          draft: true
+          fail_on_unmatched_files: true

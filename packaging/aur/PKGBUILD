@@ -1,0 +1,37 @@
+# Maintainer: Pablo M. Suarez <suarezpm@csnat.unt.edu.ar>
+# Phase 4 G4.B — AUR PKGBUILD draft. Publishes to AUR only after Pablo
+# signs off the launch (sign-off.md gate). The release tarball URL is
+# resolved from GitHub Releases v1.0.0; sha256sums must be updated when
+# the release.yml job uploads artifacts (look at .sha256 sidecar files).
+
+pkgname=apohara-catalyst-bin
+pkgver=1.0.0
+pkgrel=1
+pkgdesc="Local-first multi-AI orchestrator (Apohara Catalyst, Rust-native v1.0.0)"
+arch=('x86_64' 'aarch64')
+url="https://github.com/SuarezPM/Apohara"
+license=('MIT')
+provides=('apohara' 'apohara-tui')
+conflicts=('apohara' 'apohara-tui' 'apohara-catalyst' 'clarity-code')
+depends=('git')
+optdepends=(
+  'claude-code-cli: dispatch via Claude Code subscription'
+  'codex-cli: dispatch via Codex subscription'
+  'opencode-go: dispatch via OpenCode'
+)
+
+source_x86_64=("https://github.com/SuarezPM/Apohara/releases/download/v${pkgver}/apohara-x86_64-unknown-linux-gnu.tar.gz")
+source_aarch64=("https://github.com/SuarezPM/Apohara/releases/download/v${pkgver}/apohara-aarch64-unknown-linux-gnu.tar.gz")
+
+# Placeholders — replace with checksums from release.yml artifact sidecars
+# at sign-off time. Pre-publish CI uses --skipinteg to flag mismatch.
+sha256sums_x86_64=('SKIP')
+sha256sums_aarch64=('SKIP')
+
+package() {
+  install -Dm755 apohara "$pkgdir/usr/bin/apohara"
+  install -Dm755 apohara-tui "$pkgdir/usr/bin/apohara-tui"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+  install -Dm644 RELEASE_NOTES.md "$pkgdir/usr/share/doc/$pkgname/RELEASE_NOTES.md"
+}
