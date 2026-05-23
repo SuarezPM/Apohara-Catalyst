@@ -6,16 +6,35 @@ on:
 
 jobs:
   test:
-    name: Test (${{ matrix.os }})
+    name: Test (${{ matrix.os }} / node-${{ matrix.node }})
     runs-on: ${{ matrix.os }}
     strategy:
+      # Sprint 6 W3.8 — expand cross-platform smoke matrix to 5 OS × 2 Node
+      # versions = 10 jobs. fail-fast=false so a single OS/runtime regression
+      # doesn't mask state on the others. The matrix was 3 OS × 1 implicit
+      # Node before this expansion (Sprint 5).
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os:
+          - ubuntu-22.04
+          - ubuntu-24.04
+          - macos-13
+          - macos-14
+          - windows-2022
+        node:
+          - "20"
+          - "22"
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        # Sprint 6: Node 20 and 22 LTS — both supported by Bun's `--target node`
+        # bundler. Node 18 dropped 2026-04 per upstream EOL.
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -40,10 +59,17 @@ jobs:
           # skip the ~400 MB BERT load. Real model is gated behind explicit
           # opt-out per CLAUDE.md §8.1 (OOM hazard rule).
           APOHARA_MOCK_EMBEDDINGS: "1"
+          # Skip docker-driven integration legs on runners without docker.
+          # macOS / windows runners do not ship a docker daemon by default.
+          APOHARA_SKIP_DOCKER_E2E: "1"
         # Exclude packages/tui — vitest+Ink prototype to be archived in M017.9
         # (ROADMAP v2.0); its .test.tsx files need react/jsx-dev-runtime which
         # bun's runner cannot resolve from the nested workspace.
         run: bun test src tests
 
       - name: Lint code
+        # Lint is a single-OS check — pinned to the newest ubuntu so cross-OS
+        # path differences don't churn the lint output. Other matrix jobs
+        # still build + test, just skip the lint pass.
+        if: matrix.os == 'ubuntu-24.04' && matrix.node == '22'
         run: bunx biome format --write

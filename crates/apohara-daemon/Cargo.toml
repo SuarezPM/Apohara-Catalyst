@@ -1,0 +1,35 @@
+[package]
+name = "apohara-daemon"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+tokio = { workspace = true, features = ["full"] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+anyhow.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+dirs.workspace = true
+futures.workspace = true
+apohara-remote-worker = { path = "../apohara-remote-worker" }
+apohara-reaction-engine = { path = "../apohara-reaction-engine" }
+
+[lib]
+name = "apohara_daemon"
+path = "src/lib.rs"
+
+[[bin]]
+name = "apohara-daemon"
+path = "src/main.rs"
+
+[dev-dependencies]
+tempfile = "3.10"
+tokio = { workspace = true, features = ["test-util", "macros"] }

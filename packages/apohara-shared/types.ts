@@ -16,6 +16,9 @@ export type Capability = "session_fork" | "session_resume" | "setup_helper" | "c
 // from `EventKind`
 export type EventKind = "mcp_tool_invoked" | "mcp_rate_limited" | "policy_violation" | "permission_granted" | "permission_denied" | "path_safety_violation" | "sandbox_bypassed" | "security_violation" | "ledger_entry_written" | "ledger_verify_failed" | "guardrails_bypassed" | "hook_event" | "manifest_drift";
 
+// from `Intent`
+export type Intent = "implement" | "refactor" | "debug" | "document" | "test" | "explain" | "review" | "other";
+
 // from `SymbolKind`
 /**
  * Kind of symbol being referenced. Mirrors the language-agnostic categories
