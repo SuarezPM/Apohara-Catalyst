@@ -62,6 +62,56 @@ test("spawn injects APOHARA_HOOK_PORT and other env vars", async () => {
   expect(capturedEnv?.APOHARA_PANE_KEY).toBe("p-1");
 });
 
+test("spawn passes buildSystemPrompt output to protocol.createSession (G7.5.A.1)", async () => {
+  let capturedSystemPrompt: string | undefined;
+  class CaptureProtocol implements AgentProtocol {
+    async createSession(opts: { systemPrompt?: string }) {
+      capturedSystemPrompt = opts.systemPrompt;
+      return { providerId: "sid", spawnedAt: 0 };
+    }
+    async resumeSession() { return { providerId: "sid", spawnedAt: 0 }; }
+    async forkSession() { return { providerId: "sid", spawnedAt: 0 }; }
+    async *sendMessage(): AsyncIterable<ProtocolEvent> {}
+    async abortSession() {}
+  }
+  class CaptureProvider extends BaseAgentProvider {
+    get id() { return "claude-code-cli" as const; }
+    get displayName() { return "Capture"; }
+    get roles() { return ["coder"] as const; }
+    get protocol() { return new CaptureProtocol(); }
+  }
+  await new CaptureProvider().spawn({ workspacePath: "/tmp", taskId: "t-99" });
+  expect(capturedSystemPrompt).toBeDefined();
+  expect(capturedSystemPrompt!).toContain("coder");
+  expect(capturedSystemPrompt!).toContain("t-99");
+  expect(capturedSystemPrompt!).toContain("/tmp");
+});
+
+test("spawn preserves explicit systemPrompt over buildSystemPrompt default (G7.5.A.1)", async () => {
+  let capturedSystemPrompt: string | undefined;
+  class CaptureProtocol implements AgentProtocol {
+    async createSession(opts: { systemPrompt?: string }) {
+      capturedSystemPrompt = opts.systemPrompt;
+      return { providerId: "sid", spawnedAt: 0 };
+    }
+    async resumeSession() { return { providerId: "sid", spawnedAt: 0 }; }
+    async forkSession() { return { providerId: "sid", spawnedAt: 0 }; }
+    async *sendMessage(): AsyncIterable<ProtocolEvent> {}
+    async abortSession() {}
+  }
+  class CaptureProvider extends BaseAgentProvider {
+    get id() { return "codex-cli" as const; }
+    get displayName() { return "Capture"; }
+    get roles() { return ["coder"] as const; }
+    get protocol() { return new CaptureProtocol(); }
+  }
+  await new CaptureProvider().spawn({
+    workspacePath: "/tmp",
+    systemPrompt: "explicit-caller-prompt",
+  });
+  expect(capturedSystemPrompt).toBe("explicit-caller-prompt");
+});
+
 test("spawn sanitizes env to remove API keys", async () => {
   let capturedEnv: Record<string, string> | undefined;
   class CaptureProtocol implements AgentProtocol {
