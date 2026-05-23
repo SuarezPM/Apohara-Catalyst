@@ -51,3 +51,255 @@ body {
   51%  { transform-origin: right; }
   100% { transform: scaleX(0); transform-origin: right; }
 }
+
+/* TaskBoard (G2.B.3) — 4-column kanban MVP. Sprint 18 adds DnD + lane
+   variants (dispatched / failed / blocked). */
+
+.task-board {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  padding: 16px;
+}
+.task-column {
+  background: color-mix(in srgb, var(--apohara-ink), white 2%);
+  border: 1px solid color-mix(in srgb, var(--apohara-lime), transparent 90%);
+  border-radius: 4px;
+  padding: 12px;
+  min-height: 200px;
+  display: flex;
+  flex-direction: column;
+}
+.task-column-header {
+  margin-bottom: 12px;
+}
+.task-column-title {
+  font-size: 12px;
+  margin: 0;
+  color: color-mix(in srgb, var(--apohara-lime), white 30%);
+  letter-spacing: 1px;
+}
+.task-column-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+}
+.task-card {
+  background: color-mix(in srgb, var(--apohara-ink), white 4%);
+  border: 1px solid color-mix(in srgb, var(--apohara-lime), transparent 85%);
+  border-radius: 4px;
+  padding: 8px;
+  font-family: var(--font-mono);
+}
+.task-title {
+  margin: 0;
+  color: var(--apohara-bone);
+  font-size: 13px;
+  line-height: 1.3;
+}
+.task-id {
+  color: color-mix(in srgb, var(--apohara-bone), transparent 50%);
+  font-size: 11px;
+}
+
+/* ProviderRoster (G2.B.3) — active provider trio display. Sprint 18
+   wires GlobalSignal subscriptions + trust-preset editing. */
+
+.provider-roster {
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--apohara-lime), transparent 88%);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--apohara-ink), white 2%);
+}
+.provider-roster-header {
+  margin-bottom: 12px;
+}
+.provider-roster-title {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 1px;
+}
+.provider-roster-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.provider-roster-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-radius: 4px;
+  border: 1px solid color-mix(in srgb, var(--apohara-lime), transparent 88%);
+  background: color-mix(in srgb, var(--apohara-ink), white 4%);
+}
+.provider-roster-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.provider-roster-card-label {
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  color: var(--apohara-bone);
+}
+.provider-roster-card-id {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: color-mix(in srgb, var(--apohara-bone), transparent 50%);
+}
+.provider-roster-card-health {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 1px;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+.provider-roster-card-health[data-health="healthy"] {
+  color: var(--apohara-lime);
+  border: 1px solid color-mix(in srgb, var(--apohara-lime), transparent 60%);
+}
+.provider-roster-card-health[data-health="degraded"] {
+  color: #d29922;
+  border: 1px solid color-mix(in srgb, #d29922, transparent 60%);
+}
+.provider-roster-card-health[data-health="unknown"] {
+  color: color-mix(in srgb, var(--apohara-bone), transparent 40%);
+  border: 1px solid color-mix(in srgb, var(--apohara-bone), transparent 70%);
+}
+.provider-roster-empty {
+  padding: 12px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: color-mix(in srgb, var(--apohara-bone), transparent 50%);
+}
+
+/* AgentStateDot (G2.B.2) — pixel-art status indicator.
+   The inline styles emitted by the component cover size + background so the
+   dot survives even before the stylesheet loads. This block adds the
+   keyframe the React original injected via document.createElement and a
+   handful of per-state classes for downstream theming hooks. */
+
+@keyframes agent-state-dot-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.4; }
+}
+
+.agent-dot {
+  display: inline-block;
+  vertical-align: middle;
+  border-radius: 0; /* pixel-art aesthetic */
+}
+
+.dot-working { background: var(--apohara-lime); }
+.dot-done    { background: var(--apohara-lime); }
+.dot-waiting { background: rgba(237, 239, 240, 0.4); }
+.dot-error   { background: var(--apohara-red, #d04a3c); }
+.dot-idle    { background: var(--text-muted, rgba(237, 239, 240, 0.6)); }
+
+/* PermissionDialog + ToastDialog (G2.B.4) — Wave A dialog primitives.
+   PermissionDialog is render-only this sprint; Sprint 18 wires the real
+   safety_check_permission handlers. ToastDialog is a stub container that
+   Sprint 18 G2.C replaces with a Sonner-equivalent toast feed. */
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.dialog {
+  min-width: 400px;
+  max-width: 600px;
+  background: color-mix(in srgb, var(--apohara-ink), white 4%);
+  border: 1px solid color-mix(in srgb, var(--apohara-lime), transparent 80%);
+  border-radius: 4px;
+  padding: 20px;
+  color: var(--apohara-bone);
+}
+.dialog-title {
+  margin: 0 0 12px 0;
+  font-size: 12px;
+  letter-spacing: 1px;
+}
+.dialog-runner {
+  margin: 0 0 8px 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: color-mix(in srgb, var(--apohara-bone), transparent 30%);
+}
+.dialog-runner .badge {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--apohara-lime), transparent 80%);
+  color: var(--apohara-lime);
+  letter-spacing: 1px;
+}
+.dialog-command {
+  background: var(--apohara-ink);
+  padding: 8px 10px;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--apohara-bone);
+  overflow-x: auto;
+  border-radius: 2px;
+  border: 1px solid color-mix(in srgb, var(--apohara-lime), transparent 90%);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.dialog-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+.dialog-actions .btn {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 6px 12px;
+  border-radius: 3px;
+  cursor: pointer;
+  letter-spacing: 1px;
+  text-transform: lowercase;
+}
+.dialog-actions .btn-primary {
+  background: var(--apohara-lime);
+  color: var(--apohara-ink);
+  border: 1px solid var(--apohara-lime);
+}
+.dialog-actions .btn-danger {
+  background: transparent;
+  color: var(--apohara-red, #d04a3c);
+  border: 1px solid var(--apohara-red, #d04a3c);
+  margin-left: auto;
+}
+
+/* ToastDialog stub — Sprint 18 G2.C replaces the body. The container
+   stays reserved in the bottom-right corner so the layout does not
+   reflow when the real toast feed lights up. */
+.toast-container {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 1100;
+  pointer-events: none;
+  /* width reserved for the first stub render; tweaked when toasts flow */
+  min-width: 320px;
+}
