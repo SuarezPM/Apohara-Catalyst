@@ -1,14 +1,9 @@
 [package]
 name = "apohara-desktop-dioxus"
-version = "1.0.0"
-edition = "2021"
-license = "MIT"
-description = "Apohara Catalyst desktop UI (Dioxus rewrite, Phase 2 bake-off)"
-
-# Standalone single-crate workspace. See workspace-root Cargo.toml `exclude`
-# entry for the wry-version-clash that forces this isolation. Will rejoin
-# the main workspace en Sprint 19 when packages/desktop/src-tauri retires.
-[workspace]
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Apohara Catalyst desktop UI (Dioxus, Phase 2 canonical)"
 
 [lib]
 name = "apohara_desktop_dioxus"
