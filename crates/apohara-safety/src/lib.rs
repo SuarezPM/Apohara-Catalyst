@@ -11,10 +11,14 @@
 pub mod bash_compound;
 pub mod pattern_validator;
 pub mod patterns;
+pub mod settings_hierarchy;
 
 pub use bash_compound::{is_compound, split_compound};
 pub use pattern_validator::is_valid_pattern;
 pub use patterns::{match_pattern, parse_pattern_string, PermissionPattern, ToolInvocation};
+pub use settings_hierarchy::{
+    merge_settings_tiers, MergeOpts, MergedSettings, SettingsSource, SettingsTier,
+};
 
 #[cfg(test)]
 mod bash_compound_tests;
@@ -22,3 +26,5 @@ mod bash_compound_tests;
 mod pattern_validator_tests;
 #[cfg(test)]
 mod patterns_tests;
+#[cfg(test)]
+mod settings_hierarchy_tests;
