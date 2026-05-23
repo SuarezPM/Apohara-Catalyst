@@ -529,3 +529,27 @@ body {
 .tooltip-wrapper:focus-within > .tooltip {
   opacity: 1;
 }
+
+/* Resizable (G2.C.2.4) — split-pane resizer ported from
+   react-resizable-panels. The drag handle is a thin lime strip on the
+   right edge; on hover it brightens so it's visibly grabbable. The
+   pointer-driven width-update wiring lands in G2.D. */
+
+.resizable-panel {
+  position: relative;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+.resizable-handle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  cursor: col-resize;
+  background: color-mix(in srgb, var(--apohara-lime), transparent 80%);
+  transition: background 120ms ease-out;
+}
+.resizable-handle:hover {
+  background: color-mix(in srgb, var(--apohara-lime), transparent 40%);
+}

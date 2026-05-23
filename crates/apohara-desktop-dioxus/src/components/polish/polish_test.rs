@@ -6,6 +6,54 @@
 //! commit ahead of the rest of the suite.
 
 #[cfg(test)]
+mod resizable_tests {
+    use crate::components::polish::Resizable;
+    use dioxus::prelude::*;
+
+    #[test]
+    fn resizable_renders_children_and_handle() {
+        let html = dioxus_ssr::render_element(rsx! {
+            Resizable { initial_width: 320, "panel-body" }
+        });
+        assert!(html.contains("panel-body"), "children missing: {html}");
+        assert!(
+            html.contains("resizable-panel"),
+            "panel class missing: {html}"
+        );
+        assert!(
+            html.contains("resizable-handle"),
+            "drag handle missing: {html}"
+        );
+    }
+
+    #[test]
+    fn resizable_emits_initial_width_inline_style() {
+        let html = dioxus_ssr::render_element(rsx! {
+            Resizable { initial_width: 480, "x" }
+        });
+        assert!(
+            html.contains("width: 480px"),
+            "inline initial width missing: {html}"
+        );
+    }
+
+    #[test]
+    fn resizable_handle_has_separator_role_for_a11y() {
+        let html = dioxus_ssr::render_element(rsx! {
+            Resizable { initial_width: 240, "x" }
+        });
+        assert!(
+            html.contains("role=\"separator\""),
+            "ARIA separator role missing: {html}"
+        );
+        assert!(
+            html.contains("aria-orientation=\"vertical\""),
+            "aria-orientation missing: {html}"
+        );
+    }
+}
+
+#[cfg(test)]
 mod tooltip_tests {
     use crate::components::polish::Tooltip;
     use dioxus::prelude::*;

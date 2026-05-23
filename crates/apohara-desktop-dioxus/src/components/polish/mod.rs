@@ -11,10 +11,12 @@
 //! commits of this same task.
 
 pub mod command_palette;
+pub mod resizable;
 pub mod toast;
 pub mod tooltip;
 
 pub use command_palette::CommandPalette;
+pub use resizable::Resizable;
 pub use toast::Toast;
 pub use tooltip::Tooltip;
 
