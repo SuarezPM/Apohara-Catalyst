@@ -8,22 +8,30 @@
 //! Critical invariant preserved from TS: INV-bash-scope (compound bash
 //! commands always require scope match; see Sprint 5 INV-15 history).
 
+pub mod auto_approval;
 pub mod bash_compound;
 pub mod pattern_validator;
 pub mod patterns;
 pub mod permission_cache;
 pub mod permission_grid;
+pub mod permission_service;
 pub mod settings_hierarchy;
 
+pub use auto_approval::{classify_tool_for_auto_approval, AutoApprovalDecision};
 pub use bash_compound::{is_compound, split_compound};
 pub use pattern_validator::is_valid_pattern;
 pub use patterns::{match_pattern, parse_pattern_string, PermissionPattern, ToolInvocation};
 pub use permission_cache::PermissionCache;
 pub use permission_grid::{PermissionGrid, PermissionRow, PermissionScope, PermissionState};
+pub use permission_service::{
+    check as check_permission, AllowReason, DenyReason, PermissionDecision, PermissionServiceOpts,
+};
 pub use settings_hierarchy::{
     merge_settings_tiers, MergeOpts, MergedSettings, SettingsSource, SettingsTier,
 };
 
+#[cfg(test)]
+mod auto_approval_tests;
 #[cfg(test)]
 mod bash_compound_tests;
 #[cfg(test)]
@@ -32,5 +40,7 @@ mod pattern_validator_tests;
 mod patterns_tests;
 #[cfg(test)]
 mod permission_cache_grid_tests;
+#[cfg(test)]
+mod permission_service_tests;
 #[cfg(test)]
 mod settings_hierarchy_tests;
