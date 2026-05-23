@@ -128,3 +128,40 @@ mod card_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod badge_tests {
+    use crate::components::primitives::Badge;
+    use dioxus::prelude::*;
+
+    #[test]
+    fn renders_label_with_brand_class() {
+        let html = dioxus_ssr::render_element(rsx! {
+            Badge { "NEW" }
+        });
+        assert!(html.contains("class=\"badge"), "badge class missing: {html}");
+        assert!(html.contains("NEW"), "label missing: {html}");
+    }
+
+    #[test]
+    fn supports_announce_role_status_for_a11y() {
+        let html = dioxus_ssr::render_element(rsx! {
+            Badge { announce: true, "ready" }
+        });
+        assert!(
+            html.contains("role=\"status\""),
+            "role=status missing when announce=true: {html}"
+        );
+    }
+
+    #[test]
+    fn supports_tone_variant_class() {
+        let html = dioxus_ssr::render_element(rsx! {
+            Badge { tone: "warn".to_string(), "WARN" }
+        });
+        assert!(
+            html.contains("badge-warn"),
+            "tone variant class missing: {html}"
+        );
+    }
+}
