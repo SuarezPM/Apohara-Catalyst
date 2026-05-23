@@ -22,6 +22,7 @@
 
 use std::sync::OnceLock;
 
+use apohara_safety::inv_bash_scope::{prove_no_scope_escape, ProofResult};
 use regex::{Regex, RegexBuilder};
 use serde::{Deserialize, Serialize};
 
@@ -428,6 +429,67 @@ impl QualityGate for SecurityGate {
     }
 }
 
+/// Always-on gate that enforces INV-bash-scope on every bash command
+/// the diff or output proposes to run. Delegates to
+/// [`apohara_safety::inv_bash_scope::prove_no_scope_escape`] which is
+/// the proptest-exhaustion-verified compound-bash safety proof.
+///
+/// Unlike the regex-based gates this one reads the WHOLE input and
+/// scans for any bash invocation pattern (we currently model "any
+/// non-empty trimmed line" as a candidate bash command — false
+/// positives are absorbed downstream by the permission service).
+pub struct BashScopeGate;
+impl QualityGate for BashScopeGate {
+    fn name(&self) -> &'static str {
+        "bash_scope"
+    }
+    fn applies_to(&self, _input: &GateInput) -> bool {
+        true
+    }
+    fn evaluate(&self, input: &GateInput) -> GateResult {
+        // Scan every non-empty line of diff + output as a candidate
+        // bash command. First violation wins so the witness is
+        // deterministic for the same input.
+        let haystack_lines = input.diff.lines().chain(input.output.lines());
+        for line in haystack_lines {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            if let ProofResult::Unsafe(witness) = prove_no_scope_escape(trimmed) {
+                return GateResult::Block {
+                    reason: format!(
+                        "INV-bash-scope violation: dangerous leg `{witness}` would escape one-shot scope clamp"
+                    ),
+                    feedback_to_agent: format!(
+                        "The command `{witness}` matches a known-dangerous leg pattern \
+                         (rm -rf, curl, wget, eval, etc.). Either remove it from the change, \
+                         or surface it as a single one-shot bash invocation so the permission \
+                         service can clamp its approval scope. INV-bash-scope is the \
+                         load-bearing invariant — see crates/apohara-safety/src/inv_bash_scope.rs."
+                    ),
+                };
+            }
+        }
+        GateResult::Pass
+    }
+}
+
+/// Convenience wrapper for [`BashScopeGate::evaluate`] that takes only
+/// the candidate bash command. Used by the Sprint 22 G3.C.2
+/// verification-mesh integration tests and by external callers that
+/// want a one-shot INV-bash-scope check without building a full
+/// [`GateInput`].
+pub fn run_bash_scope_gate(command: &str) -> GateResult {
+    let input = GateInput {
+        task_role: AgentRole::Critic,
+        persona: None,
+        diff: String::new(),
+        output: command.to_string(),
+    };
+    BashScopeGate.evaluate(&input)
+}
+
 /// Always-on gate that blocks five dangerous shell patterns in the
 /// diff OR the output. First hit wins (matches TS short-circuit).
 pub struct SysadminSafetyGate;
@@ -459,6 +521,9 @@ impl QualityGate for SysadminSafetyGate {
 
 /// The full set of built-in gates, in the same order as the TS
 /// `GATES` array — order matters for the deterministic block list.
+///
+/// `BashScopeGate` is appended LAST so existing block-order tests are
+/// unaffected by the Sprint 22 G3.C.2 INV-bash-scope wiring.
 pub fn default_gates() -> Vec<Box<dyn QualityGate>> {
     vec![
         Box::new(ArchitectureGate),
@@ -467,6 +532,7 @@ pub fn default_gates() -> Vec<Box<dyn QualityGate>> {
         Box::new(CodeQualityGate),
         Box::new(FrontendGate),
         Box::new(SysadminSafetyGate),
+        Box::new(BashScopeGate),
     ]
 }
 
