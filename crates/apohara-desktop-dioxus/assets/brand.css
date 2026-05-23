@@ -1,0 +1,30 @@
+/* assets/brand.css — Sprint 9 brand tokens (Catalyst palette). */
+
+:root {
+  --apohara-lime: #25B13F;
+  --apohara-ink: #0E1010;
+  --apohara-bone: #EDEFF0;
+  --bg: var(--apohara-ink);
+  --fg: var(--apohara-bone);
+  --font-mono: 'JetBrains Mono', 'Fira Mono', monospace;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: 'Inter', sans-serif;
+  margin: 0;
+  padding: 0;
+}
+
+#apohara-app {
+  min-height: 100vh;
+  padding: 12px;
+  box-sizing: border-box;
+}
+
+.press-start-2p,
+.font-display {
+  font-family: 'Press Start 2P', monospace;
+  color: var(--apohara-lime);
+}

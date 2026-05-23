@@ -26,6 +26,7 @@ members = [
     "crates/apohara-ws-hub",
     "crates/apohara-reaction-engine",
     "crates/apohara-dispatch",
+    "crates/apohara-desktop-dioxus",
     "crates/apohara-verification",
     "crates/apohara-safety",
     "crates/apohara-spec",
