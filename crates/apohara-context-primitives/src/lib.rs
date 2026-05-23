@@ -17,3 +17,6 @@
 //! of an explicit `update()` call.
 
 pub mod fingerprint;
+pub mod simhash;
+
+pub use simhash::{hamming_distance, simhash_64, simhash_64_from_tokens, simhash_64_shingles};
