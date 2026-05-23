@@ -9,6 +9,7 @@
 pub mod plan_documents;
 pub mod plan_status_cache;
 pub mod rfc2119;
+pub mod tauri_bridge;
 pub mod watcher;
 
 pub use plan_documents::{
