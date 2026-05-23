@@ -1,8 +1,0 @@
-[package]
-name = "sample-parser"
-edition = "2021"
-version = "0.0.0"
-
-[lib]
-name = "sample_parser"
-path = "src/lib.rs"
