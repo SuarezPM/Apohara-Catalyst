@@ -11,6 +11,7 @@
 
 pub mod audit_logger;
 pub mod input_validation;
+pub mod permission_guard;
 pub mod rate_limit;
 
 pub use audit_logger::{AuditEntry, AuditError, AuditLogger, AuditStatus};
@@ -18,6 +19,7 @@ pub use input_validation::{
     optional_integer, optional_string, optional_string_array, require_record, require_string,
     McpValidationError, ValidationResult,
 };
+pub use permission_guard::{GuardrailFlagMetadata, PermissionGuard, PermissionedToolSpec};
 pub use rate_limit::{RateLimitConfig, TokenBucket, DEFAULT_RATE_LIMITS};
 
 // Re-export canonical types from the bridge crate (single source of truth).
