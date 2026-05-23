@@ -17,12 +17,12 @@ afterEach(async () => {
   await rm(fakeHome, { recursive: true, force: true });
 });
 
-test("first call creates UUID v4 + persists", async () => {
+test("first call creates install ID + persists", async () => {
   const id = await getOrCreateInstallId();
-  expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  expect(id).toMatch(/^inst_[0-9a-f]{16}$/);
 });
 
-test("subsequent calls return same UUID", async () => {
+test("subsequent calls return same ID", async () => {
   const id1 = await getOrCreateInstallId();
   const id2 = await getOrCreateInstallId();
   expect(id1).toBe(id2);
