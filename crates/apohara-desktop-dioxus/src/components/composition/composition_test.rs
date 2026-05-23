@@ -241,3 +241,81 @@ fn statusline_omits_banner_when_absent() {
         "banner testid should not render when message is None: {html}"
     );
 }
+
+// --- ObjectivePane (G2.C.3.4) -----------------------------------------
+
+#[test]
+fn objective_pane_renders_title_input_and_buttons() {
+    let html = dioxus_ssr::render_element(rsx! {
+        ObjectivePane {
+            active: false,
+            mode: ObjectiveMode::Gpu,
+            roster_csv: "claude-code-cli,codex-cli".to_string(),
+        }
+    });
+    assert!(
+        html.contains("data-testid=\"objective-pane\""),
+        "root testid missing: {html}"
+    );
+    assert!(html.contains("Objective"), "Objective title missing");
+    assert!(
+        html.contains("data-testid=\"objective-input\""),
+        "textarea testid missing"
+    );
+    assert!(
+        html.contains("data-testid=\"objective-enhance\""),
+        "enhance button missing"
+    );
+    assert!(
+        html.contains("data-testid=\"objective-run\""),
+        "run button missing"
+    );
+    assert!(html.contains("Enhance"), "Enhance label missing");
+    assert!(html.contains("Run"), "Run label missing");
+}
+
+#[test]
+fn objective_pane_disables_inputs_when_active() {
+    let html = dioxus_ssr::render_element(rsx! {
+        ObjectivePane {
+            active: true,
+            mode: ObjectiveMode::Cloud,
+            roster_csv: String::new(),
+        }
+    });
+    // textarea + both buttons should be disabled when a session is active.
+    assert!(
+        html.contains("disabled"),
+        "disabled attribute missing on active pane: {html}"
+    );
+    assert!(
+        html.contains("data-active=\"true\""),
+        "data-active marker missing on root when active"
+    );
+}
+
+#[test]
+fn objective_pane_exposes_mode_attribute() {
+    let html_gpu = dioxus_ssr::render_element(rsx! {
+        ObjectivePane {
+            active: false,
+            mode: ObjectiveMode::Gpu,
+            roster_csv: String::new(),
+        }
+    });
+    let html_cloud = dioxus_ssr::render_element(rsx! {
+        ObjectivePane {
+            active: false,
+            mode: ObjectiveMode::Cloud,
+            roster_csv: String::new(),
+        }
+    });
+    assert!(
+        html_gpu.contains("data-mode=\"gpu\""),
+        "data-mode=gpu missing: {html_gpu}"
+    );
+    assert!(
+        html_cloud.contains("data-mode=\"cloud\""),
+        "data-mode=cloud missing: {html_cloud}"
+    );
+}

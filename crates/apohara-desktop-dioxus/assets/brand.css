@@ -702,3 +702,47 @@ body {
   background: color-mix(in srgb, #f85149, transparent 85%);
   font-weight: 600;
 }
+
+/* ObjectivePane (G2.C.3.4) — top-left sidebar that owns the objective
+   prompt + enhance/run buttons. Direct CSS counterpart of the React
+   .pane / .pane-objective rules from packages/desktop/src/index.css. */
+
+.objective-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--apohara-lime), transparent 85%);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--apohara-ink), white 2%);
+  min-width: 260px;
+}
+.objective-pane-title {
+  margin: 0 0 4px 0;
+  font-size: 12px;
+  letter-spacing: 1px;
+}
+.objective-pane-input {
+  resize: vertical;
+  min-height: 120px;
+  padding: 10px;
+  background: var(--apohara-ink);
+  color: var(--apohara-bone);
+  border: 1px solid color-mix(in srgb, var(--apohara-lime), transparent 70%);
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  outline: none;
+}
+.objective-pane-input:focus {
+  border-color: var(--apohara-lime);
+}
+.objective-pane-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.objective-pane-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
