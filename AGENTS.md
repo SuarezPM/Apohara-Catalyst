@@ -9,7 +9,7 @@
 |---|---|
 | Build all crates | `cargo build --workspace` |
 | Run `apohara-types` tests | `cargo test -p apohara-types --lib --tests` |
-| Run `apohara-indexer` tests (one binary at a time, OOM-safe) | `cargo test -p apohara-indexer --lib && cargo test -p apohara-indexer --test memory_integration` |
+| Run `apohara-indexer` tests | `cargo test -p apohara-indexer` |
 | Build TS bundle | `bun run build` |
 | Run TS tests | `bun test` |
 | Start desktop dev | `cd packages/desktop && bun run dev` |
@@ -40,7 +40,7 @@
 | `crates/apohara-mcp-bridge` | Canonical MCP config + per-provider adapters (Claude/Codex/OpenCode dialects) |
 | `crates/apohara-event-humanizer` | Provider events → human-readable labels |
 | `crates/apohara-anti-thrash` | Strategy rotation tracker (anti-loop) |
-| `crates/apohara-indexer` | tree-sitter + redb + Nomic BERT (existing, see OOM hazard) |
+| `crates/apohara-indexer` | tree-sitter + sqlite-vec storage + blake3 feature-hashing embeddings |
 | `crates/apohara-sandbox` | seccomp-bpf + namespaces sandbox (existing) |
 
 ### TypeScript packages (`packages/`)
@@ -78,16 +78,15 @@
 
 `docs/superpowers/plans/2026-05-22-apohara-v1.md` — task-by-task implementation plan.
 
-## OOM hazard with `cargo test`
+## Indexer testing (post-Sprint-8)
 
-**NEVER** run bare `cargo test` or `cargo test -p apohara-indexer`. The Nomic BERT model is ~400MB and `cargo test` spawns lib + integration binaries in parallel, OOM-ing the machine. See spec §10 R1.
+`cargo test -p apohara-indexer` corre todos los binarios en paralelo sin OOM
+hazard. El indexer usa sqlite-vec para storage y feature-hashing (blake3) para
+embeddings — ambos in-process, ~0 RAM, deterministas.
 
-Always run ONE test binary at a time:
-- `cargo test -p apohara-indexer --lib`
-- `cargo test -p apohara-indexer --test memory_integration`
-- `cargo test -p apohara-indexer --test indexer_persistence`
-
-For mock mode in CI/dev: `APOHARA_MOCK_EMBEDDINGS=1` skips the model load.
+Si en el futuro re-introduces un modelo transformer (e.g. `fastembed-rs`),
+documenta el footprint y vuelve al patrón "una test binary a la vez" si supera
+~100MB en RAM total.
 
 ## Cross-cutting disciplines (spec §0)
 
