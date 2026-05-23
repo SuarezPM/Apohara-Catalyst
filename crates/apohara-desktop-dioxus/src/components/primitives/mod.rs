@@ -7,9 +7,11 @@
 //! The Badge is a thin label container — no logic, just brand styling.
 
 pub mod button;
+pub mod card;
 pub mod input;
 
 pub use button::Button;
+pub use card::Card;
 pub use input::Input;
 
 #[cfg(test)]
