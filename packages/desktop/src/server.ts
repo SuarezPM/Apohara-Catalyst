@@ -41,6 +41,15 @@ import type { ProviderId } from "../../../src/core/providers/agent-config";
 import type { LLMMessage } from "../../../src/providers/router";
 import { ProviderRouter } from "../../../src/providers/router";
 import { replayAfter, resolveLastEventId } from "../../../src/core/sse-server";
+import {
+	diffPatch,
+	type JsonPatchOp,
+} from "../../../src/core/projector/json-patch-stream";
+import type { EventLog } from "../../../src/core/types";
+import {
+	projectLedgerToState,
+	type ProjectedState,
+} from "./server-projection";
 import index from "../index.html";
 
 const PORT = Number(process.env.APOHARA_DESKTOP_PORT ?? 7331);
@@ -795,6 +804,151 @@ const server = Bun.serve({
 					provider,
 				});
 			},
+		},
+
+		// GET /api/session/:id/state — SSE projected-state stream
+		// (G7.5.A.3). Wires Sprint-5's `diffPatch`/`applyPatch` into
+		// the SSE path: the server folds the ledger through
+		// `projectLedgerToState` and emits ONE full snapshot
+		// (`state-init`) on connect, then ONE RFC-6902 patch
+		// (`state-patch`) per ledger append. The client (see
+		// `store/listeners/sseListener.ts`) hydrates from init and
+		// applies patches incrementally — no more O(ledger-size)
+		// re-fold on every event.
+		"/api/session/:id/state": (req) => {
+			const id = req.params.id;
+			const filePath = isSafeSessionPath(id);
+			if (!filePath) {
+				return new Response("invalid session id", { status: 400 });
+			}
+			if (!existsSync(filePath)) {
+				return new Response("ledger not found", { status: 404 });
+			}
+
+			const parseLedger = (buf: string): EventLog[] => {
+				const out: EventLog[] = [];
+				for (const line of buf.split("\n")) {
+					if (line.trim().length === 0) continue;
+					try {
+						out.push(JSON.parse(line) as EventLog);
+					} catch {
+						/* skip malformed line — best-effort */
+					}
+				}
+				return out;
+			};
+
+			const stream = new ReadableStream({
+				async start(controller) {
+					const encoder = new TextEncoder();
+					let offset = 0;
+					let closed = false;
+					let lastState: ProjectedState = { tasks: {} };
+					let allEvents: EventLog[] = [];
+					// Single-flight: stack reads so a burst of fs.watch
+					// ticks can't interleave two readers both observing
+					// the same offset. Same race as on /events.
+					let pending: Promise<void> = Promise.resolve();
+					const send = (data: string) => {
+						if (closed) return;
+						try {
+							controller.enqueue(encoder.encode(data));
+						} catch {
+							teardown();
+						}
+					};
+					const sendNamed = (event: string, payload: unknown) => {
+						send(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
+					};
+
+					// 1) Initial projection — read whole ledger once,
+					// project, ship full state via `state-init`. We
+					// could narrow via Last-Event-ID but the projection
+					// is already the compressed view; sending the full
+					// projected state is cheap and lets reconnecting
+					// clients drop any stale cache without further
+					// coordination.
+					try {
+						const st = await stat(filePath).catch(() => null);
+						if (st && st.size > 0) {
+							const fh = await open(filePath, "r");
+							try {
+								const buf = Buffer.alloc(st.size);
+								await fh.read(buf, 0, st.size, 0);
+								allEvents = parseLedger(buf.toString("utf-8"));
+							} finally {
+								await fh.close();
+							}
+							offset = st.size;
+						}
+					} catch {
+						/* best-effort; lastState stays empty */
+					}
+					lastState = projectLedgerToState(allEvents);
+					sendNamed("state-init", lastState);
+
+					const drainOnce = async () => {
+						const delta = await readDelta(filePath, offset).catch(() => ({
+							lines: [],
+							nextOffset: offset,
+						}));
+						if (delta.lines.length === 0) {
+							offset = delta.nextOffset;
+							return;
+						}
+						for (const line of delta.lines) {
+							try {
+								allEvents.push(JSON.parse(line) as EventLog);
+							} catch {
+								/* skip malformed */
+							}
+						}
+						offset = delta.nextOffset;
+						const nextState = projectLedgerToState(allEvents);
+						const patch: JsonPatchOp[] = diffPatch(lastState, nextState);
+						if (patch.length === 0) return;
+						lastState = nextState;
+						sendNamed("state-patch", patch);
+					};
+
+					// 2) Watch for new appends; each one re-projects +
+					// ships only the delta.
+					const watcher = fsWatch(filePath, () => {
+						pending = pending.then(drainOnce, drainOnce);
+					});
+
+					// 3) Heartbeat keeps proxies from dropping the conn.
+					const heartbeat = setInterval(() => {
+						send(`: heartbeat ${Date.now()}\n\n`);
+					}, 15_000);
+
+					const teardown = () => {
+						if (closed) return;
+						closed = true;
+						clearInterval(heartbeat);
+						try {
+							watcher.close();
+						} catch {
+							/* ignore */
+						}
+						try {
+							controller.close();
+						} catch {
+							/* already closed */
+						}
+					};
+
+					req.signal.addEventListener("abort", teardown);
+				},
+			});
+
+			return new Response(stream, {
+				headers: {
+					"Content-Type": "text/event-stream",
+					"Cache-Control": "no-cache",
+					Connection: "keep-alive",
+				},
+			});
 		},
 
 		// GET /api/session/:id/events — SSE replay + live tail.
