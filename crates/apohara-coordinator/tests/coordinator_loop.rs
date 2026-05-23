@@ -8,7 +8,7 @@ async fn coordinator_processes_enqueued_task() {
     let outcome = coord.tick().await;
 
     match outcome {
-        TickOutcome::Dispatched { task_ids } => {
+        TickOutcome::Dispatched { task_ids, .. } => {
             assert_eq!(task_ids, vec!["task-1".to_string()]);
         }
         _ => panic!("expected Dispatched, got {:?}", outcome),
