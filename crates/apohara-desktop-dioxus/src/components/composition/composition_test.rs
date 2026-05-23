@@ -157,3 +157,87 @@ fn view_toggle_role_tablist_and_role_tab() {
     assert!(html.contains("role=\"tablist\""), "tablist role missing");
     assert!(html.contains("role=\"tab\""), "tab role missing");
 }
+
+// --- Statusline (G2.C.3.3) --------------------------------------------
+
+fn default_status() -> StatuslineState {
+    StatuslineState {
+        session: None,
+        tokens_used: 0,
+        tokens_limit: 0,
+        context_level: ContextLevel::Ok,
+        active_tool_count: 0,
+        last_hook: None,
+        last_tool_latency_ms: None,
+        banner_message: None,
+    }
+}
+
+#[test]
+fn statusline_renders_no_session_when_empty() {
+    let html = dioxus_ssr::render_element(rsx! {
+        Statusline { state: default_status() }
+    });
+    assert!(
+        html.contains("data-testid=\"statusline\""),
+        "root testid missing: {html}"
+    );
+    assert!(
+        html.contains("data-testid=\"status-session\""),
+        "session badge missing"
+    );
+    assert!(html.contains("no session"), "no-session text missing: {html}");
+}
+
+#[test]
+fn statusline_renders_session_and_tokens_and_level() {
+    let state = StatuslineState {
+        session: Some("abcdef-123456".into()),
+        tokens_used: 2_500,
+        tokens_limit: 10_000,
+        context_level: ContextLevel::Warning,
+        active_tool_count: 3,
+        last_hook: Some("PostToolUse".into()),
+        last_tool_latency_ms: Some(42),
+        banner_message: None,
+    };
+    let html = dioxus_ssr::render_element(rsx! {
+        Statusline { state }
+    });
+    assert!(html.contains("abcdef-123456"), "session id missing: {html}");
+    assert!(html.contains("2,500"), "tokens-used formatted missing: {html}");
+    assert!(html.contains("10,000"), "tokens-limit formatted missing");
+    assert!(
+        html.contains("data-level=\"warning\""),
+        "context-level data attr missing"
+    );
+    assert!(html.contains("WARNING"), "WARNING label missing");
+    assert!(html.contains("3 active"), "tool count missing");
+    assert!(html.contains("PostToolUse"), "last hook missing");
+    assert!(html.contains("42ms"), "latency missing");
+}
+
+#[test]
+fn statusline_renders_banner_when_present() {
+    let mut state = default_status();
+    state.banner_message = Some("Compaction imminent".into());
+    let html = dioxus_ssr::render_element(rsx! {
+        Statusline { state }
+    });
+    assert!(
+        html.contains("data-testid=\"status-banner\""),
+        "banner testid missing"
+    );
+    assert!(html.contains("Compaction imminent"), "banner text missing");
+}
+
+#[test]
+fn statusline_omits_banner_when_absent() {
+    let html = dioxus_ssr::render_element(rsx! {
+        Statusline { state: default_status() }
+    });
+    assert!(
+        !html.contains("data-testid=\"status-banner\""),
+        "banner testid should not render when message is None: {html}"
+    );
+}
