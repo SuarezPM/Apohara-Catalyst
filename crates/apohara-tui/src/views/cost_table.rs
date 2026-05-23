@@ -39,26 +39,7 @@ pub fn render(_state: &AppState, frame: &mut Frame) {
 }
 
 fn fetch_cost_rows() -> Vec<CostRow> {
-    vec![
-        CostRow {
-            provider: "claude-code-cli".into(),
-            tokens_in: 0,
-            tokens_out: 0,
-            cost_usd: 0.0,
-        },
-        CostRow {
-            provider: "codex-cli".into(),
-            tokens_in: 0,
-            tokens_out: 0,
-            cost_usd: 0.0,
-        },
-        CostRow {
-            provider: "opencode-go".into(),
-            tokens_in: 0,
-            tokens_out: 0,
-            cost_usd: 0.0,
-        },
-    ]
+    crate::data::cost_rows()
 }
 
 #[cfg(test)]

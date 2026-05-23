@@ -5,6 +5,7 @@
 //! wizard. Wiring to live data via `apohara-dispatch` and
 //! `apohara-token-accounting`.
 
+mod data;
 mod state;
 mod views;
 
@@ -53,12 +54,14 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>) -> Result<()> {
         })?;
 
         if let Event::Key(key) = event::read()? {
-            match key.code {
-                KeyCode::Char('q') => state.quit(),
-                KeyCode::Char('a') => state.go(View::AgentList),
-                KeyCode::Char('c') => state.go(View::CostTable),
-                KeyCode::Char('w') => state.go(View::ConfigWizard),
-                KeyCode::Esc => state.go(View::Dashboard),
+            match (state.current_view.clone(), key.code) {
+                (_, KeyCode::Char('q')) => state.quit(),
+                (_, KeyCode::Char('a')) => state.go(View::AgentList),
+                (_, KeyCode::Char('c')) => state.go(View::CostTable),
+                (_, KeyCode::Char('w')) => state.go(View::ConfigWizard),
+                (_, KeyCode::Esc) => state.go(View::Dashboard),
+                (View::ConfigWizard, KeyCode::Char('n')) => state.wizard.next(),
+                (View::ConfigWizard, KeyCode::Char('p')) => state.wizard.prev(),
                 _ => {}
             }
         }

@@ -42,33 +42,11 @@ pub fn render(_state: &AppState, frame: &mut Frame) {
     frame.render_widget(list, frame.area());
 }
 
-/// Stub returning the three active roster providers (per CLAUDE.md). Real
-/// wiring (G3.A.6) reads from `apohara-dispatch`; when that API does not
-/// yet exist upstream, the stub keeps the UI honest.
+/// Delegates to `crate::data::active_agents` (the seam where future
+/// `apohara_dispatch::list_active_providers()` wiring lands — see
+/// `crate::data` doc).
 fn fetch_active_agents() -> Vec<AgentSnapshot> {
-    vec![
-        AgentSnapshot {
-            id: "claude-code-cli".into(),
-            role: "coder".into(),
-            status: "ready".into(),
-            tokens_in: 0,
-            tokens_out: 0,
-        },
-        AgentSnapshot {
-            id: "codex-cli".into(),
-            role: "reviewer".into(),
-            status: "ready".into(),
-            tokens_in: 0,
-            tokens_out: 0,
-        },
-        AgentSnapshot {
-            id: "opencode-go".into(),
-            role: "tester".into(),
-            status: "ready".into(),
-            tokens_in: 0,
-            tokens_out: 0,
-        },
-    ]
+    crate::data::active_agents()
 }
 
 #[cfg(test)]
