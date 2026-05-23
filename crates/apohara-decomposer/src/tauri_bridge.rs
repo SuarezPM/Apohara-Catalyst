@@ -6,7 +6,7 @@
 //! `apohara-decomposer` lean in cli/test contexts and only pulls Tauri
 //! when the desktop shell wires it.
 //!
-//! Flag: `APOHARA_RUST_DECOMPOSER=1` enables the Rust path. Default OFF
+//! Flag: `APOHARA_RUST_DECOMPOSER=1` defaults ON post-G1.D.2 flip. Export =0 to opt out
 //! (TS legacy continues to handle decomposition until Phase 1 cierre
 //! flips defaults in G1.D.2).
 
@@ -15,14 +15,14 @@ use crate::spec_to_manifest::{decompose_spec, DecomposedManifest};
 
 /// Pure gate predicate — testable without env mutation.
 pub fn is_enabled(env_value: Option<&str>) -> bool {
-    env_value == Some("1")
+    env_value != Some("0")
 }
 
 fn check_enabled() -> Result<(), String> {
     let env = std::env::var("APOHARA_RUST_DECOMPOSER").ok();
     if !is_enabled(env.as_deref()) {
         return Err(
-            "APOHARA_RUST_DECOMPOSER not enabled — falling back to TS legacy".to_string(),
+            "APOHARA_RUST_DECOMPOSER explicitly disabled (=0) — TS legacy path active".to_string(),
         );
     }
     Ok(())
@@ -59,22 +59,22 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn is_enabled_only_for_one() {
-        assert!(is_enabled(Some("1")));
+    fn is_enabled_default_on_only_zero_disables() {
         assert!(!is_enabled(Some("0")));
-        assert!(!is_enabled(Some("true")));
-        assert!(!is_enabled(None));
-        assert!(!is_enabled(Some("")));
+        assert!(is_enabled(Some("1")));
+        assert!(is_enabled(Some("true")));
+        assert!(is_enabled(None));
+        assert!(is_enabled(Some("")));
     }
 
     #[tokio::test]
     #[serial_test::serial(apohara_rust_decomposer_flag)]
     async fn decomposer_run_errors_when_flag_unset() {
-        std::env::remove_var("APOHARA_RUST_DECOMPOSER");
+        std::env::set_var("APOHARA_RUST_DECOMPOSER", "0");
         let err = decomposer_run_inner("## Task a: x\n".to_string())
             .await
             .unwrap_err();
-        assert!(err.contains("not enabled"), "got: {err}");
+        assert!(err.contains("explicitly disabled"), "got: {err}");
     }
 
     #[tokio::test]
@@ -92,11 +92,11 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial(apohara_rust_decomposer_flag)]
     async fn decomposer_parse_task_errors_when_flag_unset() {
-        std::env::remove_var("APOHARA_RUST_DECOMPOSER");
+        std::env::set_var("APOHARA_RUST_DECOMPOSER", "0");
         let err = decomposer_parse_task_inner(json!({}))
             .await
             .unwrap_err();
-        assert!(err.contains("not enabled"), "got: {err}");
+        assert!(err.contains("explicitly disabled"), "got: {err}");
     }
 
     #[tokio::test]

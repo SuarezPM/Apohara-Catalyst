@@ -5,7 +5,7 @@
 //! testable from plain cargo. This lets `apohara-dispatch` compile lean in
 //! cli/test contexts and only pulls Tauri when the desktop shell wires it.
 //!
-//! Flag: `APOHARA_RUST_DISPATCH=1` enables the Rust path. Default OFF (TS
+//! Flag: `APOHARA_RUST_DISPATCH=1` defaults ON post-G1.D.2 flip. Export =0 to opt out (TS
 //! legacy continues to handle dispatch until Phase 1 cierre flips defaults
 //! in G1.D.2).
 
@@ -13,7 +13,7 @@ use crate::cli_driver::{CliDriver, DispatchOutcome, DispatchRequest};
 
 /// Pure gate predicate — testable without env mutation.
 pub fn is_enabled(env_value: Option<&str>) -> bool {
-    env_value == Some("1")
+    env_value != Some("0")
 }
 
 /// Inner async dispatcher reused by both the Tauri command and the
@@ -22,7 +22,7 @@ pub async fn rust_dispatch_inner(req: DispatchRequest) -> Result<DispatchOutcome
     let env = std::env::var("APOHARA_RUST_DISPATCH").ok();
     if !is_enabled(env.as_deref()) {
         return Err(
-            "APOHARA_RUST_DISPATCH not enabled — falling back to TS legacy".to_string(),
+            "APOHARA_RUST_DISPATCH explicitly disabled (=0) — TS legacy path active".to_string(),
         );
     }
     CliDriver::dispatch(req).await.map_err(|e| e.to_string())
@@ -39,12 +39,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn is_enabled_only_for_one() {
-        assert!(is_enabled(Some("1")));
+    fn is_enabled_default_on_only_zero_disables() {
         assert!(!is_enabled(Some("0")));
-        assert!(!is_enabled(Some("true")));
-        assert!(!is_enabled(None));
-        assert!(!is_enabled(Some("")));
+        assert!(is_enabled(Some("1")));
+        assert!(is_enabled(Some("true")));
+        assert!(is_enabled(None));
+        assert!(is_enabled(Some("")));
     }
 
     #[tokio::test]
@@ -59,9 +59,9 @@ mod tests {
         // Worst case: env is set in the test harness. Unset it first to be safe,
         // but accept that races with parallel tests are minimal here because no
         // other test in this crate sets APOHARA_RUST_DISPATCH.
-        std::env::remove_var("APOHARA_RUST_DISPATCH");
+        std::env::set_var("APOHARA_RUST_DISPATCH", "0");
         let err = rust_dispatch_inner(req).await.unwrap_err();
-        assert!(err.contains("not enabled"), "got: {err}");
+        assert!(err.contains("explicitly disabled"), "got: {err}");
     }
 
     #[test]

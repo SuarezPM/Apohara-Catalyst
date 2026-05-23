@@ -155,11 +155,9 @@ async fn run(
     runner_policy: String,
     prompt: String,
 ) -> Result<()> {
-    // Force-enable the dispatch flag for the binary so users don't need to
-    // export APOHARA_RUST_DISPATCH=1 every time. The Tauri shell still
-    // honours the env var because it doesn't go through this code path.
-    std::env::set_var("APOHARA_RUST_DISPATCH", "1");
-
+    // Post-G1.D.2 flip: APOHARA_RUST_DISPATCH defaults ON. Users can still
+    // opt out by exporting APOHARA_RUST_DISPATCH=0 to fall back to the TS
+    // legacy path (kept until Phase 2 S19 delete).
     let req = apohara_dispatch::cli_driver::DispatchRequest {
         provider_id: provider,
         workspace,

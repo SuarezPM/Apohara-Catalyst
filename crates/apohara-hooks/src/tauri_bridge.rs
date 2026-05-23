@@ -6,7 +6,7 @@
 //! compile lean in cli / test contexts and only pulls Tauri in when the
 //! desktop shell wires it.
 //!
-//! Flag: `APOHARA_RUST_HOOKS=1` enables the Rust path. Default OFF
+//! Flag: `APOHARA_RUST_HOOKS=1` defaults ON post-G1.D.2 flip. Export =0 to opt out
 //! (TS legacy continues to install hooks + dispatch events until Phase 1
 //! cierre flips defaults in G1.D.2).
 
@@ -17,7 +17,7 @@ use std::path::PathBuf;
 
 /// Pure gate predicate — testable without env mutation.
 pub fn is_enabled(env_value: Option<&str>) -> bool {
-    env_value == Some("1")
+    env_value != Some("0")
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,7 +51,7 @@ pub fn hooks_install_for_provider_inner(
 ) -> Result<InstallResult, String> {
     let env = std::env::var("APOHARA_RUST_HOOKS").ok();
     if !is_enabled(env.as_deref()) {
-        return Err("APOHARA_RUST_HOOKS not enabled — falling back to TS legacy".to_string());
+        return Err("APOHARA_RUST_HOOKS explicitly disabled (=0) — TS legacy path active".to_string());
     }
     install_hook(&req.target_path, &req.script_content).map_err(|e| e.to_string())
 }
@@ -64,7 +64,7 @@ pub fn hooks_install_for_provider_inner(
 pub fn hooks_dispatch_event_inner(req: DispatchEventRequest) -> Result<HookEvent, String> {
     let env = std::env::var("APOHARA_RUST_HOOKS").ok();
     if !is_enabled(env.as_deref()) {
-        return Err("APOHARA_RUST_HOOKS not enabled — falling back to TS legacy".to_string());
+        return Err("APOHARA_RUST_HOOKS explicitly disabled (=0) — TS legacy path active".to_string());
     }
     parse_hook_event(&req.envelope).map_err(|e| e.to_string())
 }
@@ -89,34 +89,34 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn is_enabled_only_for_one() {
-        assert!(is_enabled(Some("1")));
+    fn is_enabled_default_on_only_zero_disables() {
         assert!(!is_enabled(Some("0")));
-        assert!(!is_enabled(Some("true")));
-        assert!(!is_enabled(None));
-        assert!(!is_enabled(Some("")));
+        assert!(is_enabled(Some("1")));
+        assert!(is_enabled(Some("true")));
+        assert!(is_enabled(None));
+        assert!(is_enabled(Some("")));
     }
 
     #[test]
-    fn install_returns_err_when_flag_unset() {
-        std::env::remove_var("APOHARA_RUST_HOOKS");
+    fn install_returns_err_when_flag_zero() {
+        std::env::set_var("APOHARA_RUST_HOOKS", "0");
         let req = InstallForProviderRequest {
             provider_id: "claude-code-cli".into(),
             target_path: PathBuf::from("/tmp/should-not-exist-apohara-hooks-bridge"),
             script_content: "#!/bin/sh\n".into(),
         };
         let err = hooks_install_for_provider_inner(req).unwrap_err();
-        assert!(err.contains("not enabled"), "got: {err}");
+        assert!(err.contains("explicitly disabled"), "got: {err}");
     }
 
     #[test]
-    fn dispatch_returns_err_when_flag_unset() {
-        std::env::remove_var("APOHARA_RUST_HOOKS");
+    fn dispatch_returns_err_when_flag_zero() {
+        std::env::set_var("APOHARA_RUST_HOOKS", "0");
         let req = DispatchEventRequest {
             envelope: json!({ "type": "stop", "pane_key": "p", "payload": {"reason":"completed","timestamp":1} }),
         };
         let err = hooks_dispatch_event_inner(req).unwrap_err();
-        assert!(err.contains("not enabled"));
+        assert!(err.contains("explicitly disabled"));
     }
 
     #[test]
