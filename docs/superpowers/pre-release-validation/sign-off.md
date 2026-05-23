@@ -13,6 +13,7 @@
 - [ ] WSL2 manual smoke test executed once per `docs/superpowers/pre-release-validation/wsl2-runbook.md` and resultados table updated
 - [ ] macOS-14 manual install smoke (per `macos-notarization-runbook.md`) — optional unless distributing Tauri .app
 - [ ] Locally verified: `npm install -g @apohara/catalyst-1.0.0-rc.1.tgz && apohara doctor`
+- [ ] **Phase 1 Rust core cierre verified**: `cargo test --workspace` 836/0 + `cargo clippy --workspace -- -D warnings` clean + `./target/release/apohara doctor` exits 0 or 2 + Tauri desktop builds (15 Rust commands registered)
 
 ## Pablo sign-off
 
