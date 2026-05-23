@@ -6,10 +6,12 @@
 //! expects it, and several Wave B layouts depend on it for status chips.
 //! The Badge is a thin label container — no logic, just brand styling.
 
+pub mod badge;
 pub mod button;
 pub mod card;
 pub mod input;
 
+pub use badge::Badge;
 pub use button::Button;
 pub use card::Card;
 pub use input::Input;
