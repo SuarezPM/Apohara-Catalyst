@@ -1,23 +1,57 @@
-/* Apohara visual identity per Roadmap v2.0 M017.7
- * Dark default, Geist Mono + Geist Sans, cyan/violet accents.
+/* Apohara Catalyst — Sprint-9 pixel-art rebrand (G9.A.2).
+ *
+ * Source of truth for the palette: ecosystem/consilium/scripts/brand-tokens-source.json.
+ * Tailwind 4 is installed (G9.A.1) but is NOT yet processing this file — the
+ * @theme block + utility-class consumption land when the first feature task
+ * (G9.B.*) needs it. Until then everything cascades through plain CSS vars.
+ *
+ * Typography: Press Start 2P (display), JetBrains Mono (code), Inter (UI text).
+ * Fonts are loaded eagerly via @fontsource imports in src/main.tsx.
  */
 
 :root {
-	--bg: #0a0a0f;
-	--surface: #111118;
-	--border: #1e1e2e;
-	--accent-primary: #6ee7f7; /* electric cyan — agent activity */
-	--accent-secondary: #a78bfa; /* violet — verification mesh */
-	--success: #4ade80;
-	--warning: #fbbf24;
-	--error: #f87171;
-	--text-primary: #e2e8f0;
-	--text-muted: #64748b;
+	/* === Apohara Catalyst brand tokens === */
+	/* Core palette */
+	--apohara-lime: #25B13F;
+	--apohara-lime-bright: #2BD449;
+	--apohara-dark: #2A2D3A;
+	--apohara-dark-2: #1E2130;
+	--apohara-bone: #EDEFF0;
+	--apohara-ink: #0E1010;
+	--apohara-red: #B8262A;
+	--apohara-red-bright: #E2484C;
 
-	--font-mono:
-		"Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-	--font-sans:
-		"Geist Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+	/* Backgrounds */
+	--bg: #0E1010;
+	--surface: #1E2130;
+	--surface-elevated: #2A2D3A;
+
+	/* Semantic */
+	--border: #3A3D4A;
+	--accent-primary: var(--apohara-lime);
+	--accent-secondary: var(--apohara-lime-bright);
+	--success: var(--apohara-lime);
+	--warning: #d29922;
+	--error: var(--apohara-red);
+	--text-primary: var(--apohara-bone);
+	--text-muted: #8E929E;
+
+	/* Typography stacks */
+	--font-display: "Press Start 2P", "Courier New", monospace;
+	--font-mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", "SF Mono", monospace;
+	--font-sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+
+	/* Spacing scale snapped to 8px grid */
+	--space-1: 4px;
+	--space-2: 8px;
+	--space-3: 16px;
+	--space-4: 24px;
+	--space-5: 32px;
+	--space-6: 48px;
+
+	/* Pixel-art aesthetic */
+	--pixel-radius: 0px;
+	--pixel-border: 2px solid var(--apohara-lime);
 }
 
 * {
@@ -37,10 +71,23 @@ body,
 	line-height: 1.4;
 }
 
+body {
+	font-feature-settings: "ss01" on, "cv02" on;
+	-webkit-font-smoothing: antialiased;
+}
+
 code,
 pre,
+kbd,
+samp,
 .mono {
 	font-family: var(--font-mono);
+}
+
+.font-display {
+	font-family: var(--font-display);
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
 }
 
 .apohara-app {
