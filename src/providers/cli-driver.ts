@@ -28,8 +28,9 @@
 
 import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { sanitizeEnv } from "../core/persistence/envSanitizer";
+import { composeWorktreeEnv } from "../core/worktree/env-isolation";
 import { compileRunnerExecutionPlan } from "../core/safety/runnerPolicy/planCompiler";
 import {
 	STRICT,
@@ -490,7 +491,7 @@ export async function callCliDriver(
 	}
 
 	return runSerialized(cfg.binary, () =>
-		runOnce(cfg, prompt, argv, timeoutMs, plan),
+		runOnce(cfg, prompt, argv, timeoutMs, plan, workspace),
 	);
 }
 
@@ -500,6 +501,7 @@ async function runOnce(
 	argv: string[],
 	timeoutMs: number,
 	plan: ExecutionPlan,
+	workspace: string,
 ): Promise<LLMResponse> {
 	// §0.4: NEVER pass the parent env unsanitized — that would leak API
 	// keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.) into the CLI
@@ -521,25 +523,51 @@ async function runOnce(
 	// not whatever the parent shell happened to have. Defense in depth:
 	// if a malicious or stale parent env carries the variable, dropping
 	// it from the allowlist guarantees the orchestrator's plan wins.
-	const env = sanitizeEnv(process.env as Record<string, string | undefined>, {
-		allow: [
-			"APOHARA_DRIVEN",
-			"APOHARA_HOOK_ENDPOINT",
-			"APOHARA_HOOK_TOKEN",
-			"APOHARA_HOOK_PROTOCOL_VERSION",
-		],
+	const sanitizedBase = sanitizeEnv(
+		process.env as Record<string, string | undefined>,
+		{
+			allow: [
+				"APOHARA_DRIVEN",
+				"APOHARA_HOOK_ENDPOINT",
+				"APOHARA_HOOK_TOKEN",
+				"APOHARA_HOOK_PROTOCOL_VERSION",
+			],
+		},
+	);
+
+	// G7.5.A.8: overlay the worktree's `.env` on top of the sanitized
+	// base. Ordering is "sanitize-then-overlay" (the rule documented in
+	// CLAUDE.md "Past incidents"): the parent env is filtered first so
+	// no API keys reach the child, THEN `composeWorktreeEnv` reads
+	// `<workspace>/.env` through DEFAULT_BLOCKLIST again as defense in
+	// depth and merges its benign vars over the base. Forced Apohara
+	// markers (`APOHARA_DRIVEN`, `APOHARA_RUNNER_POLICY`, and the
+	// `APOHARA_WORKTREE_*` identity pair set inside `composeWorktreeEnv`
+	// itself) are written LAST so a malicious worktree `.env` cannot
+	// spoof them.
+	//
+	// `worktreeId` is derived from the workspace basename when the
+	// dispatcher hasn't threaded an explicit id — this matches how
+	// worktree dirs are named (`<repo>/worktrees/<id>`) so downstream
+	// labels stay stable, and a missing id would have the same effect
+	// as passing the basename anyway.
+	const env = await composeWorktreeEnv({
+		baseEnv: sanitizedBase,
+		worktreePath: workspace,
+		worktreeId: basename(workspace),
 	});
+
 	env.APOHARA_DRIVEN = "1";
 
 	// T4.3: propagate the compiled runner-policy plan to the subprocess.
-	// Splice it into the env AFTER `sanitizeEnv` has filtered the parent
-	// env, so the policy is always the orchestrator-compiled one — never
-	// an inherited value from the parent shell. The child can
-	// `JSON.parse` this and react accordingly (sandbox helpers, hook
-	// scripts, etc.). `plan` is required (no conditional splice) so any
-	// future code path that bypasses the orchestrator policy gate gets
-	// caught by TypeScript instead of silently leaking the parent's
-	// APOHARA_RUNNER_POLICY through.
+	// Splice it into the env AFTER both `sanitizeEnv` and the worktree
+	// overlay, so the policy is always the orchestrator-compiled one —
+	// never an inherited value from the parent shell or the worktree
+	// `.env`. The child can `JSON.parse` this and react accordingly
+	// (sandbox helpers, hook scripts, etc.). `plan` is required (no
+	// conditional splice) so any future code path that bypasses the
+	// orchestrator policy gate gets caught by TypeScript instead of
+	// silently leaking the parent's APOHARA_RUNNER_POLICY through.
 	const policyEnv = buildRunnerPolicyEnv(plan);
 	env.APOHARA_RUNNER_POLICY = policyEnv.APOHARA_RUNNER_POLICY;
 
