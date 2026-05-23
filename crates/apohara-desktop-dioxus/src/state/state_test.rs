@@ -145,3 +145,71 @@ mod roster_tests {
         });
     }
 }
+
+#[cfg(test)]
+mod permissions_tests {
+    use super::with_runtime;
+    use crate::state::permissions::{
+        enqueue_permission_request, record_permission_response, unresolved_requests,
+        PermissionDecision, PermissionRequestEvent, PermissionResponseEvent, PermissionScope,
+        PERMISSIONS,
+    };
+    use dioxus::prelude::ReadableExt;
+
+    fn req(id: &str) -> PermissionRequestEvent {
+        PermissionRequestEvent {
+            request_id: id.into(),
+            tool: "Bash".into(),
+            suggested_pattern: "echo *".into(),
+            available_scopes: vec![PermissionScope::Once, PermissionScope::Session],
+            ts: 0,
+        }
+    }
+
+    fn resp(id: &str) -> PermissionResponseEvent {
+        PermissionResponseEvent {
+            request_id: id.into(),
+            decision: PermissionDecision::Allow,
+            scope: Some(PermissionScope::Once),
+            pattern: None,
+            ts: 0,
+        }
+    }
+
+    #[test]
+    fn enqueue_inserts_pending() {
+        with_runtime(|| {
+            enqueue_permission_request(req("p1"));
+            let state = PERMISSIONS.read();
+            assert!(state.pending.contains_key("p1"));
+        });
+    }
+
+    #[test]
+    fn response_records_decision() {
+        with_runtime(|| {
+            enqueue_permission_request(req("p2"));
+            record_permission_response(resp("p2"));
+            let state = PERMISSIONS.read();
+            assert_eq!(
+                state.responses.get("p2").map(|r| r.decision),
+                Some(PermissionDecision::Allow)
+            );
+        });
+    }
+
+    #[test]
+    fn unresolved_excludes_responded() {
+        with_runtime(|| {
+            enqueue_permission_request(req("p3-pending"));
+            enqueue_permission_request(req("p3-resolved"));
+            record_permission_response(resp("p3-resolved"));
+            let pending: Vec<String> = unresolved_requests()
+                .into_iter()
+                .map(|r| r.request_id)
+                .collect();
+            assert!(pending.contains(&"p3-pending".into()));
+            assert!(!pending.contains(&"p3-resolved".into()));
+        });
+    }
+}
