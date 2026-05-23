@@ -6,11 +6,18 @@
 //! Uses `notify-rs` instead of chokidar (TS) for cross-platform file
 //! watching. G1.B.3 skeleton — modules ported task-by-task following TDD.
 
+pub mod plan_documents;
 pub mod rfc2119;
 
+pub use plan_documents::{
+    parse_plan_document, parse_plan_document_str, AgentSessionOutcome, AgentSessionRef,
+    ChecklistItem, PlanDocument, PlanParseError, PlanPriority, PlanStatus, PlanType,
+};
 pub use rfc2119::{
     validate_rfc2119, Rfc2119Profile, Rfc2119Result, Rfc2119Severity, Rfc2119Violation,
 };
 
+#[cfg(test)]
+mod plan_documents_tests;
 #[cfg(test)]
 mod rfc2119_tests;
