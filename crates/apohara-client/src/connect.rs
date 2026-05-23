@@ -45,7 +45,7 @@ impl BackoffPolicy {
         let offset = clock.jitter_ms(jitter_window);
         // Apply jitter symmetrically: capped ± up-to jitter_window.
         let final_ms = if offset.is_negative() {
-            capped.saturating_sub(offset.unsigned_abs() as u64)
+            capped.saturating_sub(offset.unsigned_abs())
         } else {
             capped.saturating_add(offset as u64)
         };

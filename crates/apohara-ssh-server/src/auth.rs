@@ -86,7 +86,7 @@ impl AuthorizedKeys {
             let algo = parts.next().ok_or_else(|| {
                 AuthorizedKeysError::Malformed(line_num, "missing algorithm token".into())
             })?;
-            if !ALLOWED_ALGOS.iter().any(|a| *a == algo) {
+            if !ALLOWED_ALGOS.contains(&algo) {
                 return Err(AuthorizedKeysError::UnsupportedAlgo {
                     line: line_num,
                     algo: algo.to_string(),
@@ -153,7 +153,7 @@ pub fn decide_publickey(
     if authorized.is_empty() {
         return AuthOutcome::NoKeysConfigured;
     }
-    if !ALLOWED_ALGOS.iter().any(|a| *a == presented_algo) {
+    if !ALLOWED_ALGOS.contains(&presented_algo) {
         return AuthOutcome::Rejected;
     }
     if authorized.authorizes(presented_algo, presented_blob) {

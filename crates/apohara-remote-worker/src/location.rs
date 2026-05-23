@@ -23,9 +23,10 @@ pub enum LocationError {
 }
 
 /// Tagged enum so the JSON envelope on the wire is self-describing.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum WorkerLocation {
+    #[default]
     Local,
     Ssh {
         host: String,
@@ -38,12 +39,6 @@ pub enum WorkerLocation {
     /// Reserved for future sprints. No dispatch path yet.
     #[allow(dead_code)]
     Kubernetes { pod: String },
-}
-
-impl Default for WorkerLocation {
-    fn default() -> Self {
-        Self::Local
-    }
 }
 
 impl WorkerLocation {

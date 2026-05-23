@@ -273,6 +273,9 @@ name = "apohara-desktop"
 version = "0.0.1-alpha"
 dependencies = [
  "apohara-dispatch",
+ "apohara-safety",
+ "apohara-spec",
+ "apohara-verification",
  "serde",
  "serde_json",
  "tauri",
@@ -490,6 +493,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "serial_test",
  "sha1 0.10.6",
  "sha2 0.10.9",
  "tauri",
