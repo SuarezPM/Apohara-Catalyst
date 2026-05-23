@@ -17,6 +17,8 @@
 //! of an explicit `update()` call.
 
 pub mod fingerprint;
+pub mod lsh;
 pub mod simhash;
 
+pub use lsh::{classify_match, lsh_bands, BandScheme, LshIndex, LshMatch, MatchConfidence, SignatureId};
 pub use simhash::{hamming_distance, simhash_64, simhash_64_from_tokens, simhash_64_shingles};
