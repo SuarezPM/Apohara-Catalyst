@@ -102,12 +102,41 @@ Gate summary at Phase 1 cierre:
 - `cargo build --workspace`  → clean
 - `./target/release/apohara doctor` → exits 0 or 2 (provider-warn only)
 
+## Phase 2 — UI rewrite to Dioxus (cierre — defensible v1.0.0-rc.3 "100% Rust source")
+
+Sprints 16-19 ported the entire React/TS UI to Dioxus (rsx! + GlobalSignal). Phase 2 cierre deletes all TS source from the repo. The `apohara-desktop-dioxus` crate is now the canonical UI shell.
+
+Components ported (19 total):
+- **Primitives**: Button, Input, Card, Badge
+- **Brand**: AgentStateDot, RunningBorder, PixelCanvas
+- **Layout**: TaskBoard, ProviderRoster
+- **Dialogs**: PermissionDialog, ToastDialog (Sonner-style)
+- **Polish**: CommandPalette (fuzzy-matcher), Toast, Tooltip, Resizable
+- **Composition**: KanbanBoard (HTML5 native dnd, no @hello-pangea/dnd), ViewToggle, Statusline, ObjectivePane
+- **Hard**: TerminalPane (alacritty_terminal), CodeDiffPane (syntect, no monaco), SwarmCanvas DAG (petgraph + custom SVG, no @xyflow/react)
+
+State migration (5 atoms → 5 GlobalSignals): TASKS, ROSTER, PERMISSIONS, VIEW_MODE, SSE_EVENTS.
+
+Dependency replacement summary:
+- `@hello-pangea/dnd` → HTML5 native drag-and-drop via Dioxus event handlers
+- `monaco-editor` → `syntect` (smaller, no WASM, lower latency)
+- `xterm.js` → `alacritty_terminal` (true PTY semantics, ANSI escape sequences)
+- `@xyflow/react` → `petgraph` + hand-rolled SVG (Sugiyama layered layout)
+- `cmdk` → `fuzzy-matcher` + plain Dioxus
+- `jotai` → Dioxus `GlobalSignal`
+
+TS source deleted in single commit (G2.D.4): 780 files / 87,484 deletions. Zero `.ts/.tsx` files remain outside `crates/*/bindings/` (ts-rs auto-generated, no consumers) and `crates/apohara-indexer/tests/fixtures/` (tree-sitter parser test data).
+
+Gate at Phase 2 cierre HEAD:
+- `cargo test --workspace` → 949/0 across all binaries (was 836 before dioxus joined)
+- `cargo clippy --workspace -- -D warnings` → clean
+- `cargo check --workspace` → clean
+
 ## Roadmap (post-1.0)
 
 - v1.1: smart router (cost/latency-aware dispatch), reactions, remote workers (opt-in), real chief mascot artwork (placeholder PNG ships in 1.0)
 - v1.2: demo video tooling + comparative benchmarks
-- Phase 2 (Sprints 16-19): Dioxus UI rewrite + TS legacy delete
-- Phase 3 (Sprints 20+): ContextForge — context-as-code DSL
+- Phase 3 (Sprints 20+): ratatui TUI + ContextForge — context-as-code DSL + Z3 INV-15 verifier
 - v2.0: TBD — community input gating major changes
 
 ---
