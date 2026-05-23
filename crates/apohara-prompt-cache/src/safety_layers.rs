@@ -198,6 +198,68 @@ mod l2_tests {
     }
 }
 
+// ---------------------------------------------------------------------------
+// L3 — opt-in env-var gate
+// ---------------------------------------------------------------------------
+
+/// Env var consulted by [`is_cache_enabled`].
+pub const CACHE_ENV_VAR: &str = "APOHARA_PROMPT_CACHE";
+
+/// Pure gate predicate — testable without mutating process env.
+///
+/// Defaults **OFF**. The cache is only enabled when the env var
+/// equals `"1"`. Following the post-G1.D.2 dispatch flip pattern
+/// inverted: telemetry self-tuning has not shipped yet, so any other
+/// value (including unset, empty, or `"true"`) keeps the cache off.
+pub fn is_cache_enabled(env_value: Option<&str>) -> bool {
+    env_value == Some("1")
+}
+
+/// Read the env var live and apply [`is_cache_enabled`]. Convenience
+/// helper for production call sites; tests should prefer the pure
+/// predicate to stay race-free.
+pub fn is_cache_enabled_from_env() -> bool {
+    let v = std::env::var(CACHE_ENV_VAR).ok();
+    is_cache_enabled(v.as_deref())
+}
+
+#[cfg(test)]
+mod l3_tests {
+    use super::*;
+
+    #[test]
+    fn defaults_off_when_unset() {
+        assert!(!is_cache_enabled(None));
+    }
+
+    #[test]
+    fn only_one_enables() {
+        assert!(is_cache_enabled(Some("1")));
+    }
+
+    #[test]
+    fn zero_is_off() {
+        assert!(!is_cache_enabled(Some("0")));
+    }
+
+    #[test]
+    fn other_values_are_off() {
+        // "true" / "yes" / "on" all stay OFF — opt-in must be explicit
+        // until telemetry-driven self-tuning lands.
+        for v in ["true", "yes", "on", "TRUE", "  1  ", "1\n", ""] {
+            assert!(
+                !is_cache_enabled(Some(v)),
+                "value {v:?} should leave cache OFF"
+            );
+        }
+    }
+
+    #[test]
+    fn env_var_name_is_apohara_prompt_cache() {
+        assert_eq!(CACHE_ENV_VAR, "APOHARA_PROMPT_CACHE");
+    }
+}
+
 #[cfg(test)]
 mod l1_tests {
     use super::*;
