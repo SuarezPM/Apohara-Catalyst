@@ -18,6 +18,8 @@ rand = "0.8"
 hex = { workspace = true }
 subtle = "2.5"
 futures = { workspace = true }
+async-trait = { workspace = true }
+uuid = { workspace = true }
 tauri = { version = "2", optional = true }
 tempfile = "3"
 apohara-types = { path = "../apohara-types" }
