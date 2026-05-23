@@ -28,3 +28,8 @@ tempfile = "3"
 serial_test = "3"
 insta = { version = "1", features = ["yaml"] }
 proptest = "1"
+criterion = "0.5"
+
+[[bench]]
+name = "dispatch_throughput"
+harness = false
