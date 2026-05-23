@@ -17,6 +17,7 @@ pub mod permission_cache;
 pub mod permission_grid;
 pub mod permission_service;
 pub mod pure_profiles;
+pub mod runner_policy;
 pub mod settings_hierarchy;
 
 pub use auto_approval::{classify_tool_for_auto_approval, AutoApprovalDecision};
@@ -54,5 +55,7 @@ mod patterns_tests;
 mod permission_cache_grid_tests;
 #[cfg(test)]
 mod permission_service_tests;
+#[cfg(test)]
+mod runner_policy_tests;
 #[cfg(test)]
 mod settings_hierarchy_tests;
