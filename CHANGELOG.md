@@ -6,6 +6,40 @@ The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.
 
 ## [Unreleased]
 
+## [1.0.0-rc.1] — 2026-05-23
+
+### Renamed
+
+- npm package `apohara` → `@apohara/catalyst` (binary `apohara` preserved).
+- Project tagline: "Apohara Ultimate" → "Apohara Catalyst".
+
+### Removed
+
+- `crates/apohara-indexer` no longer ships Nomic BERT (~400MB in-process model).
+- `APOHARA_MOCK_EMBEDDINGS` environment variable (no longer needed).
+- `mock-embeddings` cargo feature in `apohara-indexer`.
+- Spec §10 R1 OOM warning + per-binary cargo test serialization rule.
+
+### Added
+
+- `crates/apohara-indexer/src/storage.rs`: sqlite-vec backed vector storage.
+- `crates/apohara-indexer/src/embeddings.rs`: deterministic blake3 feature-hashing
+  embeddings (~0 RAM, in-process, no model download).
+- `tests/unit/no-mock-embeddings-references.test.ts`: regression guard.
+- `tests/unit/readme-branding.test.ts`: branding regression guard.
+
+### Changed
+
+- `cargo test -p apohara-indexer` now safe to run without per-binary
+  serialization — sqlite-vec + blake3 use negligible memory.
+- README rewritten around the catalyst/TTFT narrative.
+
+### Notes
+
+This is a release-candidate of the v1.0.0 rebrand. v1.0.0 final ships in
+Sprint 11 launch after the UI pixel-art rebrand (Sprint 9) and pre-release
+validation (Sprint 10).
+
 ## [1.0.0] - 2026-05-23
 
 First public release of Apohara — a multi-agent code orchestration platform built on three CLI providers (Claude Code, Codex, OpenCode) with no provider-managed API keys.
