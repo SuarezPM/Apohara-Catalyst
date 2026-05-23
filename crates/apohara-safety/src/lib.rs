@@ -10,21 +10,31 @@
 
 pub mod auto_approval;
 pub mod bash_compound;
+pub mod guardrail_flags;
 pub mod pattern_validator;
 pub mod patterns;
 pub mod permission_cache;
 pub mod permission_grid;
 pub mod permission_service;
+pub mod pure_profiles;
 pub mod settings_hierarchy;
 
 pub use auto_approval::{classify_tool_for_auto_approval, AutoApprovalDecision};
 pub use bash_compound::{is_compound, split_compound};
+pub use guardrail_flags::{
+    all_guardrail_flags, flag_for, flag_from_str, GuardrailFlag, GuardrailFlagCode,
+    GuardrailSeverity,
+};
 pub use pattern_validator::is_valid_pattern;
 pub use patterns::{match_pattern, parse_pattern_string, PermissionPattern, ToolInvocation};
 pub use permission_cache::PermissionCache;
 pub use permission_grid::{PermissionGrid, PermissionRow, PermissionScope, PermissionState};
 pub use permission_service::{
     check as check_permission, AllowReason, DenyReason, PermissionDecision, PermissionServiceOpts,
+};
+pub use pure_profiles::{
+    apply_pure_profile, get_pure_profile, is_allowed, PureAction, PureProfile, PureProfileName,
+    SafetyDecision,
 };
 pub use settings_hierarchy::{
     merge_settings_tiers, MergeOpts, MergedSettings, SettingsSource, SettingsTier,
@@ -34,6 +44,8 @@ pub use settings_hierarchy::{
 mod auto_approval_tests;
 #[cfg(test)]
 mod bash_compound_tests;
+#[cfg(test)]
+mod guardrail_profiles_tests;
 #[cfg(test)]
 mod pattern_validator_tests;
 #[cfg(test)]
