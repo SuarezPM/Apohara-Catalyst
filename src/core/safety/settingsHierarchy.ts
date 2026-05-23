@@ -74,7 +74,7 @@ export function mergeSettingsTiers(
  *     `loadConfigWithMigration` whenever a migration step runs (it also
  *     restores `.bak` on write failure).
  */
-export async function loadSettings(path: string): Promise<Settings> {
+export async function loadAndMigrateSettings(path: string): Promise<Settings> {
 	const raw = JSON.parse(await readFile(path, "utf-8"));
 	// Auto-promote legacy (no schema_version) to v1 so the generic
 	// migration chain can take over from a known baseline.
