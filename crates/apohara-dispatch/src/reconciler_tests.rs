@@ -39,3 +39,94 @@ fn reconciler_with_no_tasks_returns_empty_actions() {
     std::fs::remove_file(&ctx.ledger_path).ok();
     std::fs::remove_dir_all(&ctx.workspace).ok();
 }
+
+#[test]
+fn reconciler_detects_stalled_dispatched_task() {
+    let workspace = "/tmp/test-stall-detection";
+    let ledger_path = format!("{}/ledger.jsonl", workspace);
+    std::fs::create_dir_all(workspace).ok();
+
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+    let stalled_ms = now_ms - 600_000;
+
+    let entry = serde_json::json!({
+        "kind": "task_dispatched",
+        "task_id": "t1",
+        "ts": stalled_ms,
+    });
+    std::fs::write(&ledger_path, format!("{}\n", entry)).unwrap();
+
+    let ctx = ReconcilerCtx {
+        ledger_path: ledger_path.clone(),
+        workspace: workspace.to_string(),
+        session_id: "stall-test".to_string(),
+        blocked_aging_ms: 300_000,
+        stall_timeout_ms: 300_000,
+    };
+
+    let result = run_reconciler_passes(&ctx).unwrap();
+    let stall_pass = result
+        .pass_results
+        .iter()
+        .find(|p| p.name == "stall_detection")
+        .unwrap();
+    assert!(
+        stall_pass.affected.contains(&"t1".to_string()),
+        "t1 should be detected as stalled"
+    );
+
+    std::fs::remove_dir_all(workspace).ok();
+}
+
+#[test]
+fn reconciler_ignores_completed_dispatched_task() {
+    let workspace = "/tmp/test-stall-completed";
+    let ledger_path = format!("{}/ledger.jsonl", workspace);
+    std::fs::create_dir_all(workspace).ok();
+
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+    let stalled_ms = now_ms - 600_000;
+
+    let dispatched = serde_json::json!({
+        "kind": "task_dispatched",
+        "task_id": "t2",
+        "ts": stalled_ms,
+    });
+    let completed = serde_json::json!({
+        "kind": "task_completed",
+        "task_id": "t2",
+        "ts": stalled_ms + 1000,
+    });
+    std::fs::write(
+        &ledger_path,
+        format!("{}\n{}\n", dispatched, completed),
+    )
+    .unwrap();
+
+    let ctx = ReconcilerCtx {
+        ledger_path: ledger_path.clone(),
+        workspace: workspace.to_string(),
+        session_id: "stall-completed-test".to_string(),
+        blocked_aging_ms: 300_000,
+        stall_timeout_ms: 300_000,
+    };
+
+    let result = run_reconciler_passes(&ctx).unwrap();
+    let stall_pass = result
+        .pass_results
+        .iter()
+        .find(|p| p.name == "stall_detection")
+        .unwrap();
+    assert!(
+        !stall_pass.affected.contains(&"t2".to_string()),
+        "completed t2 must NOT be flagged as stalled"
+    );
+
+    std::fs::remove_dir_all(workspace).ok();
+}
