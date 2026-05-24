@@ -55,7 +55,7 @@ Files:
 | `OBJECTIVE_INPUT` | `String` | ObjectivePane textarea (controlled) | ObjectivePane | NEW |
 | `RUNNING_STATUS` | `RunStatus` (Idle/Dispatching/Verifying) | dispatch_loop | Statusline, HeroBanner compact | NEW |
 | `TOAST_QUEUE` | `VecDeque<Toast>` | any coroutine | ToastContainer + toast_reaper | NEW |
-| `CODE_DIFF` | `Option<Diff>` | dispatch_loop best result | CodeDiffPane | NEW (subsumed por `Toast` legacy? confirm — NEW dedicated) |
+| `CODE_DIFF` | `Option<Diff>` (struct: `{ unified: String, files_changed: Vec<String>, provider_winner: String }`) | dispatch_loop best result | CodeDiffPane | NEW dedicated |
 
 Files: `crates/apohara-desktop-dioxus/src/state/{selected_task,objective_input,running_status,toast_queue,code_diff}.rs` + register in `state/mod.rs`.
 
@@ -76,13 +76,13 @@ Files: `crates/apohara-desktop-dioxus/src/coroutines/{mod,dispatch_loop,permissi
 | Component | Slot | Behavior |
 |---|---|---|
 | HeroBanner | TopBar (compact mode when RUNNING_STATUS != Idle) | logo + tagline |
-| ProviderRoster | TopBar | reads ROSTER; empty-state explica install providers |
+| ProviderRoster | TopBar | reads ROSTER; per-provider pill (badge + AgentStateDot color); empty-state = card with text "No providers found on PATH" + Button "How to install" que dispara CommandPalette → "Install providers" command (links a docs) |
 | ViewToggle | TopBar | writes VIEW_MODE |
 | ObjectivePane | LeftPane | controlled textarea bound OBJECTIVE_INPUT; Run dispara dispatch_loop; "Load SPEC" calls `spec::api::parse_plan_document` + `decomposer::api::decompose_spec` |
 | SwarmCanvas | CenterPane (VIEW_MODE=Swarm) | reads TASKS; click → SELECTED_TASK |
 | KanbanBoard | CenterPane (VIEW_MODE=Kanban) | reads TASKS; dnd llama `dispatch::api::state::run_transition` |
 | TaskBoard | CenterPane (VIEW_MODE=List) | reads TASKS plain list |
-| TerminalPane | CenterPane drawer (collapsible) | filtra SSE_EVENTS por SELECTED_TASK |
+| TerminalPane | CenterPane bottom drawer (slides up from bottom edge, collapsible via header click; default closed) | filtra SSE_EVENTS por SELECTED_TASK |
 | CodeDiffPane | RightPane | reads CODE_DIFF; empty state when None; Accept dispara git_apply_handler |
 | Statusline | BottomBar | reads ROSTER + RUNNING_STATUS + polls `token_accounting::api::current_totals()` |
 | CommandPalette | Overlay | Cmd+K global key listener; 4 commands (Run / Load SPEC / Switch View / Clear) |
