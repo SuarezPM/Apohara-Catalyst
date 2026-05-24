@@ -17,11 +17,6 @@ apohara-coordinator = { path = "../apohara-coordinator" }
 apohara-sandbox = { path = "../apohara-sandbox" }
 apohara-secrets = { path = "../apohara-secrets" }
 apohara-token-accounting = { path = "../apohara-token-accounting" }
-tauri = { version = "2", optional = true }
-
-[features]
-default = []
-tauri = ["dep:tauri"]
 
 [dev-dependencies]
 tempfile = "3"

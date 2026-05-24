@@ -11,7 +11,7 @@ pub mod continuation;
 pub mod retry;
 pub mod teammate;
 pub mod careful;
-pub mod tauri_bridge;
+pub mod api;
 
 pub use careful::CarefulMode;
 pub use cli_driver::{CliDriver, DispatchOutcome, DispatchRequest};

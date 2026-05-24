@@ -1,9 +1,8 @@
-//! Tauri command bridge for the Rust dispatch path.
+//! Direct API surface for the Rust dispatch path (Sprint 23: ex-`tauri_bridge`).
 //!
-//! Feature-gated: `--features tauri` enables `#[tauri::command]` registration.
-//! Without the feature, the gate logic + inner async dispatcher are still
-//! testable from plain cargo. This lets `apohara-dispatch` compile lean in
-//! cli/test contexts and only pulls Tauri when the desktop shell wires it.
+//! Pure async functions callable directly from the Dioxus desktop via
+//! `use_future` — no Tauri, no IPC. The gate logic + inner async dispatcher
+//! remain testable from plain cargo.
 //!
 //! Flag: `APOHARA_RUST_DISPATCH=1` defaults ON post-G1.D.2 flip. Export =0 to opt out (TS
 //! legacy continues to handle dispatch until Phase 1 cierre flips defaults
@@ -26,12 +25,6 @@ pub async fn rust_dispatch_inner(req: DispatchRequest) -> Result<DispatchOutcome
         );
     }
     CliDriver::dispatch(req).await.map_err(|e| e.to_string())
-}
-
-#[cfg(feature = "tauri")]
-#[tauri::command]
-pub async fn rust_dispatch(req: DispatchRequest) -> Result<DispatchOutcome, String> {
-    rust_dispatch_inner(req).await
 }
 
 #[cfg(test)]
