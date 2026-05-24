@@ -166,7 +166,7 @@ async fn run(
         runner_policy,
     };
 
-    let outcome = apohara_dispatch::tauri_bridge::rust_dispatch_inner(req)
+    let outcome = apohara_dispatch::api::rust_dispatch_inner(req)
         .await
         .map_err(anyhow::Error::msg)
         .context("dispatch_inner failed")?;
