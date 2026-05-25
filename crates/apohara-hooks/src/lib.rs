@@ -7,12 +7,12 @@
 //! loopback). G1.C.2 port — modules ported task-by-task following TDD.
 
 pub mod additional_context;
+pub mod api;
 pub mod compact_reinjection;
 pub mod context_warnings;
 pub mod events;
 pub mod installer;
 pub mod learnings_dump;
-pub mod tauri_bridge;
 
 pub use additional_context::{
     compose_additional_context_response, verify_additional_context_response, ComposeSources,

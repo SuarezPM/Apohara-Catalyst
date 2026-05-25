@@ -1,10 +1,8 @@
-//! Tauri command bridge for the Rust hooks path.
+//! Direct API surface for the Rust hooks path (Sprint 23: ex-`tauri_bridge`).
 //!
-//! Feature-gated: `--features tauri` enables `#[tauri::command]`
-//! registration. Without the feature, the gate logic + inner functions
-//! are still testable from plain cargo. This lets `apohara-hooks`
-//! compile lean in cli / test contexts and only pulls Tauri in when the
-//! desktop shell wires it.
+//! Pure functions callable directly from the Dioxus desktop via
+//! `use_future` — no Tauri, no IPC. The gate logic + inner functions
+//! remain testable from plain cargo.
 //!
 //! Flag: `APOHARA_RUST_HOOKS=1` defaults ON post-G1.D.2 flip. Export =0 to opt out
 //! (TS legacy continues to install hooks + dispatch events until Phase 1
@@ -44,7 +42,7 @@ pub struct DispatchEventRequest {
     pub envelope: serde_json::Value,
 }
 
-/// Inner installer entry point, reused by the Tauri command and any
+/// Inner installer entry point, reused by the desktop API surface and any
 /// future CLI binary (Phase 1 G1.D).
 pub fn hooks_install_for_provider_inner(
     req: InstallForProviderRequest,
@@ -67,20 +65,6 @@ pub fn hooks_dispatch_event_inner(req: DispatchEventRequest) -> Result<HookEvent
         return Err("APOHARA_RUST_HOOKS explicitly disabled (=0) — TS legacy path active".to_string());
     }
     parse_hook_event(&req.envelope).map_err(|e| e.to_string())
-}
-
-#[cfg(feature = "tauri")]
-#[tauri::command]
-pub fn hooks_install_for_provider(
-    req: InstallForProviderRequest,
-) -> Result<InstallResult, String> {
-    hooks_install_for_provider_inner(req)
-}
-
-#[cfg(feature = "tauri")]
-#[tauri::command]
-pub fn hooks_dispatch_event(req: DispatchEventRequest) -> Result<HookEvent, String> {
-    hooks_dispatch_event_inner(req)
 }
 
 #[cfg(test)]
