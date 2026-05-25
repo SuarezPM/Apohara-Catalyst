@@ -307,3 +307,17 @@ mod selected_task_tests {
         });
     }
 }
+
+#[cfg(test)]
+mod objective_input_tests {
+    use super::with_runtime;
+    use crate::state::objective_input::{get, set};
+
+    #[test]
+    fn set_then_get() {
+        with_runtime(|| {
+            set("build a thing");
+            assert_eq!(get(), "build a thing");
+        });
+    }
+}

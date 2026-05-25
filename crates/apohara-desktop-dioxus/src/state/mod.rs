@@ -7,6 +7,7 @@
 //! Tests live in `state_test.rs` (one test module per signal) so the
 //! signal/operation pairing is reviewed together rather than scattered.
 
+pub mod objective_input;
 pub mod permissions;
 pub mod roster;
 pub mod selected_task;
