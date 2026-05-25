@@ -145,9 +145,9 @@ Patrón por crate (confirmado contra `apohara-dispatch/src/tauri_bridge.rs`): (1
 
 ### Grupo 3.C — RightPane + TerminalPane drawer
 
-- [ ] W3.C.1: `CodeDiffPane` (components/hard/code_diff_pane.rs) en `right_pane.rs`: lee `CODE_DIFF`; empty-state cuando `None` ("No diff yet — run a goal"); cuando `Some`, render unified diff + files_changed + provider_winner badge. SSR test: None→empty, Some→diff. — verify: `cargo test -p apohara-desktop-dioxus`
-- [ ] W3.C.2: En `CodeDiffPane` botones Accept/Reject: Accept dispara `git_apply_handler` (coroutine signal, placeholder hasta W4); Reject → `CODE_DIFF.clear()`. SSR test: Reject limpia el signal. — verify: `cargo test -p apohara-desktop-dioxus`
-- [ ] W3.C.3: `TerminalPane` (components/hard/terminal_pane.rs) como drawer en `center_pane.rs` bottom edge: collapsible (header click toggle, default closed), filtra `SSE_EVENTS` por `SELECTED_TASK`. SSR test: filtrado por task seleccionada. — verify: `cargo test -p apohara-desktop-dioxus`
+- [x] W3.C.1: `CodeDiffPane` (components/hard/code_diff_pane.rs) en `right_pane.rs`: lee `CODE_DIFF`; empty-state cuando `None` ("No diff yet — run a goal"); cuando `Some`, render unified diff + files_changed + provider_winner badge. SSR test: None→empty, Some→diff. — verify: `cargo test -p apohara-desktop-dioxus`
+- [x] W3.C.2: En `CodeDiffPane` botones Accept/Reject: Accept dispara `git_apply_handler` (coroutine signal, placeholder hasta W4); Reject → `CODE_DIFF.clear()`. SSR test: Reject limpia el signal. — verify: `cargo test -p apohara-desktop-dioxus`
+- [x] W3.C.3: `TerminalPane` (components/hard/terminal_pane.rs) como drawer en `center_pane.rs` bottom edge: collapsible (header click toggle, default closed), filtra `SSE_EVENTS` por `SELECTED_TASK`. SSR test: filtrado por task seleccionada. — verify: `cargo test -p apohara-desktop-dioxus`
 
 ### Grupo 3.D — Overlays + BottomBar
 
