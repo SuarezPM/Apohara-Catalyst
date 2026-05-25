@@ -191,12 +191,12 @@ Patrón por crate (confirmado contra `apohara-dispatch/src/tauri_bridge.rs`): (1
 
 ## Verificación final (Closure criteria Sprint 23 — spec §161)
 
-- [ ] CLOSE.1: `cargo test --workspace` ≥1078 passed / 0 failed (no regressions) — verify: `cargo test --workspace`
-- [ ] CLOSE.2: Clippy limpio — verify: `cargo clippy --workspace --all-targets -- -D warnings`
-- [ ] CLOSE.3: Ventana con 19 components visibles — verify (manual): `cargo run -p apohara-desktop-dioxus`
-- [ ] CLOSE.4: Happy path manual: type intent → Run → 3 CLIs dispatched → diff visible → Accept aplica al working tree — verify (manual): seguir `docs/superpowers/post-launch-smoke.md`
-- [ ] CLOSE.5: Install ergonómico: `cargo install --path crates/apohara-desktop-dioxus` + `.desktop` entry lanzable desde menú KDE — verify (manual): instalar + lanzar desde Plasma
-- [ ] CLOSE.6: Bump versión a `v1.0.0-rc.5` "Integrated personal Arch desktop" (workspace `Cargo.toml`). NO tag, NO push (gated para Pablo per Phase 4 G4.C). — verify: `grep -q "1.0.0-rc.5" Cargo.toml`
+- [x] CLOSE.1: `cargo test --workspace` ≥1078 passed / 0 failed (no regressions) — verify: `cargo test --workspace` → 1128 passed / 0 failed (2026-05-25).
+- [x] CLOSE.2: Clippy limpio — verify: `cargo clippy --workspace --all-targets -- -D warnings` → exit 0 (2026-05-25).
+- [x] CLOSE.3: Ventana con 19 components visibles — verify (manual): `cargo run -p apohara-desktop-dioxus` — cubierto por las capturas de Pablo (W3.GATE Graph/Board/Terminal + W4.SMOKE): shell 3-pane, HeroBanner, ProviderRoster, ObjectivePane/ViewToggle, Swarm/Kanban/TaskBoard, CodeDiffPane, Statusline, Terminal drawer.
+- [ ] CLOSE.4: Happy path manual: type intent → Run → 3 CLIs dispatched → diff visible → Accept aplica al working tree — verify (manual): seguir `docs/superpowers/post-launch-smoke.md`. PARCIAL: dispatch+stream+tasks→Done verificado (W4.SMOKE); falta una corrida con prompt de código para ver diff + Accept (pendiente Pablo).
+- [ ] CLOSE.5: Install ergonómico: `cargo install --path crates/apohara-desktop-dioxus` + `.desktop` entry lanzable desde menú KDE — verify (manual): instalar + lanzar desde Plasma. Pendiente: correr `bash scripts/install-arch.sh` (Pablo).
+- [x] CLOSE.6: Bump versión a `v1.0.0-rc.5` "Integrated personal Arch desktop" (workspace `Cargo.toml`). NO tag, NO push (gated para Pablo per Phase 4 G4.C). — verify: `grep -q "1.0.0-rc.5" Cargo.toml` ✓
 
 ---
 
