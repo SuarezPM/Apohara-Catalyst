@@ -45,7 +45,13 @@ pub struct SwarmEdge {
 
 /// Render the swarm DAG as an SVG with `dag-node` + `dag-edge` class hooks.
 #[component]
-pub fn SwarmCanvas(tasks: Vec<SwarmTask>, edges: Vec<SwarmEdge>) -> Element {
+pub fn SwarmCanvas(
+    tasks: Vec<SwarmTask>,
+    edges: Vec<SwarmEdge>,
+    /// Optional callback fired with a task id when its node is clicked. The
+    /// CenterPane binds this to `SELECTED_TASK` (W3.B.2).
+    on_select: Option<EventHandler<String>>,
+) -> Element {
     if tasks.is_empty() {
         return rsx! {
             section {
@@ -126,12 +132,18 @@ pub fn SwarmCanvas(tasks: Vec<SwarmTask>, edges: Vec<SwarmEdge>) -> Element {
                             .get(&id)
                             .cloned()
                             .unwrap_or_else(|| id.clone());
+                        let id_for_click = id.clone();
                         rsx! {
                             g {
                                 class: "dag-node",
                                 "data-state": "{state}",
                                 "data-task-id": "{id}",
                                 transform: "translate({x}, {y})",
+                                onclick: move |_| {
+                                    if let Some(h) = &on_select {
+                                        h.call(id_for_click.clone());
+                                    }
+                                },
                                 rect {
                                     width: "{NODE_WIDTH}",
                                     height: "{NODE_HEIGHT}",

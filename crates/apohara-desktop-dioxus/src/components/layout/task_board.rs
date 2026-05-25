@@ -36,7 +36,12 @@ pub struct DagTask {
 }
 
 #[component]
-pub fn TaskBoard(tasks: Vec<DagTask>) -> Element {
+pub fn TaskBoard(
+    tasks: Vec<DagTask>,
+    /// Optional callback fired with a task id when its card is clicked. The
+    /// CenterPane binds this to `SELECTED_TASK` (W3.B.4).
+    on_select: Option<EventHandler<String>>,
+) -> Element {
     let columns: [(TaskStatus, &str, &str); 4] = [
         (TaskStatus::Pending, "col-pending", "Pending"),
         (TaskStatus::Ready, "col-ready", "Ready"),
@@ -70,7 +75,7 @@ pub fn TaskBoard(tasks: Vec<DagTask>) -> Element {
                             div {
                                 class: "task-column-body",
                                 for task in bucket {
-                                    TaskCard { task }
+                                    TaskCard { task, on_select }
                                 }
                             }
                         }
@@ -82,12 +87,18 @@ pub fn TaskBoard(tasks: Vec<DagTask>) -> Element {
 }
 
 #[component]
-fn TaskCard(task: DagTask) -> Element {
+fn TaskCard(task: DagTask, on_select: Option<EventHandler<String>>) -> Element {
     let testid = format!("task-card-{}", task.id);
+    let id_for_click = task.id.clone();
     rsx! {
         article {
             class: "card task-card",
             "data-testid": "{testid}",
+            onclick: move |_| {
+                if let Some(h) = &on_select {
+                    h.call(id_for_click.clone());
+                }
+            },
             p { class: "task-title", "{task.title}" }
             small { class: "task-id", "#{task.id}" }
         }
