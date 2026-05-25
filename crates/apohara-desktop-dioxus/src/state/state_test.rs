@@ -376,3 +376,24 @@ mod toast_queue_tests {
         });
     }
 }
+
+#[cfg(test)]
+mod code_diff_tests {
+    use super::with_runtime;
+    use crate::state::code_diff::{clear, set, Diff, CODE_DIFF};
+    use dioxus::prelude::ReadableExt;
+
+    #[test]
+    fn set_then_clear() {
+        with_runtime(|| {
+            set(Diff {
+                unified: "--- a\n+++ b\n".into(),
+                files_changed: vec!["a.rs".into()],
+                provider_winner: "claude-code-cli".into(),
+            });
+            assert!(CODE_DIFF.read().is_some());
+            clear();
+            assert!(CODE_DIFF.read().is_none());
+        });
+    }
+}
