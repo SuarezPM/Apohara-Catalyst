@@ -321,3 +321,22 @@ mod objective_input_tests {
         });
     }
 }
+
+#[cfg(test)]
+mod running_status_tests {
+    use super::with_runtime;
+    use crate::state::running_status::{set_status, status, RunStatus};
+
+    #[test]
+    fn default_is_idle_and_setters_work() {
+        with_runtime(|| {
+            set_status(RunStatus::Idle);
+            assert_eq!(status(), RunStatus::Idle);
+            assert_eq!(RunStatus::default(), RunStatus::Idle);
+            set_status(RunStatus::Dispatching);
+            assert_eq!(status(), RunStatus::Dispatching);
+            set_status(RunStatus::Verifying);
+            assert_eq!(status(), RunStatus::Verifying);
+        });
+    }
+}
