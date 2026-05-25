@@ -746,3 +746,31 @@ body {
   gap: 8px;
   justify-content: flex-end;
 }
+
+/* 3-pane shell grid (Sprint 23 W2.7) — top spans full width, then the
+   left/center/right row, then a full-width bottom bar. */
+.apohara-grid {
+  display: grid;
+  grid-template-areas:
+    "top top top"
+    "left center right"
+    "bottom bottom bottom";
+  grid-template-rows: auto 1fr auto;
+  grid-template-columns: 280px 1fr 360px;
+  height: 100vh;
+}
+.apohara-grid > .top {
+  grid-area: top;
+}
+.apohara-grid > .left {
+  grid-area: left;
+}
+.apohara-grid > .center {
+  grid-area: center;
+}
+.apohara-grid > .right {
+  grid-area: right;
+}
+.apohara-grid > .bottom {
+  grid-area: bottom;
+}
