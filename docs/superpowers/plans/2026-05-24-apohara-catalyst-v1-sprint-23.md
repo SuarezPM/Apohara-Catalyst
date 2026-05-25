@@ -76,14 +76,14 @@ pub struct Toast { pub id: String, pub level: ToastLevel, pub message: String, p
 
 Patrón por crate (confirmado contra `apohara-dispatch/src/tauri_bridge.rs`): (1) `git mv src/tauri_bridge.rs src/api.rs`; (2) en `api.rs` borrar SOLO el bloque `#[cfg(feature = "tauri")] #[tauri::command] pub async fn <wrapper>(...) { <inner>(...).await }` — mantener `is_enabled` + `*_inner` + `#[cfg(test)] mod tests`; (3) en `Cargo.toml` borrar la línea `tauri = { version = "2", optional = true }` y el bloque `[features]`; (4) en `src/lib.rs` cambiar `pub mod tauri_bridge;` → `pub mod api;` (y cualquier `pub use tauri_bridge::*` → `pub use api::*`).
 
-- [ ] W1.A.1: Strip Tauri en `crates/apohara-dispatch` (rename tauri_bridge.rs→api.rs, borrar wrapper `rust_dispatch`, borrar dep+features, lib.rs `pub mod api`) — verify: `cargo build -p apohara-dispatch && cargo test -p apohara-dispatch`
-- [ ] W1.A.2: Strip Tauri en `crates/apohara-verification` (mismo patrón) — verify: `cargo build -p apohara-verification && cargo test -p apohara-verification`
-- [ ] W1.A.3: Strip Tauri en `crates/apohara-safety` (mismo patrón) — verify: `cargo build -p apohara-safety && cargo test -p apohara-safety`
-- [ ] W1.A.4: Strip Tauri en `crates/apohara-spec` (mismo patrón) — verify: `cargo build -p apohara-spec && cargo test -p apohara-spec`
-- [ ] W1.A.5: Strip Tauri en `crates/apohara-mcp` (mismo patrón) — verify: `cargo build -p apohara-mcp && cargo test -p apohara-mcp`
-- [ ] W1.A.6: Strip Tauri en `crates/apohara-hooks` (mismo patrón) — verify: `cargo build -p apohara-hooks && cargo test -p apohara-hooks`
-- [ ] W1.A.7: Strip Tauri en `crates/apohara-decomposer` (mismo patrón) — verify: `cargo build -p apohara-decomposer && cargo test -p apohara-decomposer`
-- [ ] W1.A.8: Strip Tauri en `crates/apohara-projector` (mismo patrón) — verify: `cargo build -p apohara-projector && cargo test -p apohara-projector`
+- [x] W1.A.1: Strip Tauri en `crates/apohara-dispatch` (rename tauri_bridge.rs→api.rs, borrar wrapper `rust_dispatch`, borrar dep+features, lib.rs `pub mod api`) — verify: `cargo build -p apohara-dispatch && cargo test -p apohara-dispatch`
+- [x] W1.A.2: Strip Tauri en `crates/apohara-verification` (mismo patrón) — verify: `cargo build -p apohara-verification && cargo test -p apohara-verification`
+- [x] W1.A.3: Strip Tauri en `crates/apohara-safety` (mismo patrón) — verify: `cargo build -p apohara-safety && cargo test -p apohara-safety`
+- [x] W1.A.4: Strip Tauri en `crates/apohara-spec` (mismo patrón) — verify: `cargo build -p apohara-spec && cargo test -p apohara-spec`
+- [x] W1.A.5: Strip Tauri en `crates/apohara-mcp` (mismo patrón) — verify: `cargo build -p apohara-mcp && cargo test -p apohara-mcp`
+- [x] W1.A.6: Strip Tauri en `crates/apohara-hooks` (mismo patrón) — verify: `cargo build -p apohara-hooks && cargo test -p apohara-hooks`
+- [x] W1.A.7: Strip Tauri en `crates/apohara-decomposer` (mismo patrón) — verify: `cargo build -p apohara-decomposer && cargo test -p apohara-decomposer`
+- [x] W1.A.8: Strip Tauri en `crates/apohara-projector` (mismo patrón) — verify: `cargo build -p apohara-projector && cargo test -p apohara-projector`
 
 ### Grupo B — APIs faltantes
 
