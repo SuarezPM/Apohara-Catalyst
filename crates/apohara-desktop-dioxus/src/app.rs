@@ -3,26 +3,24 @@
 use dioxus::prelude::*;
 
 use crate::layout::MainLayout;
+use crate::overlays::{CommandPaletteOverlay, PermissionDialogOverlay, ToastContainer};
 
 const BRAND_CSS: &str = include_str!("../assets/brand.css");
 
 /// Root component: brand stylesheet + the 3-pane `MainLayout` shell + the three
-/// root overlay slots (CommandPalette / ToastContainer / PermissionDialog).
-///
-/// The overlays are placeholder slots for now; W3.D.1 / W3.D.2 / W3.D.3 swap in
-/// the real components once their signals and props are wired. Keeping them as
-/// dedicated slots here means those tasks change one component each without
-/// touching the shell.
+/// root overlays (CommandPalette / ToastContainer / PermissionDialog), each
+/// reading its own `GlobalSignal` (W3.D). The global Cmd+K shortcut that opens
+/// the palette is registered on the desktop event loop in `main::DesktopRoot`,
+/// not here, so `App` stays headlessly SSR-testable.
 #[component]
 pub fn App() -> Element {
     rsx! {
         div { id: "apohara-app",
             style { "{BRAND_CSS}" }
             MainLayout {}
-            // Root overlay slots (wired in W3.D).
-            div { class: "overlay-slot", "data-testid": "overlay-command-palette" }
-            div { class: "overlay-slot", "data-testid": "overlay-toast-container" }
-            div { class: "overlay-slot", "data-testid": "overlay-permission-dialog" }
+            CommandPaletteOverlay {}
+            ToastContainer {}
+            PermissionDialogOverlay {}
         }
     }
 }

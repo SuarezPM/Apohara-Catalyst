@@ -8,6 +8,7 @@
 //! signal/operation pairing is reviewed together rather than scattered.
 
 pub mod code_diff;
+pub mod command_palette;
 pub mod objective_input;
 pub mod permissions;
 pub mod roster;
