@@ -65,3 +65,18 @@ fn git_apply_result_toast_success_is_success_level() {
     let toast = super::git_apply_handler::apply_result_toast(&Ok(()));
     assert_eq!(toast.level, ToastLevel::Success);
 }
+
+#[test]
+fn reconciler_toast_reports_affected_count() {
+    use crate::state::toast_queue::ToastLevel;
+    let toast =
+        super::reconciler_tick::reconciler_toast(&["a".to_string(), "b".to_string()]);
+    assert_eq!(toast.level, ToastLevel::Info);
+    assert!(toast.message.contains('2'), "should report 2 tasks: {}", toast.message);
+}
+
+#[test]
+fn reconciler_tick_does_not_panic_without_ledger() {
+    // Empty ledger context -> the pass errors and is skipped; must not panic.
+    super::reconciler_tick::tick();
+}
