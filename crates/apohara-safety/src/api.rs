@@ -1,8 +1,8 @@
-//! Tauri command bridge for the Rust safety path.
+//! Direct API surface for the Rust safety path (Sprint 23: ex-`tauri_bridge`).
 //!
-//! Feature-gated: `--features tauri` enables `#[tauri::command]`
-//! registration. Without the feature, the gate logic + inner functions
-//! are still testable from plain cargo.
+//! Pure functions callable directly from the Dioxus desktop via
+//! `use_future` — no Tauri, no IPC. The gate logic + inner functions
+//! remain testable from plain cargo.
 //!
 //! Flag: `APOHARA_RUST_SAFETY=1` defaults ON post-G1.D.2 flip. Export =0 to opt out
 //! (TS legacy continues to handle permissions until Phase 1 cierre flips
@@ -36,7 +36,7 @@ pub struct BashCompoundAnalysis {
     pub legs: Vec<String>,
 }
 
-/// Inner sync check, reused by the Tauri command + the CLI binary
+/// Inner sync check, reused by the desktop API surface + the CLI binary
 /// (Phase 1 G1.D).
 pub fn safety_check_permission_inner(
     req: CheckPermissionRequest,
@@ -84,26 +84,6 @@ pub fn safety_match_pattern_inner(pattern: String, inv: ToolInvocation) -> bool 
         Some(p) => match_pattern(&p, &inv),
         None => false,
     }
-}
-
-#[cfg(feature = "tauri")]
-#[tauri::command]
-pub fn safety_check_permission(
-    req: CheckPermissionRequest,
-) -> Result<PermissionDecision, String> {
-    safety_check_permission_inner(req)
-}
-
-#[cfg(feature = "tauri")]
-#[tauri::command]
-pub fn safety_analyze_bash_compound(command: String) -> BashCompoundAnalysis {
-    safety_analyze_bash_compound_inner(command)
-}
-
-#[cfg(feature = "tauri")]
-#[tauri::command]
-pub fn safety_match_pattern(pattern: String, inv: ToolInvocation) -> bool {
-    safety_match_pattern_inner(pattern, inv)
 }
 
 #[cfg(test)]
