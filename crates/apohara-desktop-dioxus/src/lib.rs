@@ -8,6 +8,7 @@ pub mod app;
 pub mod commands;
 pub mod components;
 pub mod layout;
+pub mod overlays;
 pub mod state;
 
 pub use app::App;
