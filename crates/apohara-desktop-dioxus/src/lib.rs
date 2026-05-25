@@ -7,6 +7,7 @@
 pub mod app;
 pub mod commands;
 pub mod components;
+pub mod coroutines;
 pub mod layout;
 pub mod overlays;
 pub mod state;
