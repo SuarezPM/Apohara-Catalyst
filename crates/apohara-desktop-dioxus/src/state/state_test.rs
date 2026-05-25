@@ -340,3 +340,39 @@ mod running_status_tests {
         });
     }
 }
+
+#[cfg(test)]
+mod toast_queue_tests {
+    use super::with_runtime;
+    use crate::state::toast_queue::{push, remove, sweep_expired, Toast, ToastLevel, TOAST_QUEUE};
+    use dioxus::prelude::ReadableExt;
+    use std::time::{Duration, Instant};
+
+    fn toast(id: &str, ttl_ms: u64, age: Duration) -> Toast {
+        Toast {
+            id: id.into(),
+            level: ToastLevel::Info,
+            message: "m".into(),
+            created_at: Instant::now() - age,
+            ttl_ms,
+        }
+    }
+
+    #[test]
+    fn push_sweep_expired_and_remove() {
+        with_runtime(|| {
+            // Isolate from any leftover state in this process-wide signal.
+            TOAST_QUEUE.write().clear();
+            push(toast("tq-live", 10_000, Duration::from_millis(0)));
+            push(toast("tq-old", 10, Duration::from_millis(500)));
+            assert_eq!(TOAST_QUEUE.read().len(), 2);
+
+            sweep_expired();
+            let ids: Vec<String> = TOAST_QUEUE.read().iter().map(|t| t.id.clone()).collect();
+            assert_eq!(ids, vec!["tq-live".to_string()]);
+
+            remove("tq-live");
+            assert!(TOAST_QUEUE.read().is_empty());
+        });
+    }
+}
