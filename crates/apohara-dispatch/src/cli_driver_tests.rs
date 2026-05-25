@@ -68,3 +68,35 @@ fn dispatch_request_constructs_with_plan_shape() {
     // CliDriver type exists (unit struct from impl)
     let _driver: CliDriver = CliDriver;
 }
+
+// W1.C.1: streaming dispatch forwards each stdout line to `on_line`.
+// Uses `/bin/echo` directly — NOT `bash -c "echo X"` — per the PTY/flush
+// incident (bash exits before flushing; /bin/echo is the stable case).
+#[tokio::test]
+async fn dispatch_streaming_invokes_on_line_per_stdout_line() {
+    use std::sync::{Arc, Mutex};
+
+    let req = DispatchRequest {
+        provider_id: "/bin/echo".into(),
+        workspace: "/tmp".into(),
+        prompt: "stream-line-test".into(),
+        role: "test".into(),
+        runner_policy: "{}".into(),
+    };
+
+    let lines = Arc::new(Mutex::new(Vec::<String>::new()));
+    let sink = Arc::clone(&lines);
+    let outcome = CliDriver::dispatch_streaming(req, move |line| {
+        sink.lock().unwrap().push(line);
+    })
+    .await
+    .unwrap();
+
+    assert!(outcome.success, "echo should exit 0");
+    let captured = lines.lock().unwrap();
+    assert!(
+        captured.iter().any(|l| l.contains("stream-line-test")),
+        "on_line should have received the streamed line; got {captured:?}"
+    );
+    assert!(outcome.output.contains("stream-line-test"));
+}

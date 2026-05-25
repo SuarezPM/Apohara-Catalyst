@@ -151,4 +151,92 @@ impl CliDriver {
             duration_ms,
         })
     }
+
+    /// Like [`CliDriver::dispatch`], but streams stdout to `on_line` line-by-line
+    /// as the CLI runs, while still returning the full captured output.
+    ///
+    /// R2 backpressure: lines flow through a bounded `mpsc::channel(1024)`. A
+    /// dedicated reader task drains the child's stdout as fast as the OS
+    /// delivers it — so the pipe never fills and deadlocks the child — and
+    /// `try_send`s each line. If the consumer can't keep up and the channel is
+    /// full, the line is dropped with a `tracing::warn!` instead of blocking the
+    /// CLI; this bounds memory and keeps the subprocess live. (mpsc only lets the
+    /// sender drop the line in hand, not evict the oldest queued line; the R2
+    /// goal — never block the producer — holds either way.)
+    pub async fn dispatch_streaming(
+        req: DispatchRequest,
+        mut on_line: impl FnMut(String) + Send + 'static,
+    ) -> Result<DispatchOutcome> {
+        use std::process::Stdio;
+        use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+        use tokio::sync::mpsc::{self, error::TrySendError};
+
+        let parent_env: HashMap<String, String> = std::env::vars().collect();
+        let env = build_spawn_env(&parent_env, &req.workspace, &req.runner_policy);
+
+        let start = std::time::Instant::now();
+        let mut cmd = tokio::process::Command::new(&req.provider_id);
+        cmd.env_clear();
+        cmd.envs(&env);
+        cmd.arg("--print").arg(&req.prompt);
+        cmd.current_dir(&req.workspace);
+        cmd.stdout(Stdio::piped());
+        cmd.stderr(Stdio::piped());
+
+        let mut child = cmd.spawn().context("spawn provider CLI")?;
+        let stdout = child.stdout.take().context("capture child stdout")?;
+        let stderr = child.stderr.take().context("capture child stderr")?;
+
+        let (tx, mut rx) = mpsc::channel::<String>(1024);
+
+        // Reader: drain stdout line-by-line into the bounded channel and keep a
+        // full copy for the outcome.
+        let stdout_reader = tokio::spawn(async move {
+            let mut lines = BufReader::new(stdout).lines();
+            let mut full = String::new();
+            while let Ok(Some(line)) = lines.next_line().await {
+                full.push_str(&line);
+                full.push('\n');
+                match tx.try_send(line) {
+                    Ok(()) => {}
+                    Err(TrySendError::Full(_)) => {
+                        tracing::warn!(
+                            "dispatch_streaming: on_line channel full (1024); dropping line"
+                        );
+                    }
+                    Err(TrySendError::Closed(_)) => break,
+                }
+            }
+            full
+        });
+
+        // Drain stderr concurrently so a chatty stderr can't fill its pipe and
+        // deadlock the child.
+        let stderr_reader = tokio::spawn(async move {
+            let mut buf = String::new();
+            let _ = BufReader::new(stderr).read_to_string(&mut buf).await;
+            buf
+        });
+
+        // Forward streamed lines to the caller as they arrive.
+        while let Some(line) = rx.recv().await {
+            on_line(line);
+        }
+
+        let full_output = stdout_reader.await.context("stdout reader task")?;
+        let err_output = stderr_reader.await.context("stderr reader task")?;
+        let status = child.wait().await.context("await provider CLI exit")?;
+        let duration_ms = start.elapsed().as_millis() as u64;
+
+        Ok(DispatchOutcome {
+            success: status.success(),
+            output: full_output,
+            error: if status.success() {
+                None
+            } else {
+                Some(err_output)
+            },
+            duration_ms,
+        })
+    }
 }
