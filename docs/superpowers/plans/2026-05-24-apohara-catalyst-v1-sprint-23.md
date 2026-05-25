@@ -181,11 +181,11 @@ Patrón por crate (confirmado contra `apohara-dispatch/src/tauri_bridge.rs`): (1
 
 > **Dependencia:** DESPUÉS de W4.SMOKE.
 
-- [ ] W5.1: Crear `scripts/install-arch.sh`: `cargo install --path crates/apohara-desktop-dioxus` + symlink explícito a `~/.local/bin/` + aviso de PATH (R6). `chmod +x`. — verify: `bash -n scripts/install-arch.sh` (syntax) `&&` `shellcheck scripts/install-arch.sh`
-- [ ] W5.2: Crear `packaging/desktop/apohara-catalyst.desktop` (entry KDE/GNOME: Name, Exec=apohara-catalyst, Icon, Categories=Development;). — verify: `desktop-file-validate packaging/desktop/apohara-catalyst.desktop` (o `test -f` si la herramienta no está)
-- [ ] W5.3: Añadir `packaging/desktop/apohara-catalyst.png` (placeholder icon 256x256). — verify: `test -f packaging/desktop/apohara-catalyst.png`
-- [ ] W5.4: README.md: sección "Quick start (Arch)" con `bash scripts/install-arch.sh` + cómo lanzar desde menú KDE. — verify: `grep -q "Quick start" README.md`
-- [ ] W5.5: Crear `docs/superpowers/post-launch-smoke.md` documentando el smoke manual (los 9 acceptance criteria del spec §5 como checklist). — verify: `test -f docs/superpowers/post-launch-smoke.md`
+- [x] W5.1: Crear `scripts/install-arch.sh`: `cargo install --path crates/apohara-desktop-dioxus` + symlink explícito a `~/.local/bin/` + aviso de PATH (R6). `chmod +x`. — verify: `bash -n scripts/install-arch.sh` (syntax) `&&` `shellcheck scripts/install-arch.sh`
+- [x] W5.2: Crear `packaging/desktop/apohara-catalyst.desktop` (entry KDE/GNOME: Name, Exec=apohara-catalyst, Icon, Categories=Development;). — verify: `desktop-file-validate packaging/desktop/apohara-catalyst.desktop` (o `test -f` si la herramienta no está)
+- [x] W5.3: Añadir `packaging/desktop/apohara-catalyst.png` (placeholder icon 256x256). — verify: `test -f packaging/desktop/apohara-catalyst.png`
+- [x] W5.4: README.md: sección "Quick start (Arch)" con `bash scripts/install-arch.sh` + cómo lanzar desde menú KDE. — verify: `grep -q "Quick start" README.md`
+- [x] W5.5: Crear `docs/superpowers/post-launch-smoke.md` documentando el smoke manual (los 9 acceptance criteria del spec §5 como checklist). — verify: `test -f docs/superpowers/post-launch-smoke.md`
 
 ---
 
