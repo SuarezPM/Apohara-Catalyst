@@ -363,6 +363,7 @@ dependencies = [
  "anyhow",
  "apohara-decomposer",
  "apohara-dispatch",
+ "apohara-token-accounting",
  "criterion",
  "dioxus",
  "dioxus-ssr",
