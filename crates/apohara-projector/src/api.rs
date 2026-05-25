@@ -1,8 +1,8 @@
-//! Tauri command bridge for the Rust projector path.
+//! Direct API surface for the Rust projector path (Sprint 23: ex-`tauri_bridge`).
 //!
-//! Feature-gated: `--features tauri` enables `#[tauri::command]`
-//! registration. Without the feature the gate logic + inner sync
-//! projector entry points stay testable from plain `cargo test`.
+//! Pure functions callable directly from the Dioxus desktop via
+//! `use_future` — no Tauri, no IPC. The gate logic + inner sync projector
+//! entry points remain testable from plain `cargo test`.
 //!
 //! Flag: `APOHARA_RUST_PROJECTOR=1` defaults ON post-G1.D.2 flip. Export =0 to opt out
 //! (TS legacy continues to handle projection until Phase 1 cierre flips
@@ -17,7 +17,7 @@ pub fn is_enabled(env_value: Option<&str>) -> bool {
     env_value != Some("0")
 }
 
-/// Inner UI-cards projector reused by both the Tauri command and the
+/// Inner UI-cards projector reused by the desktop API surface and the
 /// CLI binary (Phase 1 G1.D).
 pub fn projector_to_ui_cards_inner(events: Vec<EventLog>) -> Result<Vec<UiTaskCard>, String> {
     let env = std::env::var("APOHARA_RUST_PROJECTOR").ok();
@@ -29,7 +29,7 @@ pub fn projector_to_ui_cards_inner(events: Vec<EventLog>) -> Result<Vec<UiTaskCa
     Ok(project_to_ui_cards(&events))
 }
 
-/// Inner search-rows projector reused by both the Tauri command and the
+/// Inner search-rows projector reused by the desktop API surface and the
 /// CLI binary (Phase 1 G1.D).
 pub fn projector_to_search_rows_inner(events: Vec<EventLog>) -> Result<Vec<SearchRow>, String> {
     let env = std::env::var("APOHARA_RUST_PROJECTOR").ok();
@@ -39,18 +39,6 @@ pub fn projector_to_search_rows_inner(events: Vec<EventLog>) -> Result<Vec<Searc
         );
     }
     Ok(project_to_search_rows(&events))
-}
-
-#[cfg(feature = "tauri")]
-#[tauri::command]
-pub fn projector_to_ui_cards(events: Vec<EventLog>) -> Result<Vec<UiTaskCard>, String> {
-    projector_to_ui_cards_inner(events)
-}
-
-#[cfg(feature = "tauri")]
-#[tauri::command]
-pub fn projector_to_search_rows(events: Vec<EventLog>) -> Result<Vec<SearchRow>, String> {
-    projector_to_search_rows_inner(events)
 }
 
 #[cfg(test)]
