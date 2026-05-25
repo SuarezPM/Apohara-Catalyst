@@ -36,6 +36,9 @@ pub struct ProviderEntry {
     pub permissions: Vec<String>,
     pub mcp_servers: Vec<McpServer>,
     pub run_active: bool,
+    /// Whether the provider's CLI binary resolves on the host `PATH`. Set by
+    /// the startup probe (W3.A.2); defaults `false` until probed.
+    pub available: bool,
 }
 
 /// Root signal: `Map<ProviderId, ProviderEntry>`. The Sprint 18 (G2.C.4)

@@ -98,6 +98,7 @@ mod roster_tests {
             permissions: vec![],
             mcp_servers: vec![],
             run_active,
+            available: false,
         }
     }
 
