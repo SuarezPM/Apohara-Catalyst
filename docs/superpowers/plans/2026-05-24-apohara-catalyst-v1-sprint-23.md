@@ -107,20 +107,20 @@ Patrón por crate (confirmado contra `apohara-dispatch/src/tauri_bridge.rs`): (1
 
 ### 2.1 — Nuevos signals (patrón `state/tasks.rs`: `pub static X: GlobalSignal<T> = Signal::global(...)` + helpers + tipos locales)
 
-- [ ] W2.1: Crear `src/state/selected_task.rs` con `SELECTED_TASK: GlobalSignal<Option<String>>` + `select(id)`/`clear()`/`selected()` helpers. Registrar `pub mod selected_task;` en `state/mod.rs`. Test SSR/unit del set/clear en `state_test.rs`. — verify: `cargo test -p apohara-desktop-dioxus state`
-- [ ] W2.2: Crear `src/state/objective_input.rs` con `OBJECTIVE_INPUT: GlobalSignal<String>` + `set(s)`/`get()`. Registrar en `state/mod.rs`. Test. — verify: `cargo test -p apohara-desktop-dioxus state`
-- [ ] W2.3: Crear `src/state/running_status.rs` con `enum RunStatus { Idle, Dispatching, Verifying }` (Default=Idle) + `RUNNING_STATUS: GlobalSignal<RunStatus>` + setters. Registrar. Test. — verify: `cargo test -p apohara-desktop-dioxus state`
-- [ ] W2.4: Crear `src/state/toast_queue.rs` con `ToastLevel` + `Toast` (shape fijado arriba) + `TOAST_QUEUE: GlobalSignal<VecDeque<Toast>>` + `push(toast)`/`remove(id)`/`sweep_expired()`. Registrar. Test push+sweep. — verify: `cargo test -p apohara-desktop-dioxus state`
-- [ ] W2.5: Crear `src/state/code_diff.rs` con `Diff { unified, files_changed, provider_winner }` + `CODE_DIFF: GlobalSignal<Option<Diff>>` + `set(diff)`/`clear()`. Registrar. Test. — verify: `cargo test -p apohara-desktop-dioxus state`
+- [x] W2.1: Crear `src/state/selected_task.rs` con `SELECTED_TASK: GlobalSignal<Option<String>>` + `select(id)`/`clear()`/`selected()` helpers. Registrar `pub mod selected_task;` en `state/mod.rs`. Test SSR/unit del set/clear en `state_test.rs`. — verify: `cargo test -p apohara-desktop-dioxus state`
+- [x] W2.2: Crear `src/state/objective_input.rs` con `OBJECTIVE_INPUT: GlobalSignal<String>` + `set(s)`/`get()`. Registrar en `state/mod.rs`. Test. — verify: `cargo test -p apohara-desktop-dioxus state`
+- [x] W2.3: Crear `src/state/running_status.rs` con `enum RunStatus { Idle, Dispatching, Verifying }` (Default=Idle) + `RUNNING_STATUS: GlobalSignal<RunStatus>` + setters. Registrar. Test. — verify: `cargo test -p apohara-desktop-dioxus state`
+- [x] W2.4: Crear `src/state/toast_queue.rs` con `ToastLevel` + `Toast` (shape fijado arriba) + `TOAST_QUEUE: GlobalSignal<VecDeque<Toast>>` + `push(toast)`/`remove(id)`/`sweep_expired()`. Registrar. Test push+sweep. — verify: `cargo test -p apohara-desktop-dioxus state`
+- [x] W2.5: Crear `src/state/code_diff.rs` con `Diff { unified, files_changed, provider_winner }` + `CODE_DIFF: GlobalSignal<Option<Diff>>` + `set(diff)`/`clear()`. Registrar. Test. — verify: `cargo test -p apohara-desktop-dioxus state`
 
 ### 2.2 — Layout shell (7 files como shells con `grid-area`, sin lógica)
 
-- [ ] W2.6: Crear `src/layout/{mod,main_layout,top_bar,left_pane,center_pane,right_pane,bottom_bar}.rs`. Cada uno un `#[component]` que renderiza un `div` con la `grid-area` correcta y un placeholder text. `main_layout.rs` compone los 6 dentro de `div.apohara-grid`. `mod.rs` re-exporta. Registrar `pub mod layout;` en `src/lib.rs`. SSR test de `MainLayout` (render no-panic + contiene las 6 zonas). — verify: `cargo test -p apohara-desktop-dioxus layout`
+- [x] W2.6: Crear `src/layout/{mod,main_layout,top_bar,left_pane,center_pane,right_pane,bottom_bar}.rs`. Cada uno un `#[component]` que renderiza un `div` con la `grid-area` correcta y un placeholder text. `main_layout.rs` compone los 6 dentro de `div.apohara-grid`. `mod.rs` re-exporta. Registrar `pub mod layout;` en `src/lib.rs`. SSR test de `MainLayout` (render no-panic + contiene las 6 zonas). — verify: `cargo test -p apohara-desktop-dioxus layout`
 
 ### 2.3 — CSS grid + app.rs
 
-- [ ] W2.7: Append a `assets/brand.css` el bloque `.apohara-grid { display:grid; grid-template-areas:"top top top" "left center right" "bottom bottom bottom"; grid-template-rows:auto 1fr auto; grid-template-columns: 280px 1fr 360px; height:100vh; }` + reglas `.apohara-grid > .top/.left/.center/.right/.bottom { grid-area: ...; }`. — verify: `cargo build -p apohara-desktop-dioxus`
-- [ ] W2.8: Replace `src/app.rs`: montar `style{BRAND_CSS}` + `layout::MainLayout {}` + los 3 overlays (`CommandPalette`, `ToastContainer`, `PermissionDialog`) como mounts (placeholders por ahora, se cablean en W3.D). SSR test del `App` (no-panic, contiene `apohara-grid`). — verify: `cargo test -p apohara-desktop-dioxus app`
+- [x] W2.7: Append a `assets/brand.css` el bloque `.apohara-grid { display:grid; grid-template-areas:"top top top" "left center right" "bottom bottom bottom"; grid-template-rows:auto 1fr auto; grid-template-columns: 280px 1fr 360px; height:100vh; }` + reglas `.apohara-grid > .top/.left/.center/.right/.bottom { grid-area: ...; }`. — verify: `cargo build -p apohara-desktop-dioxus`
+- [x] W2.8: Replace `src/app.rs`: montar `style{BRAND_CSS}` + `layout::MainLayout {}` + los 3 overlays (`CommandPalette`, `ToastContainer`, `PermissionDialog`) como mounts (placeholders por ahora, se cablean en W3.D). SSR test del `App` (no-panic, contiene `apohara-grid`). — verify: `cargo test -p apohara-desktop-dioxus app`
 - [ ] W2.SMOKE: App levanta con shell vacío (3 zonas placeholder) + brand CSS aplicada. — verify (manual): `cargo run -p apohara-desktop-dioxus` → ventana muestra grid 3-pane vacío
 
 ---
