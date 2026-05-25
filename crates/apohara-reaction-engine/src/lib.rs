@@ -62,7 +62,7 @@ mod tests {
 
     #[test]
     fn version_is_workspace_version() {
-        // Cargo workspace.package.version = "1.0.0"
-        assert_eq!(version(), "1.0.0");
+        // Cargo workspace.package.version = "1.0.0-rc.5" (Sprint 23 closure).
+        assert_eq!(version(), "1.0.0-rc.5");
     }
 }

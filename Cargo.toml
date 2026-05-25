@@ -47,7 +47,9 @@ members = [
 
 [workspace.package]
 edition = "2021"
-version = "1.0.0"
+# v1.0.0-rc.5 "Integrated personal Arch desktop" (Sprint 23 closure). NO tag /
+# NO push from automation — gated for Pablo (Phase 4 G4.C).
+version = "1.0.0-rc.5"
 license = "MIT"
 authors = ["Pablo M. Suarez <suarezpm@csnat.unt.edu.ar>"]
 repository = "https://github.com/SuarezPM/Apohara"
