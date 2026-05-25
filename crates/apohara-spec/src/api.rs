@@ -1,10 +1,8 @@
-//! Tauri command bridge for the Rust spec path.
+//! Direct API surface for the Rust spec path (Sprint 23: ex-`tauri_bridge`).
 //!
-//! Feature-gated: `--features tauri` enables `#[tauri::command]`
-//! registration. Without the feature, the gate logic + inner async
-//! commands stay testable from plain cargo — this keeps `apohara-spec`
-//! lean in cli/test contexts and only pulls Tauri when the desktop
-//! shell wires it.
+//! Pure async functions callable directly from the Dioxus desktop via
+//! `use_future` — no Tauri, no IPC. The gate logic + inner async commands
+//! remain testable from plain cargo.
 //!
 //! Flag: `APOHARA_RUST_SPEC=1` defaults ON post-G1.D.2 flip. Export =0 to opt out (TS
 //! legacy continues to handle spec parsing until Phase 1 cierre flips
@@ -29,7 +27,7 @@ fn check_enabled() -> Result<(), String> {
     Ok(())
 }
 
-/// Inner async loader reused by both the Tauri command and the CLI
+/// Inner async loader reused by the desktop API surface and the CLI
 /// binary (Phase 1 G1.D). Parses a plan document from disk.
 pub async fn spec_load_plan_inner(filepath: String) -> Result<PlanDocument, String> {
     check_enabled()?;
@@ -72,21 +70,6 @@ pub async fn spec_get_plan_status_inner(
         status: plan.status,
         progress: plan.progress,
     })
-}
-
-#[cfg(feature = "tauri")]
-#[tauri::command]
-pub async fn spec_load_plan(filepath: String) -> Result<PlanDocument, String> {
-    spec_load_plan_inner(filepath).await
-}
-
-#[cfg(feature = "tauri")]
-#[tauri::command]
-pub async fn spec_get_plan_status(
-    cache: tauri::State<'_, Arc<PlanStatusCache>>,
-    filepath: String,
-) -> Result<PlanStatusSnapshot, String> {
-    spec_get_plan_status_inner(Arc::clone(&cache), filepath).await
 }
 
 #[cfg(test)]
