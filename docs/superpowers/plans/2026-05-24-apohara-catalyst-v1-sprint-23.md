@@ -158,7 +158,7 @@ Patrón por crate (confirmado contra `apohara-dispatch/src/tauri_bridge.rs`): (1
 
 ### Gate Wave 3
 
-- [ ] W3.GATE: App levanta, 19 components visibles (vacíos pero renderizados), ViewToggle swap funciona en vivo. — verify: `cargo test -p apohara-desktop-dioxus` `&&` (manual) `cargo run -p apohara-desktop-dioxus`
+- [x] W3.GATE: App levanta, 19 components visibles (vacíos pero renderizados), ViewToggle swap funciona en vivo. — verify: `cargo test -p apohara-desktop-dioxus` (144 passed) `&&` (manual) `cargo run -p apohara-desktop-dioxus` — smoke manual aprobado por Pablo 2026-05-25.
 
 ---
 
