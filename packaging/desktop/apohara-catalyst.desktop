@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Apohara Catalyst
+GenericName=AI Orchestration Desktop
+Comment=Type a goal — Apohara plans, dispatches across claude / codex / opencode, and verifies.
+Exec=apohara-catalyst
+Icon=apohara-catalyst
+Terminal=false
+Categories=Development;
+Keywords=ai;agents;orchestration;claude;codex;opencode;
+StartupNotify=true

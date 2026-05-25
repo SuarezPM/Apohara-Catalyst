@@ -20,6 +20,25 @@ TTFT (Time-To-First-Token) on multi-step engineering work by parallelizing
 across the CLIs you already pay for — and consumes zero extra tokens of
 its own.
 
+## Quick start (Arch)
+
+Apohara Catalyst v1.0 ships as a native Rust desktop app (Dioxus) — no Node, no
+Tauri webview. On Arch / CachyOS:
+
+```bash
+bash scripts/install-arch.sh
+```
+
+This runs `cargo install --path crates/apohara-desktop-dioxus`, symlinks the
+binary as `apohara-catalyst` in `~/.local/bin`, and installs a `.desktop`
+launcher entry. Then:
+
+- From a terminal: `apohara-catalyst`
+- From the KDE/GNOME menu: search **Apohara Catalyst**
+
+If the binary isn't found, make sure `~/.local/bin` is on your `PATH` (the
+installer warns when it isn't).
+
 ## Install
 
 ```bash
