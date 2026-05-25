@@ -9,6 +9,7 @@
 
 pub mod permissions;
 pub mod roster;
+pub mod selected_task;
 pub mod sse_events;
 pub mod tasks;
 pub mod view_mode;
