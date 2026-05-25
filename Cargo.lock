@@ -223,7 +223,7 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
 name = "apohara"
-version = "1.0.0"
+version = "1.0.0-rc.5"
 dependencies = [
  "anyhow",
  "apohara-decomposer",
@@ -243,7 +243,7 @@ dependencies = [
 
 [[package]]
 name = "apohara-anti-thrash"
-version = "1.0.0"
+version = "1.0.0-rc.5"
 dependencies = [
  "serde",
  "serde_json",
@@ -254,7 +254,7 @@ dependencies = [
 
 [[package]]
 name = "apohara-attention"
-version = "1.0.0"
+version = "1.0.0-rc.5"
 dependencies = [
  "serde",
  "tracing",
@@ -263,7 +263,7 @@ dependencies = [
 
 [[package]]
 name = "apohara-audit"
-version = "1.0.0"
+version = "1.0.0-rc.5"
 dependencies = [
  "chrono",
  "libc",
@@ -278,7 +278,7 @@ dependencies = [
 
 [[package]]
 name = "apohara-client"
-version = "1.0.0"
+version = "1.0.0-rc.5"
 dependencies = [
  "anyhow",
  "serde",
@@ -291,7 +291,7 @@ dependencies = [
 
 [[package]]
 name = "apohara-context-primitives"
-version = "1.0.0"
+version = "1.0.0-rc.5"
 dependencies = [
  "anyhow",
  "apohara-types",
@@ -308,7 +308,7 @@ dependencies = [
 
 [[package]]
 name = "apohara-coordinator"
-version = "1.0.0"
+version = "1.0.0-rc.5"
 dependencies = [
  "apohara-types",
  "serde",
@@ -321,7 +321,7 @@ dependencies = [
 
 [[package]]
 name = "apohara-daemon"
-version = "1.0.0"
+version = "1.0.0-rc.5"
 dependencies = [
  "anyhow",
  "apohara-reaction-engine",
@@ -341,7 +341,7 @@ dependencies = [
 
 [[package]]
 name = "apohara-decomposer"
-version = "1.0.0"
+version = "1.0.0-rc.5"
 dependencies = [
  "anyhow",
  "apohara-types",
@@ -357,7 +357,7 @@ dependencies = [
 
 [[package]]
 name = "apohara-desktop-dioxus"
-version = "1.0.0"
+version = "1.0.0-rc.5"
 dependencies = [
  "alacritty_terminal",
  "anyhow",
@@ -384,7 +384,7 @@ dependencies = [
 
 [[package]]
 name = "apohara-dispatch"
-version = "1.0.0"
+version = "1.0.0-rc.5"
 dependencies = [
  "anyhow",
  "apohara-coordinator",
@@ -408,7 +408,7 @@ dependencies = [
 
 [[package]]
 name = "apohara-event-humanizer"
-version = "1.0.0"
+version = "1.0.0-rc.5"
 dependencies = [
  "serde",
  "thiserror 2.0.18",
@@ -418,7 +418,7 @@ dependencies = [
 
 [[package]]
 name = "apohara-hooks"
-version = "1.0.0"
+version = "1.0.0-rc.5"
 dependencies = [
  "anyhow",
  "apohara-hooks-server",
@@ -437,7 +437,7 @@ dependencies = [
 
 [[package]]
 name = "apohara-hooks-server"
-version = "1.0.0"
+version = "1.0.0-rc.5"
 dependencies = [
  "apohara-audit",
  "apohara-types",
@@ -483,7 +483,7 @@ dependencies = [
 
 [[package]]
 name = "apohara-mcp"
-version = "1.0.0"
+version = "1.0.0-rc.5"
 dependencies = [
  "anyhow",
  "apohara-mcp-bridge",
@@ -513,7 +513,7 @@ dependencies = [
 
 [[package]]
 name = "apohara-mcp-bridge"
-version = "1.0.0"
+version = "1.0.0-rc.5"
 dependencies = [
  "jsonc-parser",
  "serde",
@@ -525,7 +525,7 @@ dependencies = [
 
 [[package]]
 name = "apohara-notifications"
-version = "1.0.0"
+version = "1.0.0-rc.5"
 dependencies = [
  "notify-rust",
  "serde",
@@ -535,7 +535,7 @@ dependencies = [
 
 [[package]]
 name = "apohara-pathsafety"
-version = "1.0.0"
+version = "1.0.0-rc.5"
 dependencies = [
  "tempfile",
  "thiserror 2.0.18",
@@ -543,7 +543,7 @@ dependencies = [
 
 [[package]]
 name = "apohara-persistence"
-version = "1.0.0"
+version = "1.0.0-rc.5"
 dependencies = [
  "dirs 5.0.1",
  "thiserror 2.0.18",
@@ -552,7 +552,7 @@ dependencies = [
 
 [[package]]
 name = "apohara-projector"
-version = "1.0.0"
+version = "1.0.0-rc.5"
 dependencies = [
  "anyhow",
  "apohara-types",
@@ -569,7 +569,7 @@ dependencies = [
 
 [[package]]
 name = "apohara-prompt-cache"
-version = "1.0.0"
+version = "1.0.0-rc.5"
 dependencies = [
  "anyhow",
  "apohara-types",
@@ -587,7 +587,7 @@ dependencies = [
 
 [[package]]
 name = "apohara-reaction-engine"
-version = "1.0.0"
+version = "1.0.0-rc.5"
 dependencies = [
  "apohara-types",
  "serde",
@@ -600,7 +600,7 @@ dependencies = [
 
 [[package]]
 name = "apohara-remote-worker"
-version = "1.0.0"
+version = "1.0.0-rc.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -616,7 +616,7 @@ dependencies = [
 
 [[package]]
 name = "apohara-safety"
-version = "1.0.0"
+version = "1.0.0-rc.5"
 dependencies = [
  "anyhow",
  "apohara-types",
@@ -654,7 +654,7 @@ dependencies = [
 
 [[package]]
 name = "apohara-secrets"
-version = "1.0.0"
+version = "1.0.0-rc.5"
 dependencies = [
  "keyring",
  "thiserror 2.0.18",
@@ -664,7 +664,7 @@ dependencies = [
 
 [[package]]
 name = "apohara-spec"
-version = "1.0.0"
+version = "1.0.0-rc.5"
 dependencies = [
  "anyhow",
  "apohara-types",
@@ -686,7 +686,7 @@ dependencies = [
 
 [[package]]
 name = "apohara-ssh-server"
-version = "1.0.0"
+version = "1.0.0-rc.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -705,7 +705,7 @@ dependencies = [
 
 [[package]]
 name = "apohara-token-accounting"
-version = "1.0.0"
+version = "1.0.0-rc.5"
 dependencies = [
  "serde",
  "thiserror 2.0.18",
@@ -715,7 +715,7 @@ dependencies = [
 
 [[package]]
 name = "apohara-transport"
-version = "1.0.0"
+version = "1.0.0-rc.5"
 dependencies = [
  "anyhow",
  "serde",
@@ -728,7 +728,7 @@ dependencies = [
 
 [[package]]
 name = "apohara-tui"
-version = "1.0.0"
+version = "1.0.0-rc.5"
 dependencies = [
  "anyhow",
  "apohara-dispatch",
@@ -746,7 +746,7 @@ dependencies = [
 
 [[package]]
 name = "apohara-types"
-version = "1.0.0"
+version = "1.0.0-rc.5"
 dependencies = [
  "serde",
  "serde_json",
@@ -758,7 +758,7 @@ dependencies = [
 
 [[package]]
 name = "apohara-verification"
-version = "1.0.0"
+version = "1.0.0-rc.5"
 dependencies = [
  "anyhow",
  "apohara-safety",
@@ -797,7 +797,7 @@ dependencies = [
 
 [[package]]
 name = "apohara-ws-hub"
-version = "1.0.0"
+version = "1.0.0-rc.5"
 dependencies = [
  "anyhow",
  "serde",
