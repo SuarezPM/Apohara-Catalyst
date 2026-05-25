@@ -144,3 +144,41 @@ fn left_pane_shows_roster_when_available_provider_present() {
         "available provider id missing: {html}"
     );
 }
+
+// --- TopBar / ViewToggle wiring (W3.A.3) ------------------------------
+
+/// Run `f` inside a Dioxus runtime so `GlobalSignal::read/write` work (mirrors
+/// `state::state_test::with_runtime`). The root is an empty fragment; we only
+/// need the runtime guard, never to render.
+fn with_runtime<F: FnOnce()>(f: F) {
+    fn empty() -> Element {
+        rsx! {}
+    }
+    let vdom = VirtualDom::new(empty);
+    vdom.in_runtime(f);
+}
+
+#[test]
+fn top_bar_mounts_view_toggle() {
+    let html = dioxus_ssr::render_element(rsx! { super::TopBar {} });
+    assert!(
+        html.contains("data-testid=\"view-toggle\""),
+        "view toggle missing from top bar: {html}"
+    );
+}
+
+#[test]
+fn view_toggle_change_writes_view_mode_signal() {
+    use crate::components::ViewMode as ToggleViewMode;
+    use crate::state::view_mode::{ViewMode, VIEW_MODE};
+    // `select_view` is exactly what the ViewToggle `on_change` fires on a tab
+    // click; it maps the component-private enum onto the state signal.
+    with_runtime(|| {
+        super::top_bar::select_view(ToggleViewMode::Board);
+        assert_eq!(*VIEW_MODE.read(), ViewMode::Board);
+        super::top_bar::select_view(ToggleViewMode::Terminal);
+        assert_eq!(*VIEW_MODE.read(), ViewMode::Terminal);
+        super::top_bar::select_view(ToggleViewMode::Graph);
+        assert_eq!(*VIEW_MODE.read(), ViewMode::Graph);
+    });
+}
