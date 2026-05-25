@@ -14,6 +14,9 @@ const BRAND_CSS: &str = include_str!("../assets/brand.css");
 /// not here, so `App` stays headlessly SSR-testable.
 #[component]
 pub fn App() -> Element {
+    // Mount the five effect-owner coroutines once; handles for the message-driven
+    // ones are published to GlobalSignals so the Run / Accept buttons reach them.
+    crate::coroutines::mount_coroutines();
     rsx! {
         div { id: "apohara-app",
             style { "{BRAND_CSS}" }

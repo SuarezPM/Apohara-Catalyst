@@ -10,9 +10,14 @@ use dioxus::prelude::*;
 
 use crate::state::code_diff::{self, CODE_DIFF};
 
-/// Accept the current diff. Placeholder until W4: the real `git apply` runs in
-/// the git_apply_handler coroutine (W4.7), so this is a no-op for now.
-pub(crate) fn accept_diff() {}
+/// Accept the current diff: hand it to the `git_apply_handler` coroutine, which
+/// runs `git apply` against the working tree (W4.7). No-op until the coroutine
+/// is mounted on the desktop runtime.
+pub(crate) fn accept_diff() {
+    if let Some(tx) = crate::coroutines::git_apply_handler::GIT_APPLY_TX.read().as_ref() {
+        tx.send(crate::coroutines::git_apply_handler::GitApplyMsg::Accept);
+    }
+}
 
 /// Reject the current diff: clear CODE_DIFF so the pane returns to empty-state.
 pub(crate) fn reject_diff() {

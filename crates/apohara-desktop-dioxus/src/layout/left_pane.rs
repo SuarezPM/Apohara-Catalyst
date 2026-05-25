@@ -21,11 +21,14 @@ pub(crate) fn set_objective(text: String) {
     objective_input::set(text);
 }
 
-/// Run the current objective. The real dispatch coroutine lands in W4; for now
-/// the Run button flips `RUNNING_STATUS` to `Dispatching` (placeholder signal
-/// the coroutine owner will pick up).
-pub(crate) fn run_objective(_text: String) {
+/// Run the current objective: flip `RUNNING_STATUS` to `Dispatching` for
+/// immediate feedback, then hand the objective to the `dispatch_loop` coroutine
+/// (no-op until it is mounted on the desktop runtime).
+pub(crate) fn run_objective(text: String) {
     running_status::set_status(RunStatus::Dispatching);
+    if let Some(tx) = crate::coroutines::dispatch_loop::DISPATCH_TX.read().as_ref() {
+        tx.send(crate::coroutines::dispatch_loop::DispatchMsg::Run(text));
+    }
 }
 
 /// Load the objective text as an inline SPEC: decompose it into tasks and
