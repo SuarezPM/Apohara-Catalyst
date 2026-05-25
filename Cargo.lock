@@ -361,6 +361,7 @@ version = "1.0.0"
 dependencies = [
  "alacritty_terminal",
  "anyhow",
+ "apohara-decomposer",
  "apohara-dispatch",
  "criterion",
  "dioxus",

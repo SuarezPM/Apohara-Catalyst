@@ -182,3 +182,56 @@ fn view_toggle_change_writes_view_mode_signal() {
         assert_eq!(*VIEW_MODE.read(), ViewMode::Graph);
     });
 }
+
+// --- LeftPane / ObjectivePane wiring (W3.A.4) -------------------------
+
+#[test]
+fn left_pane_mounts_objective_pane_with_load_spec() {
+    let html = dioxus_ssr::render_element(rsx! { super::LeftPane {} });
+    assert!(
+        html.contains("data-testid=\"objective-pane\""),
+        "objective pane missing from left pane: {html}"
+    );
+    assert!(
+        html.contains("data-testid=\"objective-load-spec\""),
+        "Load SPEC button missing: {html}"
+    );
+}
+
+#[test]
+fn typing_objective_writes_objective_input_signal() {
+    use crate::state::objective_input::OBJECTIVE_INPUT;
+    // `set_objective` is the ObjectivePane `on_input` target: every keystroke
+    // in the controlled textarea flows through here into OBJECTIVE_INPUT.
+    with_runtime(|| {
+        super::left_pane::set_objective("build a parser".to_string());
+        assert_eq!(*OBJECTIVE_INPUT.read(), "build a parser");
+    });
+}
+
+#[test]
+fn run_objective_flips_status_to_dispatching() {
+    use crate::state::running_status::{RunStatus, RUNNING_STATUS};
+    with_runtime(|| {
+        super::left_pane::run_objective("anything".to_string());
+        assert_eq!(*RUNNING_STATUS.read(), RunStatus::Dispatching);
+    });
+}
+
+#[test]
+fn load_spec_decomposes_inline_spec_into_tasks() {
+    use crate::state::tasks::TASKS;
+    with_runtime(|| {
+        super::left_pane::load_spec(
+            "## Task t1: build the parser\n## Task t2: write tests\n- depends: t1\n".to_string(),
+        );
+        let tasks = TASKS.read();
+        assert!(
+            tasks.contains_key("t1"),
+            "t1 missing: {:?}",
+            tasks.keys().collect::<Vec<_>>()
+        );
+        assert!(tasks.contains_key("t2"), "t2 missing");
+        assert_eq!(tasks.get("t1").unwrap().title, "build the parser");
+    });
+}

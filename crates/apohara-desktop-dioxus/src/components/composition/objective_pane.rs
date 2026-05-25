@@ -39,30 +39,35 @@ impl ObjectiveMode {
 #[component]
 pub fn ObjectivePane(
     /// Whether a session is currently running. Disables the prompt input
-    /// and both buttons when true.
+    /// and the buttons when true.
     active: bool,
     /// Execution mode. Surfaced on the root via `data-mode`.
     mode: ObjectiveMode,
     /// Comma-separated active provider ids. Stored on the root via
-    /// `data-roster`; Sprint 19 reads it inside the wired callbacks.
+    /// `data-roster`; the wired callbacks read it back.
     roster_csv: String,
-    /// Optional callback fired with the current prompt when the user
-    /// clicks Enhance. Left unconnected by SSR tests; the App wrapper
-    /// will dispatch the Tauri command.
+    /// Controlled value: when `Some`, the textarea reflects this (bound to a
+    /// parent `GlobalSignal` such as `OBJECTIVE_INPUT`) and edits flow out via
+    /// `on_input`. When `None`, the pane falls back to a component-local buffer
+    /// so the prop-driven SSR tests keep working without a parent.
+    value: Option<String>,
+    /// Fired with the new text on every keystroke when the pane is controlled.
+    on_input: Option<EventHandler<String>>,
+    /// Optional callback fired with the current text when Enhance is clicked.
     on_enhance: Option<EventHandler<String>>,
-    /// Optional callback fired with the prompt (or the enhanced version,
-    /// once Sprint 19 wires it back into local state) when Run is clicked.
+    /// Optional callback fired with the current text when Run is clicked.
     on_run: Option<EventHandler<String>>,
+    /// Optional callback fired with the current text when "Load SPEC" is
+    /// clicked. The handler decomposes the text into the task graph (W3.A.4).
+    on_load_spec: Option<EventHandler<String>>,
 ) -> Element {
-    let prompt = use_signal(String::new);
+    let local = use_signal(String::new);
     let mode_key = mode.key();
     let active_attr = if active { "true" } else { "false" };
     let disabled = active;
 
-    let prompt_for_enhance = prompt;
-    let handler_enhance = on_enhance;
-    let prompt_for_run = prompt;
-    let handler_run = on_run;
+    // Controlled value (parent-owned signal) wins; else the local buffer.
+    let text = value.unwrap_or_else(|| local.read().clone());
 
     rsx! {
         aside {
@@ -81,8 +86,16 @@ pub fn ObjectivePane(
                 placeholder: "Describe what to build\u{2026}",
                 rows: 8,
                 disabled,
-                value: "{prompt}",
-                oninput: move |evt| prompt.clone().set(evt.value()),
+                value: "{text}",
+                oninput: move |evt| {
+                    let v = evt.value();
+                    match on_input {
+                        Some(h) => h.call(v),
+                        None => {
+                            local.clone().set(v);
+                        }
+                    }
+                },
             }
 
             div {
@@ -90,11 +103,29 @@ pub fn ObjectivePane(
                 button {
                     r#type: "button",
                     class: "btn btn-secondary",
+                    "data-testid": "objective-load-spec",
+                    disabled,
+                    onclick: {
+                        let text = text.clone();
+                        move |_| {
+                            if let Some(h) = &on_load_spec {
+                                h.call(text.clone());
+                            }
+                        }
+                    },
+                    "Load SPEC"
+                }
+                button {
+                    r#type: "button",
+                    class: "btn btn-secondary",
                     "data-testid": "objective-enhance",
                     disabled,
-                    onclick: move |_| {
-                        if let Some(h) = &handler_enhance {
-                            h.call(prompt_for_enhance.read().clone());
+                    onclick: {
+                        let text = text.clone();
+                        move |_| {
+                            if let Some(h) = &on_enhance {
+                                h.call(text.clone());
+                            }
                         }
                     },
                     "Enhance \u{25BE}"
@@ -104,9 +135,12 @@ pub fn ObjectivePane(
                     class: "btn btn-primary",
                     "data-testid": "objective-run",
                     disabled,
-                    onclick: move |_| {
-                        if let Some(h) = &handler_run {
-                            h.call(prompt_for_run.read().clone());
+                    onclick: {
+                        let text = text.clone();
+                        move |_| {
+                            if let Some(h) = &on_run {
+                                h.call(text.clone());
+                            }
                         }
                     },
                     "Run \u{25B6}"

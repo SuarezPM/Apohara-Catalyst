@@ -1,12 +1,59 @@
 //! Left pane slot (grid-area: left). Hosts the ProviderRoster — availability is
-//! probed from `PATH` at startup. ObjectivePane (W3.A.4) mounts below it next.
+//! probed from `PATH` at startup — and the ObjectivePane below it, whose
+//! controlled textarea is bound to `OBJECTIVE_INPUT` (W3.A.4).
 
 use dioxus::prelude::*;
 
+use apohara_decomposer::{decompose_spec, AgentRole};
 use apohara_dispatch::api::list_active_providers;
 
 use crate::components::layout::{ProviderHealth, ProviderRoster, ProviderStatus};
+use crate::components::{ObjectiveMode, ObjectivePane};
+use crate::state::objective_input::{self, OBJECTIVE_INPUT};
 use crate::state::roster::{upsert_provider, ProviderEntry, ROSTER};
+use crate::state::running_status::{self, status, RunStatus};
+use crate::state::tasks::{upsert_task, DagTask, TaskStatus};
+
+/// Write the objective text into `OBJECTIVE_INPUT`. This is what the controlled
+/// textarea fires on every keystroke (ObjectivePane `on_input`); kept a free fn
+/// so the binding is unit-testable without a DOM event.
+pub(crate) fn set_objective(text: String) {
+    objective_input::set(text);
+}
+
+/// Run the current objective. The real dispatch coroutine lands in W4; for now
+/// the Run button flips `RUNNING_STATUS` to `Dispatching` (placeholder signal
+/// the coroutine owner will pick up).
+pub(crate) fn run_objective(_text: String) {
+    running_status::set_status(RunStatus::Dispatching);
+}
+
+/// Load the objective text as an inline SPEC: decompose it into tasks and
+/// populate `TASKS`. The async/file-path `parse_plan_document` path is deferred
+/// to W4 (W3.A.4 design decision: textarea-as-inline-SPEC, no file dialog).
+pub(crate) fn load_spec(text: String) {
+    for raw in decompose_spec(&text).tasks {
+        upsert_task(DagTask {
+            id: raw.id,
+            title: raw.description,
+            status: TaskStatus::Pending,
+            agent_role: Some(agent_role_label(raw.agent_role).to_string()),
+            ..DagTask::default()
+        });
+    }
+}
+
+/// Lowercase label for a decomposer `AgentRole` (matches its serde rename).
+fn agent_role_label(role: AgentRole) -> &'static str {
+    match role {
+        AgentRole::Planner => "planner",
+        AgentRole::Coder => "coder",
+        AgentRole::Critic => "critic",
+        AgentRole::Judge => "judge",
+        AgentRole::Explorer => "explorer",
+        AgentRole::Editor => "editor",
+    }
+}
 
 #[component]
 pub fn LeftPane() -> Element {
@@ -40,6 +87,14 @@ pub fn LeftPane() -> Element {
         })
         .collect();
 
+    let roster_csv = available
+        .iter()
+        .map(|p| p.id.clone())
+        .collect::<Vec<_>>()
+        .join(",");
+    let objective = OBJECTIVE_INPUT.read().clone();
+    let running = status() != RunStatus::Idle;
+
     rsx! {
         div { class: "left", "data-testid": "layout-left",
             if available.is_empty() {
@@ -56,6 +111,15 @@ pub fn LeftPane() -> Element {
                 }
             } else {
                 ProviderRoster { providers: available }
+            }
+            ObjectivePane {
+                active: running,
+                mode: ObjectiveMode::Cloud,
+                roster_csv,
+                value: Some(objective),
+                on_input: set_objective,
+                on_run: run_objective,
+                on_load_spec: load_spec,
             }
         }
     }
