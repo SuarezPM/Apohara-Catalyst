@@ -9,6 +9,7 @@
 //! the existing dialect adapters). G1.C.1 port — modules ported
 //! task-by-task following TDD.
 
+pub mod api;
 pub mod audit_logger;
 pub mod bootstrap;
 pub mod injection;
@@ -17,7 +18,6 @@ pub mod permission_guard;
 pub mod rate_limit;
 pub mod server;
 pub mod servers;
-pub mod tauri_bridge;
 
 pub use audit_logger::{AuditEntry, AuditError, AuditLogger, AuditStatus};
 pub use bootstrap::{
