@@ -1,10 +1,8 @@
-//! Tauri command bridge for the Rust decomposer path.
+//! Direct API surface for the Rust decomposer path (Sprint 23: ex-`tauri_bridge`).
 //!
-//! Feature-gated: `--features tauri` enables `#[tauri::command]`
-//! registration. Without the feature, the gate logic + inner async
-//! commands stay testable from plain cargo — this keeps
-//! `apohara-decomposer` lean in cli/test contexts and only pulls Tauri
-//! when the desktop shell wires it.
+//! Pure async functions callable directly from the Dioxus desktop via
+//! `use_future` — no Tauri, no IPC. The gate logic + inner async commands
+//! remain testable from plain cargo.
 //!
 //! Flag: `APOHARA_RUST_DECOMPOSER=1` defaults ON post-G1.D.2 flip. Export =0 to opt out
 //! (TS legacy continues to handle decomposition until Phase 1 cierre
@@ -28,29 +26,17 @@ fn check_enabled() -> Result<(), String> {
     Ok(())
 }
 
-/// Inner SPEC → manifest decomposer reused by both the Tauri command
+/// Inner SPEC → manifest decomposer reused by the desktop API surface
 /// and the CLI binary (Phase 1 G1.D). Pure / cheap / deterministic.
 pub async fn decomposer_run_inner(spec: String) -> Result<DecomposedManifest, String> {
     check_enabled()?;
     Ok(decompose_spec(&spec))
 }
 
-/// Inner task-manifest validator reused by the Tauri command and CLI.
+/// Inner task-manifest validator reused by the desktop API surface and CLI.
 pub async fn decomposer_parse_task_inner(raw: serde_json::Value) -> Result<RawTask, String> {
     check_enabled()?;
     parse_task_with_manifest(&raw).map_err(|e| e.to_string())
-}
-
-#[cfg(feature = "tauri")]
-#[tauri::command]
-pub async fn decomposer_run(spec: String) -> Result<DecomposedManifest, String> {
-    decomposer_run_inner(spec).await
-}
-
-#[cfg(feature = "tauri")]
-#[tauri::command]
-pub async fn decomposer_parse_task(raw: serde_json::Value) -> Result<RawTask, String> {
-    decomposer_parse_task_inner(raw).await
 }
 
 #[cfg(test)]
