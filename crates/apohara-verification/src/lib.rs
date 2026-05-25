@@ -8,8 +8,8 @@
 pub mod critic_prompt;
 pub mod dual_status_ac;
 pub mod hallucination_flag;
+pub mod api;
 pub mod quality_gates;
-pub mod tauri_bridge;
 pub mod verification_rounds;
 
 pub use critic_prompt::{build_critic_prompt, CriticContext};

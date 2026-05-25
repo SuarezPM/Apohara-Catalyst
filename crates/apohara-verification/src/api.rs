@@ -1,25 +1,23 @@
-//! Tauri command bridge for the Rust verification path.
+//! Direct API surface for the Rust verification path (Sprint 23: ex-`tauri_bridge`).
 //!
-//! Feature-gated: `--features tauri` enables `#[tauri::command]`
-//! registration. Without the feature, the gate logic + inner async
-//! evaluator are still testable from plain cargo. This lets
-//! `apohara-verification` compile lean in cli/test contexts and only
-//! pulls Tauri when the desktop shell wires it.
+//! Pure async functions callable directly from the Dioxus desktop via
+//! `use_future` — no Tauri, no IPC. The gate logic + inner async evaluator
+//! remain testable from plain cargo.
 //!
-//! Flag: `APOHARA_RUST_VERIFICATION=1` enables the Rust path. Default
-//! OFF (TS legacy continues to handle verification until Phase 1
-//! cierre flips defaults in G1.D.2).
+//! Flag: `APOHARA_RUST_VERIFICATION=1` enables the Rust path. Export =0 to opt out
+//! (TS legacy continues to handle verification until Phase 1 cierre flips defaults
+//! in G1.D.2).
 
 use crate::quality_gates::{run_all_gates, GateInput, MultiGateResult};
 
 /// Pure gate predicate — testable without env mutation. Mirrors the
-/// apohara-dispatch tauri_bridge::is_enabled pattern verbatim so
-/// future readers can match the two by sight.
+/// apohara-dispatch api::is_enabled pattern verbatim so future readers
+/// can match the two by sight.
 pub fn is_enabled(env_value: Option<&str>) -> bool {
     env_value != Some("0")
 }
 
-/// Inner async evaluator reused by both the Tauri command and the
+/// Inner async evaluator reused by the desktop API surface and the
 /// CLI binary (Phase 1 G1.D). Runs every applicable quality gate and
 /// returns the aggregated pass/block list.
 pub async fn rust_quality_gates_inner(input: GateInput) -> Result<MultiGateResult, String> {
@@ -31,14 +29,8 @@ pub async fn rust_quality_gates_inner(input: GateInput) -> Result<MultiGateResul
     }
     // run_all_gates is sync today; we keep the wrapper async so the
     // future signature stays stable when callers add I/O (e.g. spec
-    // loading) and so Tauri can suspend us on the runtime properly.
+    // loading) and so the desktop can suspend us on the runtime properly.
     Ok(run_all_gates(&input))
-}
-
-#[cfg(feature = "tauri")]
-#[tauri::command]
-pub async fn quality_gates_evaluate(input: GateInput) -> Result<MultiGateResult, String> {
-    rust_quality_gates_inner(input).await
 }
 
 #[cfg(test)]
