@@ -9,6 +9,7 @@
 //! in G1.D.2).
 
 use crate::cli_driver::{CliDriver, DispatchOutcome, DispatchRequest};
+use serde::{Deserialize, Serialize};
 
 /// Pure gate predicate — testable without env mutation.
 pub fn is_enabled(env_value: Option<&str>) -> bool {
@@ -27,9 +28,97 @@ pub async fn rust_dispatch_inner(req: DispatchRequest) -> Result<DispatchOutcome
     CliDriver::dispatch(req).await.map_err(|e| e.to_string())
 }
 
+/// A provider in the active roster plus whether its CLI binary resolves on the
+/// host `PATH`. Consumed by the desktop roster (W3.A.2) and the TUI
+/// (`active_agents`). Pablo's hard rule: exactly these 3 ids are active.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ActiveProvider {
+    pub id: String,
+    pub binary_path: String,
+    pub available: bool,
+}
+
+/// (roster id, CLI binary name) for the 3 active providers. Others are LEGACY
+/// behind `APOHARA_LEGACY_PROVIDERS=1` and intentionally excluded here.
+const ACTIVE_PROVIDERS: [(&str, &str); 3] = [
+    ("claude-code-cli", "claude"),
+    ("codex-cli", "codex"),
+    ("opencode-go", "opencode"),
+];
+
+#[cfg(unix)]
+fn is_executable(path: &std::path::Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path)
+        .map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+        .unwrap_or(false)
+}
+
+#[cfg(not(unix))]
+fn is_executable(path: &std::path::Path) -> bool {
+    path.is_file()
+}
+
+/// Resolve `binary` against the host `PATH`, returning the first executable
+/// match. Pure lookup — no subprocess spawn — so it's cheap and deterministic.
+fn find_in_path(binary: &str) -> Option<String> {
+    let paths = std::env::var_os("PATH")?;
+    std::env::split_paths(&paths)
+        .map(|dir| dir.join(binary))
+        .find(|candidate| is_executable(candidate))
+        .map(|p| p.to_string_lossy().into_owned())
+}
+
+/// Probe `PATH` for each active provider's CLI binary so the desktop can render
+/// roster availability at startup. `binary_path` is the resolved path when
+/// found, else the bare binary name (so the UI can show what it searched for).
+pub fn list_active_providers() -> Vec<ActiveProvider> {
+    ACTIVE_PROVIDERS
+        .iter()
+        .map(|(id, binary)| match find_in_path(binary) {
+            Some(path) => ActiveProvider {
+                id: (*id).to_string(),
+                binary_path: path,
+                available: true,
+            },
+            None => ActiveProvider {
+                id: (*id).to_string(),
+                binary_path: (*binary).to_string(),
+                available: false,
+            },
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn list_active_providers_returns_three_known_ids() {
+        let providers = list_active_providers();
+        let ids: Vec<&str> = providers.iter().map(|p| p.id.as_str()).collect();
+        assert_eq!(ids, vec!["claude-code-cli", "codex-cli", "opencode-go"]);
+    }
+
+    #[test]
+    fn list_active_providers_available_reflects_path() {
+        // No panic regardless of which binaries exist on the host. When a
+        // provider is marked available, its resolved path must actually exist;
+        // when not, binary_path falls back to the bare binary name.
+        for p in list_active_providers() {
+            if p.available {
+                assert!(
+                    std::path::Path::new(&p.binary_path).exists(),
+                    "{} marked available but path {} is missing",
+                    p.id,
+                    p.binary_path
+                );
+            } else {
+                assert!(!p.binary_path.contains('/'), "{}: {}", p.id, p.binary_path);
+            }
+        }
+    }
 
     #[test]
     fn is_enabled_default_on_only_zero_disables() {
