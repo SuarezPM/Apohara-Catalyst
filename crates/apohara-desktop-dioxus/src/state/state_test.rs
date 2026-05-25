@@ -289,3 +289,21 @@ mod sse_events_tests {
         });
     }
 }
+
+#[cfg(test)]
+mod selected_task_tests {
+    use super::with_runtime;
+    use crate::state::selected_task::{clear, select, selected, SELECTED_TASK};
+    use dioxus::prelude::ReadableExt;
+
+    #[test]
+    fn select_then_clear() {
+        with_runtime(|| {
+            select("st1");
+            assert_eq!(selected(), Some("st1".to_string()));
+            assert_eq!(SELECTED_TASK.read().clone(), Some("st1".to_string()));
+            clear();
+            assert_eq!(selected(), None);
+        });
+    }
+}
