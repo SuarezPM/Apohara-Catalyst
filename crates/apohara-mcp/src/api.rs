@@ -1,10 +1,8 @@
-//! Tauri command bridge for the Rust mcp path.
+//! Direct API surface for the Rust mcp path (Sprint 23: ex-`tauri_bridge`).
 //!
-//! Feature-gated: `--features tauri` enables `#[tauri::command]`
-//! registration. Without the feature, the gate logic + inner async
-//! commands stay testable from plain cargo — this keeps `apohara-mcp`
-//! lean in cli/test contexts and only pulls Tauri when the desktop
-//! shell wires it.
+//! Pure async functions callable directly from the Dioxus desktop via
+//! `use_future` — no Tauri, no IPC. The gate logic + inner async commands
+//! remain testable from plain cargo.
 //!
 //! Flag: `APOHARA_RUST_MCP=1` defaults ON post-G1.D.2 flip. Export =0 to opt out (TS
 //! legacy continues to handle MCP until Phase 1 cierre flips defaults
@@ -81,7 +79,7 @@ impl RunsBackend for EmptyRuns {
     }
 }
 
-/// Inner async bootstrap reused by both the Tauri command and the
+/// Inner async bootstrap reused by the desktop API surface and the
 /// CLI binary (Phase 1 G1.D). Uses default paths under `~/.apohara/`.
 pub async fn mcp_bootstrap_servers_inner() -> Result<EndpointDescriptor, String> {
     check_enabled()?;
@@ -110,7 +108,7 @@ fn leak_handle(handle: BootstrapHandle) {
     Box::leak(Box::new(handle));
 }
 
-/// Inner async injector reused by both the Tauri command and the CLI
+/// Inner async injector reused by the desktop API surface and the CLI
 /// binary. The desktop UI calls this after `mcp_bootstrap_servers`
 /// returns to write each provider's native config.
 pub async fn mcp_inject_config_inner(
@@ -122,22 +120,6 @@ pub async fn mcp_inject_config_inner(
     inject_mcp_config(provider_id, &canonical, &PathBuf::from(&workspace_path))
         .await
         .map_err(|e| e.to_string())
-}
-
-#[cfg(feature = "tauri")]
-#[tauri::command]
-pub async fn mcp_bootstrap_servers() -> Result<EndpointDescriptor, String> {
-    mcp_bootstrap_servers_inner().await
-}
-
-#[cfg(feature = "tauri")]
-#[tauri::command]
-pub async fn mcp_inject_config(
-    provider_id: ProviderId,
-    canonical: McpCanonical,
-    workspace_path: String,
-) -> Result<InjectionResult, String> {
-    mcp_inject_config_inner(provider_id, canonical, workspace_path).await
 }
 
 #[cfg(test)]
