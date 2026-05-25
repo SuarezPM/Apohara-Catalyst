@@ -1,60 +1,59 @@
 //! Data adapters between TUI views and Apohara core crates.
 //!
-//! Each function here is the seam where view rendering meets the
-//! Rust-native dispatch/token-accounting layer. The plan
-//! (`docs/superpowers/plans/2026-05-23-apohara-catalyst-rust-phase-3-contextforge.md`
-//! G3.A.6) calls for wiring `apohara_dispatch::list_active_providers()`
-//! and `apohara_token_accounting::current_totals()`; neither helper
-//! exists upstream yet, so this module hosts the parity stubs and a
-//! TODO-back-add issue note. When the upstream helpers land, replace the
-//! body of each adapter — the view side is already consuming them.
-//!
-//! TODO(catalyst-tracker): file issues against `apohara-dispatch` and
-//! `apohara-token-accounting` to add the cross-cutting accessors the TUI
-//! and other surfaces will share. Until then this module is the single
-//! place to update once those helpers land.
+//! Each function here is the seam where view rendering meets the Rust-native
+//! dispatch/token-accounting layer: `active_agents` reads the live provider
+//! roster from `apohara_dispatch::api::list_active_providers()` and overlays
+//! per-provider token totals from
+//! `apohara_token_accounting::api::current_totals()`; `cost_rows` reads the
+//! same token totals for the cost table.
 
 use crate::views::agent_list::AgentSnapshot;
 use crate::views::cost_table::CostRow;
-use apohara_token_accounting::TokenCounter;
+use apohara_dispatch::api::list_active_providers;
+use apohara_token_accounting::api::current_totals;
 
-/// Currently-active providers in the roster. Mirrors the active list in
-/// CLAUDE.md (`claude-code-cli`, `codex-cli`, `opencode-go`).
-///
-/// Future wiring: read from `apohara_dispatch::list_active_providers()`.
+/// Display role per active provider. The roster carries no role of its own, so
+/// this is a stable display label keyed by provider id.
+fn display_role(provider_id: &str) -> &'static str {
+    match provider_id {
+        "claude-code-cli" => "coder",
+        "codex-cli" => "reviewer",
+        "opencode-go" => "tester",
+        _ => "agent",
+    }
+}
+
+/// Currently-active providers in the roster, with availability resolved from
+/// `PATH` (via `list_active_providers`) and token totals from the
+/// process-global accounting counter.
 pub fn active_agents() -> Vec<AgentSnapshot> {
-    let counter = TokenCounter::new();
-    ["claude-code-cli", "codex-cli", "opencode-go"]
-        .iter()
-        .zip(["coder", "reviewer", "tester"])
-        .map(|(id, role)| {
-            let snap = counter.total_for_provider(id);
+    let totals = current_totals();
+    list_active_providers()
+        .into_iter()
+        .map(|p| {
+            let tokens = totals.per_provider.iter().find(|t| t.provider_id == p.id);
             AgentSnapshot {
-                id: (*id).to_string(),
-                role: role.to_string(),
-                status: "ready".to_string(),
-                tokens_in: snap.input,
-                tokens_out: snap.output,
+                role: display_role(&p.id).to_string(),
+                status: if p.available { "ready" } else { "unavailable" }.to_string(),
+                tokens_in: tokens.map(|t| t.tokens_in).unwrap_or(0),
+                tokens_out: tokens.map(|t| t.tokens_out).unwrap_or(0),
+                id: p.id,
             }
         })
         .collect()
 }
 
-/// Per-provider cost rows. Future wiring: read from
-/// `apohara_token_accounting::current_totals()` once it exposes
-/// per-provider USD totals.
+/// Per-provider cost rows from `current_totals()`. `cost_usd` is `0.0` until a
+/// pricing model lands (see `apohara_token_accounting::api`).
 pub fn cost_rows() -> Vec<CostRow> {
-    let counter = TokenCounter::new();
-    ["claude-code-cli", "codex-cli", "opencode-go"]
-        .iter()
-        .map(|id| {
-            let snap = counter.total_for_provider(id);
-            CostRow {
-                provider: (*id).to_string(),
-                tokens_in: snap.input,
-                tokens_out: snap.output,
-                cost_usd: 0.0,
-            }
+    current_totals()
+        .per_provider
+        .into_iter()
+        .map(|t| CostRow {
+            provider: t.provider_id,
+            tokens_in: t.tokens_in,
+            tokens_out: t.tokens_out,
+            cost_usd: t.cost_usd,
         })
         .collect()
 }
@@ -81,6 +80,8 @@ mod tests {
 
     #[test]
     fn empty_counter_yields_zero_tokens() {
+        // current_totals() reads the process-global counter, which no other
+        // test in this binary records into, so totals are zero here.
         let agents = active_agents();
         for a in agents {
             assert_eq!(a.tokens_in, 0);
