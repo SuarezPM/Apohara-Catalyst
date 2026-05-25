@@ -346,3 +346,108 @@ fn select_task_writes_selected_task_signal() {
         assert_eq!(*SELECTED_TASK.read(), Some("t1".to_string()));
     });
 }
+
+// --- RightPane / CodeDiff (W3.C.1, W3.C.2) ----------------------------
+
+#[test]
+fn right_pane_empty_state_when_no_diff() {
+    let html = dioxus_ssr::render_element(rsx! { super::RightPane {} });
+    assert!(
+        html.contains("data-testid=\"code-diff-empty\""),
+        "empty-state missing: {html}"
+    );
+    assert!(html.contains("No diff yet"), "empty-state text missing: {html}");
+}
+
+#[test]
+fn right_pane_renders_diff_when_present() {
+    use crate::state::code_diff::{set, Diff};
+    #[allow(non_snake_case)]
+    fn Harness() -> Element {
+        use_hook(|| {
+            set(Diff {
+                unified: "--- a/foo.rs\n+++ b/foo.rs\n-old line\n+new line\n unchanged\n".into(),
+                files_changed: vec!["foo.rs".into()],
+                provider_winner: "claude-code-cli".into(),
+            })
+        });
+        rsx! { super::RightPane {} }
+    }
+    let mut vdom = VirtualDom::new(Harness);
+    vdom.rebuild_in_place();
+    let html = dioxus_ssr::render(&vdom);
+    assert!(
+        html.contains("data-testid=\"code-diff-pane\""),
+        "diff pane missing: {html}"
+    );
+    assert!(
+        html.contains("claude-code-cli"),
+        "provider_winner badge missing: {html}"
+    );
+    assert!(html.contains("foo.rs"), "files_changed missing: {html}");
+    assert!(html.contains("diff-added"), "added line class missing: {html}");
+    assert!(
+        html.contains("diff-removed"),
+        "removed line class missing: {html}"
+    );
+}
+
+#[test]
+fn reject_diff_clears_code_diff_signal() {
+    use crate::state::code_diff::{set, Diff, CODE_DIFF};
+    with_runtime(|| {
+        set(Diff {
+            unified: "x".into(),
+            files_changed: vec![],
+            provider_winner: "p".into(),
+        });
+        assert!(CODE_DIFF.read().is_some());
+        super::right_pane::reject_diff();
+        assert!(CODE_DIFF.read().is_none());
+    });
+}
+
+// --- TerminalPane drawer (W3.C.3) -------------------------------------
+
+#[test]
+fn events_for_selection_filters_by_payload_contains_id() {
+    use crate::state::sse_events::SseEvent;
+    let events = vec![
+        SseEvent {
+            kind: "state-patch".into(),
+            payload: "{\"task\":\"t1\"}".into(),
+            ts: 1,
+        },
+        SseEvent {
+            kind: "state-patch".into(),
+            payload: "{\"task\":\"t2\"}".into(),
+            ts: 2,
+        },
+    ];
+    let only_t1 = super::center_pane::events_for_selection(Some("t1".to_string()), &events);
+    assert_eq!(only_t1.len(), 1, "expected only the t1 event");
+    assert_eq!(only_t1[0].ts, 1);
+    let all = super::center_pane::events_for_selection(None, &events);
+    assert_eq!(all.len(), 2, "no selection should show the full tape");
+}
+
+#[test]
+fn center_pane_mounts_terminal_drawer_closed_by_default() {
+    use crate::state::view_mode::{set_view_mode, ViewMode};
+    #[allow(non_snake_case)]
+    fn Harness() -> Element {
+        use_hook(|| set_view_mode(ViewMode::Graph));
+        rsx! { super::CenterPane {} }
+    }
+    let mut vdom = VirtualDom::new(Harness);
+    vdom.rebuild_in_place();
+    let html = dioxus_ssr::render(&vdom);
+    assert!(
+        html.contains("data-testid=\"terminal-drawer\""),
+        "terminal drawer missing: {html}"
+    );
+    assert!(
+        html.contains("data-open=\"false\""),
+        "drawer should default to closed: {html}"
+    );
+}
