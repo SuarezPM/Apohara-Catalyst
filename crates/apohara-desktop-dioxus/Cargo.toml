@@ -24,6 +24,7 @@ anyhow = "1.0"
 thiserror = "2.0"
 apohara-dispatch = { path = "../apohara-dispatch" }
 apohara-decomposer = { path = "../apohara-decomposer" }
+apohara-token-accounting = { path = "../apohara-token-accounting" }
 fuzzy-matcher = "0.3"
 petgraph = "0.6"
 # syntect default-features=false skips the `onig` native dep; we only need

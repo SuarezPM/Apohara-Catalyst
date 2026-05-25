@@ -451,3 +451,31 @@ fn center_pane_mounts_terminal_drawer_closed_by_default() {
         "drawer should default to closed: {html}"
     );
 }
+
+// --- BottomBar / Statusline (W3.D.4) ----------------------------------
+
+#[test]
+fn statusline_state_maps_aggregate_token_totals() {
+    use apohara_token_accounting::api::TokenTotals;
+    let totals = TokenTotals {
+        total_in: 100,
+        total_out: 40,
+        total_cost_usd: 0.0,
+        per_provider: vec![],
+    };
+    let state = super::bottom_bar::statusline_state(&totals);
+    assert_eq!(state.tokens_used, 140, "tokens_used should be in + out");
+}
+
+#[test]
+fn bottom_bar_renders_statusline() {
+    let html = dioxus_ssr::render_element(rsx! { super::BottomBar {} });
+    assert!(
+        html.contains("data-testid=\"statusline\""),
+        "statusline missing: {html}"
+    );
+    assert!(
+        html.contains("data-testid=\"status-tokens\""),
+        "token cell missing: {html}"
+    );
+}
