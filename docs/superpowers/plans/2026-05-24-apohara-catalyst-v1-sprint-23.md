@@ -87,17 +87,17 @@ Patrón por crate (confirmado contra `apohara-dispatch/src/tauri_bridge.rs`): (1
 
 ### Grupo B — APIs faltantes
 
-- [ ] W1.B.1: En `crates/apohara-dispatch/src/api.rs` añadir `ActiveProvider` + `list_active_providers()` que probea `which claude|codex|opencode` (usar `std::process::Command::new("which")` o `PATH` lookup). Añadir `#[tokio::test]`/`#[test]` que assert: 3 entries con ids esperados, `available` refleja presencia real (no panic si falta el binario). — verify: `cargo test -p apohara-dispatch api::`
-- [ ] W1.B.2: Crear `crates/apohara-token-accounting/src/api.rs` con `ProviderTotals` + `TokenTotals` + `current_totals()` (agrega `TokenCounter::total_for_provider` sobre `["claude-code-cli","codex-cli","opencode-go"]`). Registrar `pub mod api;` en `src/lib.rs`. Test: contador vacío → totals en cero, 3 `per_provider` rows. — verify: `cargo test -p apohara-token-accounting`
+- [x] W1.B.1: En `crates/apohara-dispatch/src/api.rs` añadir `ActiveProvider` + `list_active_providers()` que probea `which claude|codex|opencode` (usar `std::process::Command::new("which")` o `PATH` lookup). Añadir `#[tokio::test]`/`#[test]` que assert: 3 entries con ids esperados, `available` refleja presencia real (no panic si falta el binario). — verify: `cargo test -p apohara-dispatch api::`
+- [x] W1.B.2: Crear `crates/apohara-token-accounting/src/api.rs` con `ProviderTotals` + `TokenTotals` + `current_totals()` (agrega `TokenCounter::total_for_provider` sobre `["claude-code-cli","codex-cli","opencode-go"]`). Registrar `pub mod api;` en `src/lib.rs`. Test: contador vacío → totals en cero, 3 `per_provider` rows. — verify: `cargo test -p apohara-token-accounting`
 
 ### Grupo C — Streaming + TUI seam
 
-- [ ] W1.C.1: En `crates/apohara-dispatch/src/cli_driver.rs` añadir `dispatch_streaming(req, on_line)` — spawnea el CLI vía el path sanitizado existente, lee stdout línea-a-línea por `tokio::mpsc::channel::<String>(1024)`, invoca `on_line` por cada línea, `try_send` drop-oldest + `tracing::warn` en canal lleno (R2). Reusa `sanitizeEnv`-equivalente (`build_sanitized_env`) y `runSerialized`/queue per-binary (incident: per-binary lock). Test `#[tokio::test]` con `/bin/echo` (NO `bash -c`, incident PTY): assert on_line recibió la línea. — verify: `cargo test -p apohara-dispatch cli_driver`
-- [ ] W1.C.2: Re-wire `crates/apohara-tui/src/data.rs`: `active_agents()` lee de `apohara_dispatch::api::list_active_providers()`; `cost_rows()` lee de `apohara_token_accounting::api::current_totals().per_provider`. Borrar el `TODO(catalyst-tracker)` del module doc. Mantener verdes los 3 tests existentes (ajustar asserts si el shape cambió). — verify: `cargo test -p apohara-tui`
+- [x] W1.C.1: En `crates/apohara-dispatch/src/cli_driver.rs` añadir `dispatch_streaming(req, on_line)` — spawnea el CLI vía el path sanitizado existente, lee stdout línea-a-línea por `tokio::mpsc::channel::<String>(1024)`, invoca `on_line` por cada línea, `try_send` drop-oldest + `tracing::warn` en canal lleno (R2). Reusa `sanitizeEnv`-equivalente (`build_sanitized_env`) y `runSerialized`/queue per-binary (incident: per-binary lock). Test `#[tokio::test]` con `/bin/echo` (NO `bash -c`, incident PTY): assert on_line recibió la línea. — verify: `cargo test -p apohara-dispatch cli_driver`
+- [x] W1.C.2: Re-wire `crates/apohara-tui/src/data.rs`: `active_agents()` lee de `apohara_dispatch::api::list_active_providers()`; `cost_rows()` lee de `apohara_token_accounting::api::current_totals().per_provider`. Borrar el `TODO(catalyst-tracker)` del module doc. Mantener verdes los 3 tests existentes (ajustar asserts si el shape cambió). — verify: `cargo test -p apohara-tui`
 
 ### Gate Wave 1
 
-- [ ] W1.GATE: Workspace verde post-strip — verify: `cargo test --workspace` (≥1078 passed / 0 failed) `&&` `cargo clippy --workspace --all-targets -- -D warnings`
+- [x] W1.GATE: Workspace verde post-strip — verify: `cargo test --workspace` (≥1078 passed / 0 failed) `&&` `cargo clippy --workspace --all-targets -- -D warnings`
 
 ---
 
