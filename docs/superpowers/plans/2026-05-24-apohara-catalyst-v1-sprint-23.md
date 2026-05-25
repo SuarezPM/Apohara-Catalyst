@@ -173,7 +173,7 @@ Patrón por crate (confirmado contra `apohara-dispatch/src/tauri_bridge.rs`): (1
 - [x] W4.5: `coroutines/reconciler_tick.rs`: cada 30s `dispatch::api::reconciler::run_reconciler_passes`; tasks afectadas → `TOAST_QUEUE` notification. Test del tick (usar `tokio::time::pause`). — verify: `cargo test -p apohara-desktop-dioxus coroutines`
 - [x] W4.6: `coroutines/toast_reaper.rs`: cada 5s `TOAST_QUEUE.sweep_expired()` (basado en `created_at + ttl_ms`). Test: toast expirado se remueve. — verify: `cargo test -p apohara-desktop-dioxus coroutines`
 - [x] W4.7: `coroutines/git_apply_handler.rs`: on Accept → `git apply` (std `Command`) del `CODE_DIFF.unified` contra working tree → success `Toast`; on failure → error `Toast`. Test: diff inválido → error toast (sin tocar el repo real, usar tempdir). — verify: `cargo test -p apohara-desktop-dioxus coroutines`
-- [ ] W4.SMOKE: Happy path — type "hello world rust" → Run → 3 dots animando (3 providers) → 3 streams en TerminalPane drawers → diff en CodeDiffPane. — verify (manual): `cargo run -p apohara-desktop-dioxus`
+- [x] W4.SMOKE: Happy path — type "hello world rust" → Run → 3 dots animando (3 providers) → 3 streams en TerminalPane drawers → diff en CodeDiffPane. — verify (manual): `cargo run -p apohara-desktop-dioxus` — corrido por Pablo 2026-05-25: prompt despachado a los 2 providers en PATH (claude-code-cli + opencode-go), stream real en el Terminal drawer, ambas tasks → Done; sin diff porque el prompt no editó archivos (git diff vacío, esperado).
 
 ---
 
