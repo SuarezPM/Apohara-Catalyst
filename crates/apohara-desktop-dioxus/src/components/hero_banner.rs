@@ -21,6 +21,10 @@ use dioxus::prelude::*;
 
 #[component]
 pub fn HeroBanner(
+    /// When `true`, render a slim always-visible header strip instead of the
+    /// full empty-state card. Driven by `RUNNING_STATUS != Idle` (W3.A.1).
+    #[props(default)]
+    compact: bool,
     /// Active session id; if `Some` the banner hides.
     session_id: Option<String>,
     /// Whether the orchestration store is currently task-empty.
@@ -31,6 +35,22 @@ pub fn HeroBanner(
     /// button is omitted so the layout collapses to docs-only.
     on_seed_demo: Option<EventHandler<MouseEvent>>,
 ) -> Element {
+    if compact {
+        return rsx! {
+            section {
+                class: "hero-banner hero-banner--compact",
+                "data-testid": "hero-banner-compact",
+                role: "region",
+                "aria-label": "Apohara Catalyst — run in progress",
+                style: "display: flex; align-items: center; gap: 12px; padding: 0.4rem 1rem; background: var(--apohara-ink); border-bottom: 2px solid var(--apohara-lime); color: var(--apohara-bone);",
+                span {
+                    class: "font-display",
+                    style: "color: var(--apohara-lime); font-size: 0.8rem; letter-spacing: 2px;",
+                    "APOHARA CATALYST"
+                }
+            }
+        };
+    }
     if session_id.is_some() {
         return rsx! {};
     }
