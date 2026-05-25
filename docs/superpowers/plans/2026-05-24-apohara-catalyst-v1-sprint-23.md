@@ -138,10 +138,10 @@ Patrón por crate (confirmado contra `apohara-dispatch/src/tauri_bridge.rs`): (1
 
 ### Grupo 3.B — CenterPane swap
 
-- [ ] W3.B.1: En `center_pane.rs` `match VIEW_MODE` → render `SwarmCanvas | KanbanBoard | TaskBoard`. SSR test: cada ViewMode monta el componente correcto. — verify: `cargo test -p apohara-desktop-dioxus`
-- [ ] W3.B.2: `SwarmCanvas` (components/hard/swarm_canvas.rs): nodos leen `TASKS`; click en nodo → `SELECTED_TASK`. SSR test: click setea SELECTED_TASK. — verify: `cargo test -p apohara-desktop-dioxus`
-- [ ] W3.B.3: `KanbanBoard` (components/composition/kanban_board.rs): lanes leen `TASKS`; dnd entre lanes llama `dispatch::api::state::run_transition`. SSR test: render 4 lanes con tasks agrupadas por status. — verify: `cargo test -p apohara-desktop-dioxus`
-- [ ] W3.B.4: `TaskBoard` (components/layout/task_board.rs): lista plana leyendo `TASKS`; click row → `SELECTED_TASK`. SSR test. — verify: `cargo test -p apohara-desktop-dioxus`
+- [x] W3.B.1: En `center_pane.rs` `match VIEW_MODE` → render `SwarmCanvas | KanbanBoard | TaskBoard`. SSR test: cada ViewMode monta el componente correcto. — verify: `cargo test -p apohara-desktop-dioxus`
+- [x] W3.B.2: `SwarmCanvas` (components/hard/swarm_canvas.rs): nodos leen `TASKS`; click en nodo → `SELECTED_TASK`. SSR test: click setea SELECTED_TASK. — verify: `cargo test -p apohara-desktop-dioxus`
+- [x] W3.B.3: `KanbanBoard` (components/composition/kanban_board.rs): lanes leen `TASKS`; dnd entre lanes llama `dispatch::api::state::run_transition`. SSR test: render 4 lanes con tasks agrupadas por status. — verify: `cargo test -p apohara-desktop-dioxus`
+- [x] W3.B.4: `TaskBoard` (components/layout/task_board.rs): lista plana leyendo `TASKS`; click row → `SELECTED_TASK`. SSR test. — verify: `cargo test -p apohara-desktop-dioxus`
 
 ### Grupo 3.C — RightPane + TerminalPane drawer
 
