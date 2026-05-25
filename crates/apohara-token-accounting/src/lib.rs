@@ -6,6 +6,7 @@
 //! the cross-thread total sums those last-knowns. This makes reconnects
 //! and replays idempotent.
 
+pub mod api;
 pub mod counter;
 pub use counter::{ThreadKey, TokenCounter, TokenSnapshot};
 
