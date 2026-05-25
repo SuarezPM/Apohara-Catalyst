@@ -10,6 +10,7 @@
 pub mod objective_input;
 pub mod permissions;
 pub mod roster;
+pub mod running_status;
 pub mod selected_task;
 pub mod sse_events;
 pub mod tasks;
