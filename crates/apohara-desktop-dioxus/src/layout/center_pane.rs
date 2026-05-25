@@ -10,6 +10,7 @@ use crate::components::hard::SwarmCanvas;
 use crate::components::layout::task_board::{self, TaskBoard};
 use crate::components::{KanbanBoard, KanbanTask, KanbanTaskStatus};
 use crate::state::selected_task;
+use crate::state::sse_events::{recent_events, SseEvent};
 use crate::state::tasks::{DagTask, TaskStatus, TASKS};
 use crate::state::view_mode::{ViewMode, VIEW_MODE};
 
@@ -17,6 +18,21 @@ use crate::state::view_mode::{ViewMode, VIEW_MODE};
 /// (their `on_select`); kept a free fn so the wiring is unit-testable.
 pub(crate) fn select_task(id: String) {
     selected_task::select(id);
+}
+
+/// Filter the SSE event tape for the TerminalPane drawer. When a task is
+/// selected, keep only events whose payload mentions its id — `SseEvent` has no
+/// `task_id` field, so this is a best-effort substring match (W3.C.3 decision).
+/// With no selection the full tape is shown.
+pub(crate) fn events_for_selection(selected: Option<String>, events: &[SseEvent]) -> Vec<SseEvent> {
+    match selected {
+        Some(id) => events
+            .iter()
+            .filter(|e| e.payload.contains(&id))
+            .cloned()
+            .collect(),
+        None => events.to_vec(),
+    }
 }
 
 /// Apply a kanban drag-drop. Placeholder until W4: `dispatch::state` exposes no
@@ -107,6 +123,17 @@ pub fn CenterPane() -> Element {
     let tasks: Vec<DagTask> = TASKS.read().values().cloned().collect();
     let mode = *VIEW_MODE.read();
 
+    // TerminalPane drawer state: collapsible, default closed (W3.C.3).
+    let drawer_open = use_signal(|| false);
+    let open = *drawer_open.read();
+    let drawer_class = if open {
+        "terminal-drawer terminal-drawer--open"
+    } else {
+        "terminal-drawer"
+    };
+    let open_attr = if open { "true" } else { "false" };
+    let events = events_for_selection(selected_task::selected(), &recent_events());
+
     rsx! {
         div { class: "center", "data-testid": "layout-center",
             {
@@ -122,6 +149,30 @@ pub fn CenterPane() -> Element {
                     ViewMode::Terminal => {
                         let board = to_taskboard(&tasks);
                         rsx! { TaskBoard { tasks: board, on_select: select_task } }
+                    }
+                }
+            }
+            div {
+                class: "{drawer_class}",
+                "data-testid": "terminal-drawer",
+                "data-open": "{open_attr}",
+                header {
+                    class: "terminal-drawer-header",
+                    "data-testid": "terminal-drawer-toggle",
+                    onclick: move |_| {
+                        let next = !*drawer_open.read();
+                        drawer_open.clone().set(next);
+                    },
+                    "Terminal"
+                }
+                div {
+                    class: "terminal-drawer-body",
+                    for ev in events {
+                        div {
+                            class: "terminal-event",
+                            "data-event-kind": "{ev.kind}",
+                            "{ev.payload}"
+                        }
                     }
                 }
             }
