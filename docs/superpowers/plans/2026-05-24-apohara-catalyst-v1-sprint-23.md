@@ -131,8 +131,8 @@ Patrón por crate (confirmado contra `apohara-dispatch/src/tauri_bridge.rs`): (1
 
 ### Grupo 3.A — TopBar + LeftPane
 
-- [ ] W3.A.1: Cablear `HeroBanner` en `top_bar.rs` modo compact (props derivados de `RUNNING_STATUS != Idle`). SSR test: compact cuando Dispatching. — verify: `cargo test -p apohara-desktop-dioxus`
-- [ ] W3.A.2: Cablear `ProviderRoster` (components/layout/provider_roster.rs) leyendo `ROSTER`; startup probe `use_future` que llama `list_active_providers()` y mapea `ActiveProvider`→`ProviderEntry` (lee shape en `state/roster.rs`). Empty-state: card "No providers found on PATH" + Button "How to install" que dispara CommandPalette. SSR test: roster vacío → empty-state visible. — verify: `cargo test -p apohara-desktop-dioxus`
+- [x] W3.A.1: Cablear `HeroBanner` en `top_bar.rs` modo compact (props derivados de `RUNNING_STATUS != Idle`). SSR test: compact cuando Dispatching. — verify: `cargo test -p apohara-desktop-dioxus`
+- [x] W3.A.2: Cablear `ProviderRoster` (components/layout/provider_roster.rs) leyendo `ROSTER`; startup probe `use_future` que llama `list_active_providers()` y mapea `ActiveProvider`→`ProviderEntry` (lee shape en `state/roster.rs`). Empty-state: card "No providers found on PATH" + Button "How to install" que dispara CommandPalette. SSR test: roster vacío → empty-state visible. — verify: `cargo test -p apohara-desktop-dioxus`
 - [ ] W3.A.3: Cablear `ViewToggle` en `top_bar.rs` escribiendo `VIEW_MODE`. SSR test: click escribe el signal. — verify: `cargo test -p apohara-desktop-dioxus`
 - [ ] W3.A.4: Cablear `ObjectivePane` (left_pane.rs): textarea controlada bound a `OBJECTIVE_INPUT`; Run button setea `RUNNING_STATUS=Dispatching` + dispara coroutine signal (placeholder hasta W4); "Load SPEC" llama `spec::api::parse_plan_document` + `decomposer::api::decompose_spec`. SSR test: typing actualiza OBJECTIVE_INPUT. — verify: `cargo test -p apohara-desktop-dioxus`
 
