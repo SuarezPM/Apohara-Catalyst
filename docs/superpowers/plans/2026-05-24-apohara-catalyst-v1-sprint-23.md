@@ -151,10 +151,10 @@ Patrón por crate (confirmado contra `apohara-dispatch/src/tauri_bridge.rs`): (1
 
 ### Grupo 3.D — Overlays + BottomBar
 
-- [ ] W3.D.1: `CommandPalette` (components/polish/command_palette.rs): listener global Cmd+K via `dioxus_desktop` WindowEvent (NO `onkeydown` HTML — R5); 4 comandos (Run / Load SPEC / Switch View / Clear) + comando "Install providers" (linka docs). SSR test: render de los 5 comandos. — verify: `cargo test -p apohara-desktop-dioxus`
-- [ ] W3.D.2: `ToastContainer` (envuelve components/dialogs/toast_dialog.rs + polish/toast.rs): renderiza `TOAST_QUEUE`. SSR test: 2 toasts → 2 nodos. — verify: `cargo test -p apohara-desktop-dioxus`
-- [ ] W3.D.3: `PermissionDialog` (components/dialogs/permission_dialog.rs): monta cuando `PERMISSIONS` no vacío; botones Once/Session/Always. SSR test: permiso encolado → dialog visible. — verify: `cargo test -p apohara-desktop-dioxus`
-- [ ] W3.D.4: `Statusline` (components/composition/statusline.rs) en `bottom_bar.rs`: `use_future` poll cada 1s de `token_accounting::api::current_totals()`; muestra active provider + token totals + clock. SSR test: render con totals mock. — verify: `cargo test -p apohara-desktop-dioxus`
+- [x] W3.D.1: `CommandPalette` (components/polish/command_palette.rs): listener global Cmd+K via `dioxus_desktop` WindowEvent (NO `onkeydown` HTML — R5); 4 comandos (Run / Load SPEC / Switch View / Clear) + comando "Install providers" (linka docs). SSR test: render de los 5 comandos. — verify: `cargo test -p apohara-desktop-dioxus`
+- [x] W3.D.2: `ToastContainer` (envuelve components/dialogs/toast_dialog.rs + polish/toast.rs): renderiza `TOAST_QUEUE`. SSR test: 2 toasts → 2 nodos. — verify: `cargo test -p apohara-desktop-dioxus`
+- [x] W3.D.3: `PermissionDialog` (components/dialogs/permission_dialog.rs): monta cuando `PERMISSIONS` no vacío; botones Once/Session/Always. SSR test: permiso encolado → dialog visible. — verify: `cargo test -p apohara-desktop-dioxus`
+- [x] W3.D.4: `Statusline` (components/composition/statusline.rs) en `bottom_bar.rs`: `use_future` poll cada 1s de `token_accounting::api::current_totals()`; muestra active provider + token totals + clock. SSR test: render con totals mock. — verify: `cargo test -p apohara-desktop-dioxus`
 
 ### Gate Wave 3
 
