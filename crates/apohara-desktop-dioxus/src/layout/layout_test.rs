@@ -235,3 +235,114 @@ fn load_spec_decomposes_inline_spec_into_tasks() {
         assert_eq!(tasks.get("t1").unwrap().title, "build the parser");
     });
 }
+
+// --- CenterPane view swap (W3.B.1 / B.2 / B.3 / B.4) ------------------
+
+#[test]
+fn center_pane_graph_mode_mounts_swarm_canvas() {
+    use crate::state::tasks::{upsert_task, DagTask, TaskStatus};
+    use crate::state::view_mode::{set_view_mode, ViewMode};
+    #[allow(non_snake_case)]
+    fn Harness() -> Element {
+        use_hook(|| {
+            set_view_mode(ViewMode::Graph);
+            upsert_task(DagTask {
+                id: "t1".into(),
+                title: "build".into(),
+                status: TaskStatus::Dispatched,
+                ..Default::default()
+            });
+        });
+        rsx! { super::CenterPane {} }
+    }
+    let mut vdom = VirtualDom::new(Harness);
+    vdom.rebuild_in_place();
+    let html = dioxus_ssr::render(&vdom);
+    assert!(
+        html.contains("data-testid=\"swarm-canvas\""),
+        "swarm canvas missing in Graph mode: {html}"
+    );
+    assert!(
+        html.contains("data-task-id=\"t1\""),
+        "task node missing: {html}"
+    );
+}
+
+#[test]
+fn center_pane_board_mode_mounts_kanban_with_four_lanes_grouped() {
+    use crate::state::tasks::{upsert_task, DagTask, TaskStatus};
+    use crate::state::view_mode::{set_view_mode, ViewMode};
+    #[allow(non_snake_case)]
+    fn Harness() -> Element {
+        use_hook(|| {
+            set_view_mode(ViewMode::Board);
+            upsert_task(DagTask {
+                id: "r1".into(),
+                title: "ready task".into(),
+                status: TaskStatus::Ready,
+                ..Default::default()
+            });
+            upsert_task(DagTask {
+                id: "d1".into(),
+                title: "done task".into(),
+                status: TaskStatus::Done,
+                ..Default::default()
+            });
+        });
+        rsx! { super::CenterPane {} }
+    }
+    let mut vdom = VirtualDom::new(Harness);
+    vdom.rebuild_in_place();
+    let html = dioxus_ssr::render(&vdom);
+    assert!(
+        html.contains("data-testid=\"kanban-board\""),
+        "kanban board missing in Board mode: {html}"
+    );
+    for lane in [
+        "kanban-lane-ready",
+        "kanban-lane-in-progress",
+        "kanban-lane-verifying",
+        "kanban-lane-done",
+    ] {
+        assert!(html.contains(lane), "lane {lane} missing: {html}");
+    }
+    assert!(html.contains("kanban-card-r1"), "ready card missing: {html}");
+    assert!(html.contains("kanban-card-d1"), "done card missing: {html}");
+}
+
+#[test]
+fn center_pane_terminal_mode_mounts_task_board() {
+    use crate::state::tasks::{upsert_task, DagTask, TaskStatus};
+    use crate::state::view_mode::{set_view_mode, ViewMode};
+    #[allow(non_snake_case)]
+    fn Harness() -> Element {
+        use_hook(|| {
+            set_view_mode(ViewMode::Terminal);
+            upsert_task(DagTask {
+                id: "t9".into(),
+                title: "flat row".into(),
+                status: TaskStatus::Ready,
+                ..Default::default()
+            });
+        });
+        rsx! { super::CenterPane {} }
+    }
+    let mut vdom = VirtualDom::new(Harness);
+    vdom.rebuild_in_place();
+    let html = dioxus_ssr::render(&vdom);
+    assert!(
+        html.contains("data-testid=\"task-board\""),
+        "task board missing in Terminal mode: {html}"
+    );
+    assert!(html.contains("task-card-t9"), "task card missing: {html}");
+}
+
+#[test]
+fn select_task_writes_selected_task_signal() {
+    use crate::state::selected_task::SELECTED_TASK;
+    // `select_task` is what SwarmCanvas/TaskBoard fire via `on_select` on click.
+    with_runtime(|| {
+        super::center_pane::select_task("t1".to_string());
+        assert_eq!(*SELECTED_TASK.read(), Some("t1".to_string()));
+    });
+}
