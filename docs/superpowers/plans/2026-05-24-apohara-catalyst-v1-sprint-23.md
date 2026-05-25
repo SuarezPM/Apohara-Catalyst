@@ -121,7 +121,7 @@ Patrón por crate (confirmado contra `apohara-dispatch/src/tauri_bridge.rs`): (1
 
 - [x] W2.7: Append a `assets/brand.css` el bloque `.apohara-grid { display:grid; grid-template-areas:"top top top" "left center right" "bottom bottom bottom"; grid-template-rows:auto 1fr auto; grid-template-columns: 280px 1fr 360px; height:100vh; }` + reglas `.apohara-grid > .top/.left/.center/.right/.bottom { grid-area: ...; }`. — verify: `cargo build -p apohara-desktop-dioxus`
 - [x] W2.8: Replace `src/app.rs`: montar `style{BRAND_CSS}` + `layout::MainLayout {}` + los 3 overlays (`CommandPalette`, `ToastContainer`, `PermissionDialog`) como mounts (placeholders por ahora, se cablean en W3.D). SSR test del `App` (no-panic, contiene `apohara-grid`). — verify: `cargo test -p apohara-desktop-dioxus app`
-- [ ] W2.SMOKE: App levanta con shell vacío (3 zonas placeholder) + brand CSS aplicada. — verify (manual): `cargo run -p apohara-desktop-dioxus` → ventana muestra grid 3-pane vacío
+- [x] W2.SMOKE: App levanta con shell vacío (3 zonas placeholder) + brand CSS aplicada. — verify (manual): `cargo run -p apohara-desktop-dioxus` → ventana muestra grid 3-pane vacío
 
 ---
 
