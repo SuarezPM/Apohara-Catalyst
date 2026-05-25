@@ -37,3 +37,31 @@ fn toast_reaper_sweep_removes_only_expired_toasts() {
         assert_eq!(q[0].id, "fresh");
     });
 }
+
+#[test]
+fn git_apply_errors_on_invalid_patch_and_toasts_error() {
+    use crate::state::toast_queue::ToastLevel;
+    let dir = tempfile::tempdir().expect("tempdir");
+    // git apply runs inside a repo; init a throwaway one so we never touch the
+    // real working tree.
+    std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir.path())
+        .arg("init")
+        .arg("-q")
+        .status()
+        .expect("git init");
+    let result =
+        super::git_apply_handler::apply_diff("this is not a valid unified diff\n", dir.path());
+    assert!(result.is_err(), "invalid patch must fail: {result:?}");
+    let toast = super::git_apply_handler::apply_result_toast(&result);
+    assert_eq!(toast.level, ToastLevel::Error);
+    assert!(toast.message.contains("git apply failed"));
+}
+
+#[test]
+fn git_apply_result_toast_success_is_success_level() {
+    use crate::state::toast_queue::ToastLevel;
+    let toast = super::git_apply_handler::apply_result_toast(&Ok(()));
+    assert_eq!(toast.level, ToastLevel::Success);
+}
