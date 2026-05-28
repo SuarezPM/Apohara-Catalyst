@@ -77,3 +77,10 @@ crates/*/bindings/
 # Local development data
 dev_assets/
 
+# Local agent-tooling state (OMC / superpowers) — never commit
+.omc/
+.superpowers/
+
+# Personal screenshots (local only)
+Captura de pantalla_*.png
+
