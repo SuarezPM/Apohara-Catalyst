@@ -49,7 +49,16 @@ pub struct KnnHit {
 /// Register sqlite-vec as an auto-extension. Safe to call repeatedly: SQLite
 /// dedupes auto-extension registrations by function pointer. We still guard
 /// behind `OnceLock` to avoid the FFI roundtrip on every `open_db` call.
-fn ensure_vec_extension_registered() {
+///
+/// # Process-global side effect
+///
+/// This installs the vec0 extension via `sqlite3_auto_extension`, which is a
+/// **process-global** registration affecting every `Connection` opened
+/// afterward in the same process. The `OnceLock` makes it idempotent. It is
+/// `pub` so downstream crates (e.g. `apohara-episodic`) can trigger the
+/// registration WITHOUT also creating the chunks schema that `open_db` builds —
+/// they own their own schema but reuse this one registration primitive.
+pub fn ensure_vec_extension_registered() {
     static REGISTERED: OnceLock<()> = OnceLock::new();
     REGISTERED.get_or_init(|| {
         // SAFETY: `sqlite3_vec_init` is the C entry point exported by the

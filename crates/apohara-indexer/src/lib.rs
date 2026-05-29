@@ -13,4 +13,7 @@ pub mod embeddings;
 pub mod parser;
 pub mod storage;
 
-pub use storage::{insert_chunk, knn_query, open_db, IndexedChunk, KnnHit, EMBED_DIM};
+pub use storage::{
+    ensure_vec_extension_registered, insert_chunk, knn_query, open_db, IndexedChunk, KnnHit,
+    EMBED_DIM,
+};
