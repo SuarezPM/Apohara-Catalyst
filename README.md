@@ -21,6 +21,11 @@
 > In chemistry, a **catalyst dramatically lowers the activation energy of a reaction without being consumed.**
 > Apohara Catalyst does the same to your engineering work: it lowers **Time-To-First-Token** by dispatching a goal across Claude Code, Codex, and OpenCode *simultaneously* — while burning **zero tokens of its own**. The name fuses the chemical catalyst with the LLM **TTFT** metric.
 
+<!-- Honesty note: the "lowers Time-To-First-Token" line above is the aspirational
+     product tagline, not a measured metric. No TTFT speedup percentage is claimed
+     anywhere (see "Status & scope") because none has been measured. -->
+
+
 ## What & why
 
 You already pay for one or more AI coding CLIs. Today you run them one at a time, babysit them, and hope the first answer is the good one.
@@ -204,7 +209,7 @@ Make sure at least one of `claude`, `codex`, or `opencode` is installed and logg
 - ❌ **No cloud, no telemetry-by-default, no account.** It runs entirely on your machine.
 - ❌ **No OAuth, ever** — wrapping CLIs you're logged into is both a TOS and a billing-safety stance (it sidesteps the "wrong account billed" failure mode documented in our *Past Incidents*).
 - ✅ **3 active providers by design:** `claude-code-cli`, `codex-cli`, `opencode-go`. Others are LEGACY behind `APOHARA_LEGACY_PROVIDERS=1`.
-- ⚠️ **Arch-only install.** Cross-platform builds and AUR/Homebrew/Scoop distribution are gated, not shipped.
+- ⚠️ **Cross-platform installers are wired but not yet published.** The `scripts/install.sh` one-liner (Linux/macOS, x86_64/aarch64) and the AUR/Homebrew/Scoop manifests all target the same `apohara-<triple>.{tar.gz,zip}` release assets the build matrix produces; assets publish on tag. No published release exists yet — the tag cut is a Pablo-gated manual step.
 - ⚠️ **Daemon mode, SSH remote workers, smart router, and reactions ship OFF by default** and are not production-validated.
 - ⚠️ The seccomp/namespace sandbox is **Linux-only** and requires `kernel.unprivileged_userns_clone=1`; on macOS/Windows it falls back to no enforcement.
 
