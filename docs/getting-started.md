@@ -16,8 +16,7 @@ subscriptions; Apohara just dispatches tasks to them over stdio.
 
 Also recommended (but optional):
 
-- Node ≥ 20 (for `npx apohara`).
-- A modern browser (the desktop UI runs in any Chromium / Firefox / Safari).
+- A Rust toolchain (`rustc` / `cargo`) if you build from source.
 - Git, because Apohara writes commits.
 
 ## 1. Install
@@ -80,13 +79,12 @@ re-source your shell.
 ## 3. Run the UI
 
 ```bash
-cd packages/desktop
-APOHARA_DESKTOP_PORT=7331 bun --hot src/server.ts
+cargo run -p apohara-desktop-dioxus
 ```
 
-Open `http://localhost:7331` in your browser. You should see an empty kanban
-(four columns: Backlog, In progress, Verification, Done) with an empty-state
-banner offering a "+ Seed demo tasks" button.
+This opens the native desktop window (Dioxus 0.7 — no browser, no port). You
+should see an empty kanban (four columns: Backlog, In progress, Verification,
+Done) with an empty-state banner offering a "+ Seed demo tasks" button.
 
 ## 4. Seed the demo
 
@@ -111,7 +109,7 @@ with your configured roster, and streams progress to the desktop UI (or
 verification mesh warms up; subsequent dispatches are near-instant because
 the planner / critic models reuse the in-process context.
 
-While Apohara works, watch the kanban in the browser. Each card carries the
+While Apohara works, watch the kanban in the native desktop window. Each card carries the
 provider that ran it, the verdict from the verification mesh, and a link to
 the ledger entry that proves the result is replayable.
 

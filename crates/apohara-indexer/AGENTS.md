@@ -36,7 +36,7 @@ let hits = idx.search("auth flow", /* k= */ 5).await?;
 
 ## What this crate is NOT
 
-- Not the search UI surface (that's `packages/desktop/src/components/Search/`).
+- Not the search UI surface (that's the native Dioxus desktop crate, `crates/apohara-desktop-dioxus`).
 - Not the ContextForge client (that's `src/core/contextforge-client.ts`).
 - Not a general embedding service — it's purpose-built for source code.
 

@@ -6,8 +6,12 @@
 > launch surface; ARCHITECTURE.md is the system diagram; this is the
 > reference.
 >
-> Anchored at commit `bd819ed` (2026-05-12). When the code drifts, this
-> document is wrong — open a PR to update it in place.
+> Architecture, stack, and command sections reconciled to current
+> reality (post-Sprint-23: native Dioxus desktop, sqlite-vec + blake3
+> indexer). The §10 roadmap and §11 commit-log sections remain a dated
+> historical snapshot at commit `bd819ed` (2026-05-12) and are labelled
+> as such. When the code drifts, this document is wrong — open a PR to
+> update it in place.
 
 ---
 
@@ -58,8 +62,9 @@ writes a natural-language objective; Apohara decomposes it into a DAG of
 microtasks; each microtask is dispatched to the AI provider that scores
 highest for that role (planner, coder, verifier, …); the verification
 mesh forces a *different* AI to audit the diff before it merges; every
-action is recorded to a SHA-256-chained event ledger so the run is
-cryptographically replayable.
+action is recorded to an append-only JSONL event ledger so the run is
+replayable. *(A SHA-256-chained ledger + `replay --verify` is planned
+(Phase 2); today the ledger is append-only JSONL with no hash chain.)*
 
 Three concrete differentiators against the current crop of coding tools:
 
@@ -75,19 +80,23 @@ Three concrete differentiators against the current crop of coding tools:
    syscall surfaces as a `security_violation` ledger event rather than
    a SIGSYS kill or, worse, silent damage to the host.
 
-Optional booster: a parallel project, **Apohara · Context Forge**, runs
-as a Python sidecar on a CUDA/ROCm GPU and provides KV-cache
-deduplication across multi-agent calls. Measured 79.85% token savings
-on a 5-agent benchmark (preprint, DOI [10.5281/zenodo.20114594](https://doi.org/10.5281/zenodo.20114594)).
-Apohara works unchanged without it.
+Optional booster (*separate-repo integration, not part of this repo*): a
+parallel project, **Apohara · Context Forge**, runs as a Python sidecar
+on a CUDA/ROCm GPU and provides KV-cache deduplication across
+multi-agent calls. Reported 79.85% token savings on a 5-agent benchmark
+(preprint, DOI [10.5281/zenodo.20114594](https://doi.org/10.5281/zenodo.20114594)).
+Apohara works unchanged without it; it is wholly optional and lives in
+its own repository.
 
-Current status (2026-05-12): **v0.1 alpha**. Visual orchestrator,
-sandbox, CLI-driver providers, dual-arbiter verification, event ledger
-v2 with hash chain, Tauri desktop binary at 5.6 MB raw / 1.9 MB deb /
-78 MB AppImage — all shipping. End-to-end smoke test runs `apohara
-auto --no-pr "write a file at /tmp/X containing Y"` → claude-code-cli
-plans + executes → file written → 14 ledger events with SHA-256 chain →
-33 seconds wall time → $0 tokens.
+Current status: visual orchestrator, sandbox, CLI-driver providers,
+dual-arbiter verification, append-only JSONL event ledger, native
+Dioxus 0.7 desktop binary (~4.4 MB release with LTO + strip +
+panic=abort, per `docs/superpowers/rust-native/g2-a-decision.md`) — all
+shipping. *(The historical Tauri figure was ~5.6 MB raw; the native
+Dioxus binary differs.)* End-to-end smoke test runs `apohara
+run "write a file at /tmp/X containing Y"` → claude-code-cli
+plans + executes → file written → ledger events recorded → seconds of
+wall time → $0 tokens.
 
 What remains is **content + release engineering**, not code. See §12.
 
@@ -132,14 +141,14 @@ What remains is **content + release engineering**, not code. See §12.
 
 ### What the user sees
 
-The user opens `apohara-desktop` (Tauri binary or `bun --hot
-packages/desktop/src/server.ts`). Three panes laid out left-to-right:
+The user launches the native `apohara-desktop-dioxus` binary (Dioxus 0.7,
+no webview SPA, no localhost server). Three panes laid out left-to-right:
 
 ```
 ┌────────────┬──────────────────────────┬───────────────────────┐
 │ Objective  │   Swarm Canvas (DAG)     │  Code + Diff          │
-│  textarea  │   @xyflow/react nodes    │  file tree + Monaco   │
-│            │   per task with state    │  diff editor          │
+│  textarea  │   petgraph-laid nodes    │  file tree + syntect  │
+│            │   per task with state    │  highlighted diff     │
 │ [Enhance ▾]│   classes + mesh sentinels  │  + mesh verdict     │
 │ [Run ▶]    │                          │                       │
 └────────────┴──────────────────────────┴───────────────────────┘
@@ -164,18 +173,19 @@ mode toggle.
 4. **Execution** — each task runs inside the seccomp+namespace
    sandbox. The agent's tool calls, file writes, and test runs are
    captured.
-5. **Verification mesh** — `src/core/verification-mesh.ts` spawns
-   two arbiters (a judge and a critic) from *different* providers
-   than the coder. Both must approve before the diff is staged. The
-   INV-15 safety gate (M015.4) forces a fresh context window when the
-   judge's risk score exceeds the paper's τ threshold.
-6. **Consolidation** — accepted diffs are squashed into the trunk
-   branch; if `--no-pr` is unset, `gh` opens the PR with the run id
-   in the body.
-7. **Ledger seal** — every event in steps 1–6 was already streamed
-   to `.events/run-<sid>.jsonl`. The file is a SHA-256 hash chain:
-   `event[i].prev_hash === event[i-1].hash`. `apohara replay --verify`
-   refuses to render if any link is broken.
+5. **Verification mesh** — the mesh spawns two arbiters (a judge and a
+   critic) from *different* providers than the coder. Both must approve
+   before the diff is staged. The live safety gate is **INV-bash-scope**.
+   *(The "INV-15 / JCR" fresh-context gate keyed on a τ risk threshold is
+   the ContextForge paper concept, not implemented in this repo.)*
+6. **Consolidation** — accepted diffs are applied to the trunk branch
+   via a real `git apply`; if PR mode is enabled, `gh` opens the PR with
+   the run id in the body.
+7. **Ledger record** — every event in steps 1–6 was already streamed
+   to `.events/run-<sid>.jsonl` as append-only JSONL. *(A SHA-256 hash
+   chain — `event[i].prev_hash === event[i-1].hash` — plus an `apohara
+   replay --verify` that refuses to render on a broken link is planned
+   (Phase 2); today the ledger is append-only with no hash chain.)*
 
 ### What the user can do at any moment
 
@@ -194,52 +204,52 @@ sidecars, optional GPU sidecar.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│  APOHARA DESKTOP  (Tauri v2, ~5.6 MB raw ELF, M017)                  │
-│  React 19 + Geist + @xyflow/react + Monaco                           │
+│  APOHARA DESKTOP  (native Dioxus 0.7, ~4.4 MB release ELF)           │
+│  apohara-desktop-dioxus crate · petgraph DAG layout · syntect diff   │
 │  ├─ Objective pane    ┬─ Swarm Canvas (DAG)   ┬─ Code+Diff           │
-│  └─────────────────── SSE stream from ledger ─────────────────────── │
+│  └────────────── in-process event subscription from ledger ───────── │
 └──────────────────────────────────────────────────────────────────────┘
-                              ↕ HTTP (localhost:7331)
+                              ↕ in-process Rust calls
 ┌──────────────────────────────────────────────────────────────────────┐
-│  APOHARA CORE  (TypeScript on Bun)                                   │
-│  Bun.serve() ──► /api/enhance · /api/run · /api/events (SSE)         │
-│              ──► /api/mode · /api/roster · /api/health (Gap 1+M015.5)│
-│  ┌─ src/core/ ──────────────────────────────────────────────────┐    │
-│  │ decomposer · scheduler · subagent-manager · consolidator      │    │
-│  │ verification-mesh · agent-router · ledger (Phase 4 hash chain)│    │
-│  │ capability-manifest · capability-stats (M013)                 │    │
-│  │ sandbox (TS wrapper) · indexer-client · contextforge-client   │    │
+│  APOHARA CORE  (Rust)                                                │
+│  dispatch · decomposer · scheduler · worktree · consolidator         │
+│  ┌─ crates/ ────────────────────────────────────────────────────┐    │
+│  │ apohara-dispatch · apohara-decomposer · apohara-worktree      │    │
+│  │ apohara-verification (mesh + quality gates) · apohara-coordinator   │
+│  │ apohara-token-accounting · apohara-attention · apohara-anti-thrash  │
+│  │ apohara-sandbox · apohara-indexer · apohara-mcp-bridge        │    │
 │  └─────────────────────────────────────────────────────────────  ┘    │
-│  src/providers/ — router.ts (21 cloud) + cli-driver.ts (4 CLIs)      │
+│  providers — Claude Code / Codex / OpenCode CLI drivers (BYO sub)    │
 └──────────────────────────────────────────────────────────────────────┘
-                              ↕ subprocess + Unix sockets
+                              ↕ subprocess + in-process
 ┌──────────────────────────────┬───────────────────────────────────────┐
-│  apohara-indexer (Rust) ✅   │  apohara-sandbox (Rust) ✅ M014       │
-│  tree-sitter + redb +        │  seccomp-bpf + user/mount/PID ns      │
-│  Nomic BERT embeddings       │  3-tier permission profiles           │
-│  Daemon, Unix socket RPC     │  Per-process fork chain (M014.4)      │
+│  apohara-indexer (Rust) ✅   │  apohara-sandbox (Rust) ✅            │
+│  tree-sitter + sqlite-vec +  │  seccomp-bpf + user/mount/PID ns      │
+│  blake3 feature-hashing      │  3-tier permission profiles           │
+│  (384-dim, ~0 RAM)           │  Per-process fork chain               │
 └──────────────────────────────┴───────────────────────────────────────┘
-                              ↕ HTTP :8001 (optional)
+                              ↕ HTTP (optional, separate repo)
 ┌──────────────────────────────────────────────────────────────────────┐
-│  APOHARA CONTEXT FORGE  (parallel repo, optional)                    │
-│  FastAPI + vLLM bridge + INV-15 safety gate                          │
-│  60–80% token savings, CUDA/ROCm GPU                                 │
+│  APOHARA CONTEXT FORGE  (separate repo, optional integration)        │
+│  FastAPI + vLLM bridge + INV-15 (JCR) safety gate                    │
+│  reported 60–80% token savings, CUDA/ROCm GPU                        │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Process topology at runtime
 
-When the user runs `bun --hot packages/desktop/src/server.ts`:
+When the user launches the native `apohara-desktop-dioxus` binary:
 
-- **PID A** — Bun.serve on :7331 (web server + React HMR + SSE).
+- **PID A** — the Dioxus desktop process (UI + orchestrator core,
+  in-process; no separate web server, no localhost port).
 - **PID B** — `apohara-indexer` daemon (Rust binary, Unix socket RPC).
 - **PID C..N** — per-task `apohara-sandbox` subprocesses (Rust binary,
   short-lived, double-forked into the new namespace bundle).
 - **PID local-LLM** — optional `llama-cpp-python` on :8000.
-- **PID context-forge** — optional Python sidecar on :8001.
+- **PID context-forge** — optional separate-repo Python sidecar on :8001.
 
 PIDs A and B are long-lived. PIDs C..N are short-lived. The CLI drivers
-(`claude`, `codex`, `gemini`) spawn one subprocess per LLM turn and exit.
+(`claude`, `codex`, `opencode`) spawn one subprocess per LLM turn and exit.
 
 ---
 
@@ -249,12 +259,12 @@ PIDs A and B are long-lived. PIDs C..N are short-lived. The CLI drivers
 
 | Concern | Choice | Why |
 |---|---|---|
-| Orchestrator | **TypeScript on Bun 1.3.13** | Speed (Bun.serve), zero-config TS, native SQLite/Redis if needed. Pinned to 1.3.13 — `latest` (1.4.x) regressed `fs.promises.appendFile` await timing and surfaced as ENOENT in EventLedger Phase 4 tests. |
-| Desktop shell | **Tauri v2** | ~6 MB bundle vs 200 MB Electron. Native FS access. Bun.serve as the HTTP backend speaks to the React SPA over `localhost:7331`. |
-| Frontend | **React 19** + `@xyflow/react` 12 + `@monaco-editor/react` 4 | The DAG canvas wants `@xyflow/react`; the diff pane wants Monaco; both are MIT and battle-tested. |
+| Orchestrator | **Rust** | Single static binary, no runtime, kernel-level sandbox in the same language as the core, deterministic behavior. |
+| Desktop shell | **Dioxus 0.7 (native)** | The `apohara-desktop-dioxus` crate renders natively — no webview SPA, no React/Electron/Bun, no localhost server. ~4.4 MB release binary (LTO + strip + panic=abort). |
+| Frontend | **Dioxus `rsx!` components** + `petgraph` (DAG layout) + `syntect` (diff highlighting) | The React→Dioxus port replaced `@xyflow/react`→`petgraph` and Monaco→`syntect`; both are pure-Rust, in-process. |
 | Sandbox | **Rust** + `seccompiler` 0.5 + `nix` 0.30 + `libc` | Kernel-level enforcement; the only way to do this on Linux. |
-| Indexer | **Rust** + `tree-sitter` + `redb` + `candle` (Nomic BERT) | Tree-sitter for 18 languages; redb is zero-deps embedded KV; candle runs the BERT embeddings model. |
-| Optional GPU sidecar | **Python 3.12** + FastAPI + vLLM | The ContextForge paper's reference implementation. |
+| Indexer | **Rust** + `tree-sitter` + `sqlite-vec` + `blake3` (feature-hashing) | Tree-sitter for parsing; sqlite-vec for vector storage; blake3 feature-hashing produces 384-dim embeddings in-process at ~0 RAM (no transformer model, no candle, no Nomic BERT). |
+| Optional GPU sidecar | **Python** + FastAPI + vLLM (*separate repo*) | The ContextForge paper's reference implementation; optional separate-repo integration. |
 
 ### Visual identity
 
@@ -266,32 +276,29 @@ PIDs A and B are long-lived. PIDs C..N are short-lived. The CLI drivers
 | Success / warning / error | `#4ade80` / `#fbbf24` / `#f87171` |
 | Font | Geist Mono + Geist Sans |
 
-Locked in `packages/desktop/src/index.css`. Inspiration: Linear,
-Vercel, Raycast.
+Carried in the `apohara-desktop-dioxus` crate's styling. Inspiration:
+Linear, Vercel, Raycast.
 
 ### Dependencies (key ones)
 
 | Dependency | Version | Where |
 |---|---|---|
-| `react` / `react-dom` | ^19 | `packages/desktop` |
-| `@xyflow/react` | ^12 | `packages/desktop` (DAG visualization) |
-| `@monaco-editor/react` | ^4 | `packages/desktop` (diff viewer) |
-| `@tauri-apps/cli` | ^2.11 | dev dep, drives `bun run tauri:build` |
-| `tauri` (Rust) | ^2 | `packages/desktop/src-tauri` |
+| `dioxus` / `dioxus-desktop` | 0.7 | `crates/apohara-desktop-dioxus` (native UI) |
+| `petgraph` | 0.6 | `crates/apohara-desktop-dioxus` (DAG layout) |
+| `syntect` | 5 (no default features) | `crates/apohara-desktop-dioxus` (diff highlighting) |
+| `tree-sitter` | 0.24 | `crates/apohara-indexer` |
+| `sqlite-vec` | 0.1 | `crates/apohara-indexer` (vector storage) |
+| `blake3` | 1.5 | `crates/apohara-indexer` (feature-hashing embeddings) |
 | `seccompiler` (Rust) | 0.5 (with `json` feature) | `crates/apohara-sandbox` |
 | `nix` (Rust) | 0.30 | `crates/apohara-sandbox` |
-| `commander` | ^14 | TS CLI (`apohara` binary) |
-| `zod` | ^4 | input validation in core |
-| `@playwright/test` | 1.60 | `packages/desktop` e2e (uses system Chrome) |
 
 ### CLI drivers shipped (the user installs these themselves)
 
-| Driver | npm package | Binary | Auth |
+| Driver | npm/source package | Binary | Auth |
 |---|---|---|---|
 | `claude-code-cli` | `@anthropic-ai/claude-code` | `claude` | User's Claude subscription (one-time `claude login`) |
 | `codex-cli` | `@openai/codex` | `codex` | User's ChatGPT/Codex subscription |
-| `gemini-cli` | `@google/gemini-cli` | `gemini` | User's Google account |
-| `opencode-go` (extra) | `sst/opencode` | `opencode` | Vendor-agnostic; can host MiniMax, etc. |
+| `opencode-go` | `sst/opencode` | `opencode` | Vendor-agnostic; can host MiniMax, etc. |
 
 ---
 
@@ -346,67 +353,57 @@ breaks this:
 - After the coder LLM emits a diff, the mesh asks **two arbiters from
   different providers**: a `judge` (rejects logic errors / scope
   drift) and a `critic` (rejects style / maintainability issues).
-- Defaults: judge = `gemini-cli`, critic = `claude-code-cli`, coder =
-  `codex-cli` or whatever ROLE_FALLBACK_ORDER picked. The
-  `ROLE_TO_PROVIDER` map in `types.ts` codifies this cross-vendor bias
-  by design.
-- The **INV-15 safety gate** (M015.4) inspects the judge's confidence;
-  if it's above τ (paper's threshold), the verifier is fed a *fresh*
-  context window so KV-cache reuse can't smuggle in a corrupted prior.
-  17 tests cover the paper's Table 1 sweep.
+- Defaults: judge and critic are picked cross-vendor from the coder,
+  e.g. coder = `codex-cli` or whatever the role fallback order picked.
+  The role→provider mapping codifies this cross-vendor bias by design.
+- The live safety gate in the verification mesh is **INV-bash-scope**
+  (the renamed, implemented gate). *Note: "INV-15 / JCR gate" refers to
+  the ContextForge paper's KV-cache safety concept — fresh-context
+  re-verification above a τ threshold — which is **not** implemented in
+  this repo; it belongs to the optional separate-repo ContextForge
+  integration.*
 
-### Thompson Sampling layer (M013, post-v0.1)
+### Thompson Sampling layer (planned)
 
-`src/core/capability-stats.ts` persists per-`(provider, role)`
-success/failure counts to `.apohara/capability-stats.json` (Beta(α,β)
-distribution priors α₀=β₀=2). `apohara stats` prints the rankings.
-Wiring this into `ProviderRouter.completion()` for live exploration is
-**M013.3 — pending follow-up**. Today the router uses static capability
-scores; the live-learning layer ships with the math and persistence but
-isn't yet consumed by the routing decision.
+A per-`(provider, role)` success/failure Beta(α,β) bandit (priors
+α₀=β₀=2) for live explore/exploit routing is **planned — not yet ported
+to the Rust core (TS-legacy)**. It exists only in legacy TypeScript and
+is **not** present in the Rust code. Today the router uses static
+capability scores; no live-learning layer consumes the routing decision.
 
-### The roster picker (Gap 1, shipped 2026-05-12)
+### The roster picker
 
-`packages/desktop/src/components/RosterPicker.tsx` is a popover in the
-top bar that lets the user toggle which providers participate. The set
-is mirrored to `localStorage["apohara.providerRoster"]`,
-POSTed to `/api/roster`, and forwarded on every `/api/enhance` and
-`/api/run` request via the `X-Apohara-Roster` header. The server holds
-the canonical view in `providerRoster: Set<string>` and the
-`pickEnhanceProvider(mode, roster)` helper walks a mode-appropriate
-preference order, only choosing providers the roster permits.
+The desktop top bar lets the user toggle which providers participate in
+a run. The selected roster is forwarded to the dispatch layer so each
+dispatched task only considers providers the roster permits. (In the
+native Dioxus UI this is in-process state, not a `localStorage` /
+`/api/roster` HTTP round-trip.)
 
 ---
 
 ## 7. Component reference
 
-### 7.1 `packages/desktop/`
+### 7.1 `crates/apohara-desktop-dioxus/`
 
-Tauri v2 + React 19 + Bun.serve. The user-facing surface.
+Native Dioxus 0.7 crate (no webview SPA, no Bun/Node, no `packages/`
+dir). The user-facing surface, compiled into the desktop binary. Diff
+view via `syntect`, DAG layout via `petgraph`.
 
 ```
-packages/desktop/
-├── index.html                 ← Bun HTML-import entry (dev)
-├── package.json
-├── playwright.config.ts       ← M017.10 e2e config, system Chrome
-├── scripts/build.ts           ← Production bundle + dist/index.html
+crates/apohara-desktop-dioxus/
+├── Cargo.toml                 ← dioxus 0.7 + petgraph 0.6 + syntect 5
+├── Dioxus.toml                ← Dioxus app config + dev watcher
+├── scripts/dev.sh             ← `dx serve` hot-reload entry
 ├── src/
-│   ├── main.tsx               ← React entry
-│   ├── App.tsx                ← Three-pane layout owner
-│   ├── server.ts              ← Bun.serve backend + SSE + 5 API routes
-│   ├── index.css              ← Visual identity tokens + pane chrome
-│   ├── components/
-│   │   ├── ObjectivePane.tsx  ← Textarea + Enhance + Run + error banner
-│   │   ├── SwarmCanvas.tsx    ← @xyflow/react DAG, state classes
-│   │   ├── CodeDiffPane.tsx   ← Monaco DiffEditor + file tree + verdicts
-│   │   ├── CostMeter.tsx      ← tokens / USD / savings + GPU/Cloud toggle
-│   │   └── RosterPicker.tsx   ← (Gap 1) per-run roster popover
-│   ├── hooks/
-│   │   └── useLedgerStream.ts ← EventSource SSE subscription
-│   └── lib/
-│       └── types.ts           ← Frontend-side EventLog mirror
-├── src-tauri/                 ← Tauri 2 Rust shell + capabilities + icons
-└── tests/e2e/smoke.spec.ts    ← Playwright 4 tests (3-pane + Run + roster + mode)
+│   ├── main.rs                ← desktop binary entry
+│   ├── lib.rs                 ← app root + three-pane layout
+│   └── components/            ← `rsx!` components
+│       ├── objective_pane.rs  ← textarea + Enhance + Run + error banner
+│       ├── swarm_canvas.rs    ← petgraph-laid DAG, state classes
+│       ├── code_diff_pane.rs  ← syntect-highlighted diff + file tree + verdicts
+│       ├── cost_meter.rs      ← tokens / USD / savings + GPU/Cloud toggle
+│       └── hero_banner.rs     ← canonical port-pattern reference
+└── tests/                     ← SSR render tests + IPC smoke tests
 ```
 
 ### 7.2 `src/core/`
@@ -419,11 +416,11 @@ The orchestrator brain. TypeScript on Bun.
 | `scheduler.ts` | Topo-walk the DAG; spawn one worktree per task in `.claude/worktrees/`. |
 | `subagent-manager.ts` | Per-task agent loop. Retry budgets, escalation, role-aware prompts. |
 | `consolidator.ts` | Merge accepted diffs into trunk. Optionally open PR via `gh`. |
-| `verification-mesh.ts` | Dual-arbiter (judge + critic). INV-15 safety gate. Drift detection. |
+| `verification-mesh.ts` | Dual-arbiter (judge + critic). Live gate is **INV-bash-scope** (renamed). Drift detection. *("INV-15 / JCR" is the ContextForge paper concept, not implemented here.)* |
 | `agent-router.ts` | Role → provider mapping with fallback chains. Calls into the capability manifest + ROSTER filter. |
-| `ledger.ts` | Phase-4 SHA-256-chained JSONL event log. `verify()` rebuilds the chain to detect tampering. |
+| `ledger.ts` | Append-only JSONL event log. *(SHA-256 hash chain + tamper-detecting `verify()` is planned (Phase 2), not in the live ledger.)* |
 | `capability-manifest.ts` | Static per-provider per-task scores. Source of `selectBestProvider`. |
-| `capability-stats.ts` | (M013) Runtime success/failure counts + Thompson-Sampling math. Persistence + `rank()` API. |
+| `capability-stats.ts` | Runtime success/failure counts + Thompson-Sampling math. *(Planned — not yet ported to the Rust core (TS-legacy); not consumed by routing.)* |
 | `sandbox.ts` | TS wrapper around the Rust sandbox binary. Non-Linux consent fallback (M014.6). |
 | `indexer-client.ts` | Unix-socket JSON-RPC to the indexer daemon. |
 | `contextforge-client.ts` | Best-effort HTTP client to the parallel ContextForge service. |
@@ -478,26 +475,29 @@ green on x86_64. See §8.1 for the security model.
 
 Rust daemon. Owns the codebase knowledge graph.
 
-- **Storage:** `redb` (embedded KV, zero deps).
-- **Parsing:** tree-sitter for 18 languages, watch-driven.
-- **Embeddings:** Nomic BERT via `candle`. Tests gate the model
-  behind `APOHARA_MOCK_EMBEDDINGS=1` to avoid OOM in CI
-  (`CLAUDE.md §8.1`).
+- **Storage:** `sqlite-vec` (in-process SQLite vector storage).
+- **Parsing:** tree-sitter, watch-driven.
+- **Embeddings:** `blake3` feature-hashing — 384-dim vectors computed
+  in-process at ~0 RAM, deterministic. No transformer model, no
+  `candle`, no Nomic BERT, no 400 MB download, so there is no
+  `APOHARA_MOCK_EMBEDDINGS` gate to manage.
 - **API:** Unix-socket JSON-RPC. Methods:
   `searchMemories(query, k)`, `getBlastRadius(file, symbol)`,
   `listSymbols`, etc.
 
-### 7.6 `apohara-context-forge` (parallel repo)
+### 7.6 `apohara-context-forge` (separate repo, optional integration)
 
 [`SuarezPM/Apohara_Context_Forge`](https://github.com/SuarezPM/Apohara_Context_Forge)
-— FastAPI service. KV-cache coordinator across multi-agent calls.
+— FastAPI service in its own repository. KV-cache coordinator across
+multi-agent calls. **Optional**; this repo does not depend on it.
 
 - Sidecar URL: `localhost:8001` by default.
 - `register_context(text) → handle` before inference.
 - `get_optimized_context(handles[]) → compressed_text` for shared
   prompts.
-- Implements the **INV-15 safety invariant** referenced by the
-  verification mesh.
+- Implements the **INV-15 / JCR safety invariant** from the paper.
+  *(This is the ContextForge-side concept; the live gate in this repo's
+  verification mesh is the renamed **INV-bash-scope**.)*
 
 Apohara works unchanged when `CONTEXTFORGE_ENABLED` is unset. Every
 call is best-effort and falls back to the raw context on any failure.
@@ -601,11 +601,12 @@ After the coder emits a diff:
 1. **Judge** (cross-vendor from coder) inspects the diff for logic
    errors, scope drift, security issues. Outputs a JSON verdict
    + risk score.
-2. **INV-15 safety gate** — if `judge.risk > τ` (paper's threshold),
-   the verifier is fed a fresh context window. This prevents
-   KV-cache reuse from smuggling in a corrupted prior. 17 tests
-   in `tests/inv15.test.ts` cover the paper's Table 1 sweep +
-   Theorem 1 (zero violations) + Section 5.4 critic dense rate 1.0.
+2. **Safety gate** — the live gate is **INV-bash-scope** (the renamed,
+   implemented gate). *The "INV-15 / JCR" gate — where `judge.risk > τ`
+   feeds the verifier a fresh context window to block KV-cache reuse
+   from smuggling in a corrupted prior — is the ContextForge paper's
+   concept and is **not** implemented in this repo (it belongs to the
+   optional separate-repo ContextForge integration).*
 3. **Critic** (cross-vendor from both coder and judge) inspects the
    same diff for style, maintainability, and test coverage. Outputs
    the same JSON verdict shape.
@@ -615,25 +616,23 @@ If the judge or critic rejects, the diff goes back to the coder with
 the rejection reason. After N retries (configurable), the task fails
 and the worktree is destroyed.
 
-### 8.4 Event ledger — `src/core/ledger.ts`
+### 8.4 Event ledger
 
-Every meaningful action emits one JSON line to `.events/run-<sid>.jsonl`:
+Every meaningful action emits one JSON line to `.events/run-<sid>.jsonl`.
+Today the ledger is **append-only JSONL** — no hash chain. The live CLI
+surface is `apohara doctor` / `verify-setup` / `run`.
 
 ```
-{ id, timestamp, type, severity, taskId?, payload, metadata?, prev_hash, hash }
+{ id, timestamp, type, severity, taskId?, payload, metadata? }
 ```
 
-`hash = SHA-256(prev_hash || canonical_json(event_without_hashes))`.
-Genesis block: `prev_hash = "0"*64`.
-
-`EventLedger.verify(filePath)` walks the chain and returns either
-`{ ok: true, legacy: false, events: n }` or `{ ok: false, brokenAt: i,
-reason }`. Tamper detection is exact: changing any character of any
-payload invalidates the chain at the first modified line.
-
-`apohara replay <run-id>` rebuilds the entire run state from the
-ledger without calling any provider. `apohara replay --dry-run --json`
-emits the canonical action plan for diff comparison across machines.
+*Planned (Phase 2): a SHA-256 hash chain plus tamper-detecting replay.
+The design is*
+`hash = SHA-256(prev_hash || canonical_json(event_without_hashes))`
+*with a genesis block `prev_hash = "0"*64`, a `verify()` that walks the
+chain returning `{ ok, brokenAt, reason }`, and an `apohara replay
+--verify` / `replay --dry-run --json` that rebuilds run state without
+calling any provider. None of this is implemented yet.*
 
 ---
 
@@ -715,7 +714,7 @@ their API equivalents** (e.g. `claude-code-cli.planning = 0.94`
 vs `anthropic-api.planning = 0.85`) so capability-driven selection
 prefers the no-key path when both are available.
 
-`apohara stats` (M013.5) prints a per-role table or `--json`:
+*Planned: an `apohara stats` per-role table or `--json`, e.g.*
 
 ```
 # planning
@@ -723,13 +722,14 @@ rank provider                 score   succ_rate  trials
 -------------------------------------------------------
 1    claude-code-cli          0.953     50.0%       0
 2    codex-cli                0.921     50.0%       0
-3    deepseek-v4              0.889     50.0%       0
 ...
 ```
 
-`score` here is a **single Thompson-Sampling draw** from
-`Beta(α₀+successes, β₀+failures)`. Each invocation produces fresh
-draws; the variance does the explore/exploit balancing.
+*where `score` is a **single Thompson-Sampling draw** from
+`Beta(α₀+successes, β₀+failures)` and the variance does the
+explore/exploit balancing. This is **planned — not yet ported to the
+Rust core (TS-legacy)**; the live CLI exposes `doctor` / `verify-setup`
+/ `run`, not `stats`.*
 
 ---
 
@@ -745,7 +745,7 @@ state as of `bd819ed` (2026-05-12).
 | 1 | Credentials tracer-bullet (CLW-CRED-001 fixed) |
 | 2 | Auth CLI (Gemini OAuth working; Anthropic blocked by TOS) |
 | 3 | Vibe DAG hardening (real DAG, cycle detection in `decomposer.ts`) |
-| 4 | Event Ledger v2 (SHA-256 chain + `apohara replay`) |
+| 4 | Event Ledger v2 *(historical TS milestone; the SHA-256 chain + `apohara replay` is **planned (Phase 2)** — today's ledger is append-only JSONL)* |
 
 ### M010 — Context Compression ✅
 
@@ -753,9 +753,12 @@ Tree-sitter based context compression in `apohara-indexer`.
 
 ### M011 — Long-Term Memory ✅
 
-`redb` + Nomic BERT embeddings. Mem0 dependency removed.
+*(Historical milestone.)* The current `apohara-indexer` uses
+**`sqlite-vec` storage + `blake3` feature-hashing embeddings** (384-dim,
+~0 RAM) — **not** `redb` + Nomic BERT, which the early milestone tried
+before the feature-hashing rewrite.
 
-### M013 — Thompson Sampling (post-v0.1) — 3/5 ✅
+### M013 — Thompson Sampling *(planned — not yet ported to the Rust core (TS-legacy))*
 
 | # | Status | Detail |
 |---|---|---|
@@ -955,35 +958,31 @@ The self-improvement loop. Concretely:
 
 ### What works today
 
-- Multi-AI orchestration end-to-end via the CLI (`apohara auto`).
-- Visual desktop renders correctly; `/api/enhance` round-trips real
-  LLM calls.
+- Multi-AI orchestration end-to-end via the CLI (`apohara run`).
+- The native Dioxus desktop renders correctly and round-trips real LLM
+  calls in-process (no localhost server).
 - Sandbox actually enforces seccomp + namespaces on Linux. The
   `readonly_blocks_write_syscall` integration test forks a child,
   applies the ReadOnly filter, and confirms `write(2)` returns EPERM.
-- Event ledger SHA-256 chain holds under concurrent writes (the
-  `write_queue` in `ledger.ts` serializes appends).
-- Roster picker works end-to-end through `localStorage` + `/api/roster`
-  + the `X-Apohara-Roster` header.
+- Event ledger records every action as append-only JSONL under
+  concurrent writes. *(The SHA-256 hash chain is planned (Phase 2).)*
+- Roster picker works end-to-end as in-process desktop state (the native
+  Dioxus UI; no `localStorage` / `/api/roster` HTTP round-trip).
 - CLI driver framework spawns the user's installed `claude` / `codex`
-  / `gemini` and captures their stdout. ANSI stripping handled.
+  / `opencode` and captures their stdout. ANSI stripping handled.
 
 ### What doesn't work or is partial
 
-- **Desktop `Run` button doesn't drive the orchestrator.** It writes
-  a `session_started` event to the ledger and tails. To see the
-  swarm act, run `bun run src/cli.ts auto ...` in a terminal. The
-  desktop's SSE will pick up the events because the server tails
-  `.events/run-*.jsonl` regardless of who wrote them — but the
-  button itself doesn't spawn the runner. Fixing this is a ~1
-  session change.
+- **Desktop `Run` button → orchestrator dispatch is still being
+  hardened.** The native UI subscribes to ledger events in-process; the
+  CLI path (`apohara run "..."`) is the reference flow for driving the
+  swarm end-to-end.
 
-- **Thompson Sampling math + persistence + `apohara stats` ship —
-  routing doesn't consume them yet.** M013.1, .2, .5 done; M013.3
-  pending. So today the router still uses static capability scores +
-  fallback chains. The data-collection path is live: every
-  `provider_selected` and the eventual success/failure outcome will
-  be persisted once .3 lands.
+- **Thompson Sampling is planned — not yet ported to the Rust core
+  (TS-legacy).** The Beta-bandit math, its persistence, and an `apohara
+  stats` command exist only in legacy TypeScript and are **not** in the
+  Rust code. Today the router uses static capability scores + fallback
+  chains; no live-learning layer consumes the routing decision.
 
 - **Indexer daemon isn't auto-started.** Run `cargo run -p
   apohara-indexer --release` separately, or accept "Failed to fetch
@@ -991,10 +990,10 @@ The self-improvement loop. Concretely:
   no-memory prompt).
 
 - **Tests for some CLI driver flags assume vendor flag stability.**
-  `claude --print`, `codex exec`, `gemini -p` are correct as of
-  late-2025/early-2026 releases. When the vendor moves the flags, the
-  cleanest fix is `APOHARA_CLI_DRIVERS_CONFIG` overrides (no source
-  change needed).
+  `claude --print`, `codex exec`, `opencode` invocation are correct as
+  of late-2025/early-2026 releases. When a vendor moves a flag, the
+  cleanest fix is a CLI-driver config override (no source change
+  needed).
 
 - **Cross-OS Tauri build never ran on hosted runners.** The workflow
   YAML is syntactically valid and built locally; macOS and Windows
@@ -1058,45 +1057,40 @@ above probabilities trigger.
 ### Build commands
 
 ```bash
-# TS orchestrator + CLI
-bun install
-bun run build                  # → dist/cli.js
+# Build all crates (Rust workspace)
+cargo build --workspace
 
-# Desktop dev (HMR, opens on :7331)
-cd packages/desktop && bun run dev
-
-# Desktop production build (Tauri binary)
-cd packages/desktop && bun run tauri:build
+# Native Dioxus desktop (standalone single-crate workspace)
+( cd crates/apohara-desktop-dioxus && cargo build --release )
+# Hot-reload dev (requires dioxus-cli `dx`):
+( cd crates/apohara-desktop-dioxus && cargo run )   # or scripts/dev.sh with `dx serve`
 
 # Rust sidecars
 cargo build -p apohara-indexer --release
 cargo build -p apohara-sandbox --release
-
-# Reindex GitNexus (auto-managed AGENTS.md / CLAUDE.md blocks)
-npx gitnexus analyze
 ```
+
+> The Dioxus crate is **not** a workspace member (it pins `wry ^0.53`,
+> incompatible with the Tauri shell's `wry`). It carries its own
+> `[workspace]` directive and `Cargo.lock`. See
+> `docs/superpowers/rust-native/g2-a-decision.md`.
 
 ### Test discipline
 
-- **Rust**: NEVER bare `cargo test` (OOM hazard — the indexer crate
-  loads a 400 MB BERT model and `cargo test` runs binaries in
-  parallel). Run one binary at a time:
-  - `cargo test -p apohara-indexer --lib`
-  - `cargo test -p apohara-indexer --test memory_integration`
+- **Rust**: `cargo test -p apohara-indexer` runs all indexer binaries in
+  parallel without OOM hazard — the indexer uses sqlite-vec + blake3
+  feature-hashing (in-process, ~0 RAM, no transformer model). Sandbox
+  integration tests serialize:
+  - `cargo test -p apohara-indexer`
   - `cargo test -p apohara-sandbox --lib`
   - `cargo test -p apohara-sandbox --test seccomp_enforcement -- --test-threads=1`
   - `cargo test -p apohara-sandbox --test namespace_isolation -- --test-threads=1`
   - `cargo test -p apohara-sandbox --test runner_e2e -- --test-threads=1`
 
-- **TypeScript**: prefer per-file. `bun test tests/<file>.test.ts`.
-  `APOHARA_MOCK_EMBEDDINGS=1` to skip BERT.
+- **Dioxus UI**: `( cd crates/apohara-desktop-dioxus && cargo test )` —
+  SSR render tests + IPC smoke tests.
 
-- **E2E (visual)**: `cd packages/desktop && bun run e2e`. Requires
-  Chrome at `/usr/bin/google-chrome` (configured in
-  `playwright.config.ts`).
-
-- **CI**: `.github/workflows/ci.yml` runs `bun test src tests` with
-  bun 1.3.13 pinned (see §13).
+- **CI**: `.github/workflows/ci.yml` runs the Rust workspace test suite.
 
 ### GitNexus workflow (mandatory per `CLAUDE.md`)
 
@@ -1142,10 +1136,10 @@ commits.
 
 | Port | Service | Owner | Restart |
 |---|---|---|---|
-| `:7331` | Apohara desktop dev (Bun.serve + SSE + React HMR) | `bun --hot packages/desktop/src/server.ts` | `pkill -f packages/desktop/src/server.ts; bun --hot packages/desktop/src/server.ts &` |
-| `:8000` | Carnice-9b local LLM | `llama-cpp-python` | See ROADMAP §15.4 (Memory #49 has the systemd-run command with cgroup containment + GPU LD paths) |
-| `:8001` | ContextForge sidecar | `python -m apohara_context_forge.main` | `cd ~/Apohara-ContextForge && source .venv/bin/activate && python -m apohara_context_forge.main &` |
-| (Unix sock) | `apohara-indexer` daemon | `apohara-indexer --serve` | Auto-spawned by `indexer-client.ts` |
+| (none) | Apohara desktop (native Dioxus, no port — UI + core in-process) | `apohara-desktop-dioxus` binary | relaunch the binary |
+| `:8000` | Carnice-9b local LLM (optional) | `llama-cpp-python` | See ROADMAP §15.4 (Memory #49 has the systemd-run command with cgroup containment + GPU LD paths) |
+| `:8001` | ContextForge sidecar (optional, separate repo) | `python -m apohara_context_forge.main` | `cd ~/Apohara-ContextForge && source .venv/bin/activate && python -m apohara_context_forge.main &` |
+| (Unix sock) | `apohara-indexer` daemon | `apohara-indexer --serve` | Auto-spawned by the indexer client |
 
 ### Crash protection (linconx-specific)
 
@@ -1174,42 +1168,35 @@ cd ~/Apohara-ContextForge && source .venv/bin/activate && \
   CUDA_VISIBLE_DEVICES=0 nohup python -m apohara_context_forge.main \
   > /tmp/contextforge.log 2>&1 &
 
-# Desktop dev on :7331
-cd ~/Apohara && CONTEXTFORGE_ENABLED=1 \
-  bun --hot packages/desktop/src/server.ts > /tmp/desktop-server.log 2>&1 &
+# Native Dioxus desktop (no port — UI + core in-process)
+( cd crates/apohara-desktop-dioxus && cargo run --release )
 ```
 
-### Replay a run
+### Inspect a run
 
 ```bash
 # List runs
 ls .events/
 
-# Show a run's timeline
+# Show a run's timeline (append-only JSONL)
 cat .events/run-<id>.jsonl | jq -c '{type, severity, payload}'
-
-# Verify the hash chain
-bun run src/cli.ts replay <id> --verify
-
-# Re-render the run without calling any provider
-bun run src/cli.ts replay <id> --dry-run --json
 ```
 
-### Stats command
+*Planned (Phase 2): `apohara replay <id> --verify` to validate a SHA-256
+hash chain, and `apohara replay <id> --dry-run --json` to re-render a run
+without calling any provider. Not implemented yet — today's CLI exposes
+`doctor` / `verify-setup` / `run`.*
+
+### Live CLI commands
 
 ```bash
-# Full table per role
-bun run src/cli.ts stats
-
-# Just one role
-bun run src/cli.ts stats --role codegen
-
-# Machine-readable
-bun run src/cli.ts stats --json
-
-# Custom store
-bun run src/cli.ts stats --file .apohara/capability-stats.json
+apohara doctor          # full environment check
+apohara verify-setup    # end-to-end setup verification
+apohara run "<goal>"    # dispatch a goal across the CLI drivers
 ```
+
+*An `apohara stats` command (Thompson-Sampling rankings) is **planned —
+not yet ported to the Rust core (TS-legacy)**.*
 
 ---
 
@@ -1233,17 +1220,18 @@ bun run src/cli.ts stats --file .apohara/capability-stats.json
 - `CliDriverConfig` (CLI driver) — `src/providers/cli-driver.ts`
 - `SandboxRequest` / `SandboxResult` (sandbox boundary) — `crates/apohara-sandbox/src/runner.rs`
 - `PermissionTier` (sandbox tier) — `crates/apohara-sandbox/src/permission.rs`
-- `CapabilityCounts` (Thompson Sampling persistence) — `src/core/capability-stats.ts`
+- `CapabilityCounts` (Thompson Sampling persistence) — *planned, TS-legacy; not in the Rust core*
 
 ### C. External references
 
-- **INV-15 preprint** — DOI [10.5281/zenodo.20114594](https://doi.org/10.5281/zenodo.20114594).
-  KV-cache safety invariant. Implemented in
-  `src/core/verification-mesh.ts` (M015.4 port).
+- **INV-15 / JCR preprint** — DOI [10.5281/zenodo.20114594](https://doi.org/10.5281/zenodo.20114594).
+  KV-cache safety invariant. *This paper concept is **not** implemented
+  in this repo; it belongs to the optional separate-repo ContextForge
+  integration. The live verification-mesh gate is **INV-bash-scope**.*
 - **Apohara Context Forge** — [SuarezPM/Apohara_Context_Forge](https://github.com/SuarezPM/Apohara_Context_Forge).
-  Parallel repo for the GPU sidecar.
+  Separate repo for the optional GPU sidecar integration.
 - **seccompiler** — [crate docs](https://docs.rs/seccompiler/0.5.0/seccompiler/).
-- **Tauri v2** — [tauri.app](https://tauri.app/).
+- **Dioxus** — [dioxuslabs.com](https://dioxuslabs.com/) (native desktop UI, 0.7).
 - **GSD2** (pattern donor) — [gsd-build/gsd-2](https://github.com/gsd-build/gsd-2).
 - **Nimbalyst** (positioning reference) — [Nimbalyst/nimbalyst](https://github.com/Nimbalyst/nimbalyst).
 
@@ -1263,4 +1251,6 @@ bun run src/cli.ts stats --file .apohara/capability-stats.json
 
 *This document is generated, hand-curated, and the agreed canonical
 reference. When the code drifts, **this document is wrong** — open a
-PR. Updated 2026-05-12 against commit `bd819ed`.*
+PR. Architecture/stack/command sections reconciled to post-Sprint-23
+reality; the §10 roadmap and §11 commit-log are a dated snapshot against
+commit `bd819ed` (2026-05-12).*

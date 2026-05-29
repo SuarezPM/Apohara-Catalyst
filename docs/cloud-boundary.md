@@ -21,10 +21,10 @@ TypeScript runtime (see `src/cli/doctor.ts:129` for the default resolution).
 | Artifact | Default path | Source of truth |
 |---|---|---|
 | Orchestration DB (bun:sqlite) | `~/.apohara/orchestration.db` | `src/cli/doctor.ts:93`, `src/cli/doctor.ts:120` |
-| Per-run event ledger (JSONL) | `<repo>/.events/run-<runId>.jsonl` | `src/providers/github.ts:31`, `src/providers/router.ts:402`, `packages/desktop/src/server.ts:292` |
+| Per-run event ledger (JSONL) | `<repo>/.events/run-<runId>.jsonl` | written locally by the orchestration/ledger crates |
 | MCP endpoint descriptor | `~/.apohara/sockets/mcp-endpoints.json` | `src/core/mcp/bootstrap.ts:43` |
 | Hook server endpoint descriptor | `~/.apohara/sockets/hooks-endpoint.json` | `crates/apohara-hooks-server/src/endpoint_file.rs:3,73` |
-| Indexer database (redb) | `~/.apohara/index.redb` | `crates/apohara-indexer/src/db.rs:4,93`, `crates/apohara-indexer/src/indexer.rs:92` |
+| Indexer database (SQLite + sqlite-vec) | `~/.apohara/index.db` | `crates/apohara-indexer/src/storage.rs`, `crates/apohara-indexer/src/indexer.rs` |
 | Indexer IPC socket | `<cwd>/.apohara/indexer.sock` | `crates/apohara-indexer/src/server.rs:20`, `src/core/indexer-client.ts:64` |
 | MCP / audit log (JSONL, fchmod 0600) | `~/.apohara/audit/*.jsonl` (default `mcp.jsonl`) | `src/core/mcp/bootstrap.ts:48`, `crates/apohara-audit/AGENTS.md:8` |
 | Secrets (bearer tokens, GitHub App key path) | OS keychain via `apohara-secrets` (no on-disk plaintext) | `crates/apohara-secrets/Cargo.toml`, `crates/apohara-secrets/AGENTS.md` |
@@ -43,9 +43,9 @@ Notes:
 - The `apohara-secrets` crate wraps `keyring-rs` and delegates to Secret
   Service (Linux), Keychain (macOS), or Credential Vault (Windows). Apohara
   never reads or stores credentials in plaintext on disk.
-- The Nomic BERT model (~400 MB) used by `apohara-indexer` is downloaded
-  once from HuggingFace by the user and then run locally on CPU — no
-  embedding request ever leaves the host (`crates/apohara-indexer/src/embeddings.rs:4,11,62`).
+- `apohara-indexer` embeddings are computed in-process with deterministic
+  blake3 feature-hashing (`crates/apohara-indexer/src/embeddings.rs`). There
+  is no model to download and no embedding request ever leaves the host.
 
 ## 2. What crosses the boundary
 
@@ -68,6 +68,12 @@ inherited environment before handing it to the child. This enforces spec
 §0.4: a subprocess only ever sees the credentials it explicitly needs.
 
 ### 2.2 `github-bridge` poll-only
+
+> Status: the TypeScript `packages/github-bridge` described below was removed
+> in the Rust-native rewrite; it is **legacy** and not part of the current
+> build. The poll-only, GitHub-App-auth, no-webhook contract it documents
+> still describes the intended boundary, but the file paths and line numbers
+> below are historical until the bridge is reintroduced as a Rust crate.
 
 `packages/github-bridge/src/poller.ts:44` polls
 `api.github.com/repos/.../issues?labels=apohara&state=open` every 60 seconds.
@@ -105,8 +111,9 @@ Negatives, so reviewers do not have to assume:
   `crates/apohara-sandbox` (seccomp-bpf + Linux namespaces) and pre-validated
   by `crates/apohara-pathsafety` symlink-escape detection
   (`crates/apohara-pathsafety/src/lib.rs:20,48`).
-- **Index embeddings** — Nomic BERT runs locally on CPU; embeddings are
-  written only to `~/.apohara/index.redb`.
+- **Index embeddings** — computed in-process via blake3 feature-hashing (no
+  model, no network); embeddings are written only to the local SQLite +
+  sqlite-vec index under `~/.apohara/`.
 - **Decomposer prompts, plan documents, agent stdin/stdout** — handed to the
   provider CLI subprocess via stdin / argv only. Apohara itself does not
   POST them anywhere. Whatever the provider CLI then transmits over its

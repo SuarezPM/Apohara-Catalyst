@@ -102,9 +102,9 @@ ls -l ~/.apohara/run/
    (`APOHARA_DESKTOP_PORT=7341 apohara plan ...`).
 3. **The daemon binary is not on `$PATH`.** Use `apohara doctor` to confirm;
    reinstall via the one-liner installer if so.
-4. **WSL-specific.** `bun --hot` on WSL with the source tree on a Windows
-   drive (`/mnt/c/...`) is rate-limited by the bridge. Move the checkout to
-   the WSL filesystem (`~/apohara/`) and rerun.
+4. **WSL-specific.** File watching on a Windows drive (`/mnt/c/...`) is slow
+   and unreliable under WSL. Move the checkout to the WSL filesystem
+   (`~/apohara/`) and rerun.
 
 ---
 
@@ -159,32 +159,25 @@ shipping one).
 
 ---
 
-## `cargo test -p apohara-indexer` OOMs my machine
+## `cargo test -p apohara-indexer` (no longer an OOM hazard)
 
-**Symptoms.** Your laptop fans spin to 100%, RAM gets pinned at 100%, the
-OOM killer eventually reaps `cargo`.
+**Background.** Older docs warned that `cargo test -p apohara-indexer` would
+OOM a 16 GB host because each test binary loaded a ~400 MB Nomic BERT model.
+That model is gone. The indexer now uses sqlite-vec storage + deterministic
+blake3 feature-hashing embeddings — in-process, ~0 RAM, no model download.
 
-**Cause.** `cargo test -p apohara-indexer` spawns the `--lib` and
-`--test memory_integration` + `--test indexer_persistence` binaries
-**concurrently**, and each one loads the ~400 MB Nomic BERT weights into
-memory. Three concurrent loads on a 16 GB host overshoots committed memory.
-
-**Fix.** Always run one binary at a time:
+**So just run it:**
 
 ```bash
-cargo test -p apohara-indexer --lib
-cargo test -p apohara-indexer --test memory_integration
-cargo test -p apohara-indexer --test indexer_persistence
+cargo test -p apohara-indexer                            # everything, in parallel
+cargo test -p apohara-indexer --lib                      # unit tests only
+cargo test -p apohara-indexer --test sqlite_vec_storage  # storage contract
+cargo test -p apohara-indexer --test persistence_reopen  # reopen survives
 ```
 
-CI uses `APOHARA_MOCK_EMBEDDINGS=1` to skip the model load entirely:
-
-```bash
-APOHARA_MOCK_EMBEDDINGS=1 cargo test -p apohara-indexer
-```
-
-This is documented in `CLAUDE.md` ("OOM hazard with `cargo test`") because
-it bit every contributor at least once.
+There is no per-binary serialization rule and no `APOHARA_MOCK_EMBEDDINGS`
+flag anymore — both were tied to the deleted model. See
+[`crates/apohara-indexer/AGENTS.md`](../crates/apohara-indexer/AGENTS.md).
 
 ---
 

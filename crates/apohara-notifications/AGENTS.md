@@ -34,10 +34,11 @@ pub struct DefaultNotifier; // implements Notifier
 ## Injection model
 
 - `static GLOBAL_NOTIFIER: OnceLock<Arc<dyn Notifier>>` per spec §0.21.
-- Tauri startup wires a `TauriNotifier` that calls the native notification
-  plugin. Headless / CLI processes wire `DefaultNotifier`.
+- The native Dioxus desktop (`apohara-desktop-dioxus`) and headless / CLI
+  processes both register `DefaultNotifier`, which drives the OS-native
+  notification backend (see the platform table below).
 - `fire()` is a no-op + `tracing::warn!` if no notifier is registered, so
-  callers never need to branch on "is Tauri up". If the notifier returns
+  callers never need to branch on "is the desktop up". If the notifier returns
   `Err`, `fire()` logs at `tracing::error!` with the title attached — backend
   failures (osascript spawn, D-Bus down, etc.) are NEVER silently swallowed.
 - Re-initialization is a no-op with a `tracing::warn!` log (was silently

@@ -37,7 +37,7 @@ Apohara wraps `claude-code-cli`, `codex-cli`, and `opencode-go`. That's the acti
 
 ## 6. Local-first, not local-only
 
-Apohara runs on your machine. The desktop UI is Tauri (no Electron, no headless browser tab). The orchestration DB is bun:sqlite. The ledger is JSONL on disk. The indexer is on-device tree-sitter + Nomic BERT.
+Apohara runs on your machine. The desktop UI is native Dioxus 0.7 (no Electron, no webview, no headless browser tab). The orchestration DB is SQLite on disk. The ledger is JSONL on disk. The indexer is on-device tree-sitter + sqlite-vec + blake3 feature-hashing (no model download).
 
 GitHub bridge is opt-in and poll-only in v1.0 (`apohara verify-setup` does not require it). Cloud is a place you can choose to publish to — not a place your work has to live.
 
