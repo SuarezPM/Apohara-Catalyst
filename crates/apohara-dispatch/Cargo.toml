@@ -14,7 +14,6 @@ async-trait = { workspace = true }
 uuid = { workspace = true }
 apohara-types = { path = "../apohara-types" }
 apohara-coordinator = { path = "../apohara-coordinator" }
-apohara-sandbox = { path = "../apohara-sandbox" }
 apohara-secrets = { path = "../apohara-secrets" }
 apohara-token-accounting = { path = "../apohara-token-accounting" }
 
