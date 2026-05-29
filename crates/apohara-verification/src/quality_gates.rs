@@ -19,6 +19,18 @@
 //! The behaviour, regex literals, and feedback strings are
 //! byte-for-byte the same as the TS implementation so the two paths
 //! produce identical critic output during Phase 1 double-maintenance.
+//!
+//! # Zero-token by default
+//!
+//! Every gate here is **pure regex over `GateInput`** — no I/O, no spawn,
+//! no model call, zero tokens. The ONLY token-spending path in this crate's
+//! design is the opt-in model-judge tier in [`crate::judge`], which is OFF
+//! unless `APOHARA_MODEL_JUDGE=1`. Its accounting hook
+//! ([`crate::judge::record_judge_cost`]) feeds per-provider absolutes into
+//! `apohara_token_accounting` (§0.14). Because no model-dispatch path exists
+//! in this crate today (Decision 4A — prompt-build only), even a flag bug
+//! cannot spend tokens. Keep it that way: do not add spawn/dispatch/reqwest
+//! to this crate.
 
 use std::sync::OnceLock;
 
