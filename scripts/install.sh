@@ -124,15 +124,20 @@ if ! curl -fL --progress-bar "$URL" -o "$TMP_DIR/${ASSET}"; then
   exit 2
 fi
 
-# TODO release-time: If the release ships a SHA256 sidecar, uncomment
-# the block below once desktop-release.yml is updated to upload it.
-# printf 'Verifying SHA256...\n'
-# EXPECTED_SHA="$(curl -fsSL "$CHECKSUM_URL" | cut -d' ' -f1)"
-# ACTUAL_SHA="$(sha256sum "$TMP_DIR/${ASSET}" | cut -d' ' -f1)"
-# if [ "$EXPECTED_SHA" != "$ACTUAL_SHA" ]; then
-#   printf 'error: SHA256 mismatch.\n' >&2
-#   exit 2
-# fi
+# Verify the archive against the `.sha256` sidecar release.yml uploads
+# (`sha256sum file > file.sha256`, i.e. `<hash>  <name>`). The sidecar is
+# required: a missing or mismatched checksum aborts the install with exit 2.
+printf 'Verifying SHA256...\n'
+EXPECTED_SHA="$(curl -fsSL "$CHECKSUM_URL" | cut -d' ' -f1)"
+if [ -z "$EXPECTED_SHA" ]; then
+  printf 'error: could not fetch SHA256 sidecar from %s\n' "$CHECKSUM_URL" >&2
+  exit 2
+fi
+ACTUAL_SHA="$(sha256sum "$TMP_DIR/${ASSET}" | cut -d' ' -f1)"
+if [ "$EXPECTED_SHA" != "$ACTUAL_SHA" ]; then
+  printf 'error: SHA256 mismatch (expected %s, got %s).\n' "$EXPECTED_SHA" "$ACTUAL_SHA" >&2
+  exit 2
+fi
 
 # Unpack the archive and install the `apohara` binary from it. The archive
 # also carries `apohara-tui` + docs, but install.sh ships only `apohara`.
