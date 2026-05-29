@@ -1,3 +1,5 @@
+> ⚠️ **HISTORICAL / SUPERSEDED** — This document describes the pre-Dioxus architecture (Tauri v2 + React 19 + Bun, Sprint ≤22). The current stack is a **native Dioxus desktop + a tree-sitter / sqlite-vec / blake3 indexer** — there is no `packages/`, no Tauri, no React, and no Bun in the repo. Kept as a historical record; see `README.md` and `ARCHITECTURE.md` for current reality.
+
 # Apohara Catalyst v1.0 — Personal Integration Design (Sprint 23)
 
 **Goal**: Convertir el bake-off Dioxus actual (solo monta `HeroBanner`) en una app v1.0 lanzable desde el escritorio Arch del usuario, integrada end-to-end con los 8 backend crates Rust-native que ya existen post-Phase 1-3, sin scope de distribución pública.

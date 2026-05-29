@@ -1,3 +1,5 @@
+> ⚠️ **HISTORICAL / SUPERSEDED** — This document describes the pre-Dioxus architecture (Tauri v2 + React 19 + Bun, Sprint ≤22). The current stack is a **native Dioxus desktop + a tree-sitter / sqlite-vec / blake3 indexer** — there is no `packages/`, no Tauri, no React, and no Bun in the repo. Kept as a historical record; see `README.md` and `ARCHITECTURE.md` for current reality.
+
 # Apohara Release Flow
 
 How Apohara goes from `feat/apohara-v1` to `v1.0.0` on Homebrew and GitHub Releases.

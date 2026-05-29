@@ -1,3 +1,5 @@
+> ⚠️ **HISTORICAL / SUPERSEDED** — This document describes the pre-Dioxus architecture (Tauri v2 + React 19 + Bun, Sprint ≤22). The current stack is a **native Dioxus desktop + a tree-sitter / sqlite-vec / blake3 indexer** — there is no `packages/`, no Tauri, no React, and no Bun in the repo. Kept as a historical record; see `README.md` and `ARCHITECTURE.md` for current reality.
+
 # Audit: nimbalyst (45 sub-findings, 41 canónicos)
 
 > Cruz cada hallazgo de `docs/reference-mining/nimbalyst.md` contra el código actual de Apohara.
