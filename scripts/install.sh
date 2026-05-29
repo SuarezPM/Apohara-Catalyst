@@ -1,8 +1,9 @@
 #!/usr/bin/env sh
 # Apohara installer — Phase 6.6
 #
-# Detects OS + arch, downloads the matching desktop binary from the
-# GitHub release, places it in $PREFIX/bin, and `chmod +x`s it. Designed
+# Detects OS + arch, maps them to a Rust target triple, downloads the
+# matching `apohara-<triple>.tar.gz` release archive, unpacks it, and
+# installs the `apohara` binary into $PREFIX/bin. Designed
 # to be invoked via:
 #
 #     curl -fsSL https://raw.githubusercontent.com/SuarezPM/Apohara/main/scripts/install.sh | sh
@@ -35,6 +36,7 @@ require() {
 
 require curl
 require uname
+require tar
 
 OS_RAW="$(uname -s)"
 ARCH_RAW="$(uname -m)"
@@ -54,15 +56,31 @@ case "$OS_RAW" in
 esac
 
 case "$ARCH_RAW" in
-  x86_64|amd64) ARCH="x64" ;;
-  aarch64|arm64) ARCH="arm64" ;;
+  x86_64|amd64) ARCH="x86_64" ;;
+  aarch64|arm64) ARCH="aarch64" ;;
   *)
     printf 'error: unsupported arch: %s\n' "$ARCH_RAW" >&2
     exit 1
     ;;
 esac
 
-PLATFORM="${OS}-${ARCH}"
+# Map (OS, ARCH) → the Rust target triple that release.yml builds and uploads
+# as `apohara-<triple>.tar.gz`. Only the 4 linux/darwin combinations are
+# mapped here; Windows is already rejected above (no *-pc-windows-msvc case).
+uname_to_triple() {
+  case "${1}-${2}" in
+    linux-x86_64)   echo "x86_64-unknown-linux-gnu" ;;
+    linux-aarch64)  echo "aarch64-unknown-linux-gnu" ;;
+    darwin-x86_64)  echo "x86_64-apple-darwin" ;;
+    darwin-aarch64) echo "aarch64-apple-darwin" ;;
+    *)              return 1 ;;
+  esac
+}
+
+TRIPLE="$(uname_to_triple "$OS" "$ARCH")" || {
+  printf 'error: unsupported os/arch combination: %s/%s\n' "$OS" "$ARCH" >&2
+  exit 1
+}
 
 if [ "$VERSION" = "latest" ]; then
   printf 'Resolving latest version from GitHub...\n'
@@ -76,13 +94,12 @@ if [ "$VERSION" = "latest" ]; then
   fi
 fi
 
-# TODO release-time: desktop-release.yml currently uploads the bare
-# apohara-desktop binary. If a future release ships a tar.gz instead,
-# switch ASSET to "apohara-desktop-${PLATFORM}.tar.gz" and uncomment
-# the SHA256 block below.
-ASSET="apohara-desktop"
+# release.yml uploads per-target archives named `apohara-<triple>.tar.gz`
+# plus a `.sha256` sidecar (`sha256sum file > file.sha256`). Match that
+# scheme exactly so the download URL resolves.
+ASSET="apohara-${TRIPLE}.tar.gz"
 URL="https://github.com/${REPO}/releases/download/${VERSION}/${ASSET}"
-CHECKSUM_URL="https://github.com/${REPO}/releases/download/${VERSION}/${ASSET}.sha256"
+CHECKSUM_URL="${URL}.sha256"
 
 # Pick an install directory we can actually write to.
 BIN_DIR="${PREFIX}/bin"
@@ -117,7 +134,15 @@ fi
 #   exit 2
 # fi
 
-install -m 0755 "$TMP_DIR/${ASSET}" "$BIN_DIR/apohara"
+# Unpack the archive and install the `apohara` binary from it. The archive
+# also carries `apohara-tui` + docs, but install.sh ships only `apohara`.
+tar xzf "$TMP_DIR/${ASSET}" -C "$TMP_DIR"
+if [ ! -f "$TMP_DIR/apohara" ]; then
+  printf 'error: archive did not contain an "apohara" binary.\n' >&2
+  exit 2
+fi
+
+install -m 0755 "$TMP_DIR/apohara" "$BIN_DIR/apohara"
 printf '\nInstalled apohara %s to %s\n' "$VERSION" "$BIN_DIR/apohara"
 
 case ":$PATH:" in
