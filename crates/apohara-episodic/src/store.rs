@@ -173,6 +173,62 @@ pub fn query_episodes(conn: &Connection, goal: &str, k: usize) -> Result<Vec<Epi
     Ok(out)
 }
 
+/// List episodes most-recent-first (by `timestamp` DESC), up to `limit`. Used
+/// by the episode-backed ledger's `read_events`/`replay_run` (no KNN, no goal
+/// embedding — a plain ordered scan).
+pub fn list_episodes(conn: &Connection, limit: usize) -> Result<Vec<Episode>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, goal, timestamp, providers, winning_diff_summary, gate_verdicts, outcome \
+             FROM episodes ORDER BY timestamp DESC, id DESC LIMIT ?1",
+        )
+        .context("prepare list_episodes statement")?;
+    let rows = stmt
+        .query(params![limit as i64])
+        .context("query list_episodes")?;
+    let out = rows_to_episodes(rows)?;
+    Ok(out)
+}
+
+/// Substring search over `goal` and `winning_diff_summary`/`outcome` (the
+/// fields a ledger `payload` is built from), most-recent-first. Used by the
+/// episode-backed ledger's `search_events`.
+pub fn search_episodes(conn: &Connection, substring: &str) -> Result<Vec<Episode>> {
+    let like = format!("%{}%", substring);
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, goal, timestamp, providers, winning_diff_summary, gate_verdicts, outcome \
+             FROM episodes \
+             WHERE goal LIKE ?1 OR outcome LIKE ?1 OR winning_diff_summary LIKE ?1 \
+             ORDER BY timestamp DESC, id DESC",
+        )
+        .context("prepare search_episodes statement")?;
+    let rows = stmt.query(params![like]).context("query search_episodes")?;
+    let out = rows_to_episodes(rows)?;
+    Ok(out)
+}
+
+/// Map raw rows (in the fixed 7-column select order used by `list_episodes` /
+/// `search_episodes`) into `Episode`s, deserializing the JSON text columns.
+fn rows_to_episodes(mut rows: rusqlite::Rows) -> Result<Vec<Episode>> {
+    let mut out = Vec::new();
+    while let Some(row) = rows.next().context("read episode row")? {
+        let providers_json: String = row.get(3)?;
+        let verdicts_json: String = row.get(5)?;
+        out.push(Episode {
+            id: row.get(0)?,
+            goal: row.get(1)?,
+            timestamp: row.get(2)?,
+            providers: serde_json::from_str(&providers_json).context("deserialize providers")?,
+            winning_diff_summary: row.get(4)?,
+            gate_verdicts: serde_json::from_str(&verdicts_json)
+                .context("deserialize gate_verdicts")?,
+            outcome: row.get(6)?,
+        });
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
