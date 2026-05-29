@@ -71,7 +71,8 @@ CLAUDE.md.bak.*
 # Stage 4+ opencode worktree task prompt files (transient)
 .opencode-task-prompt.md
 
-# ts-rs auto-generated bindings (regenerated via `bun run generate-types`)
+# ts-rs auto-generated per-type bindings (emitted by `cargo test`; aggregated
+# on demand via `cargo run -p apohara-types --bin generate_types --features ts-export`)
 crates/*/bindings/
 
 # Local development data

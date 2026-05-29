@@ -3,7 +3,7 @@ use std::process::Command;
 #[test]
 fn generate_types_binary_outputs_file() {
     let tmp = tempfile::tempdir().unwrap();
-    let out_dir = tmp.path().join("packages/apohara-shared");
+    let out_dir = tmp.path().join("out");
     std::fs::create_dir_all(&out_dir).unwrap();
 
     let status = Command::new(env!("CARGO"))
@@ -21,7 +21,7 @@ fn generate_types_binary_outputs_file() {
 #[test]
 fn generate_types_is_deterministic() {
     let tmp = tempfile::tempdir().unwrap();
-    let out_dir = tmp.path().join("packages/apohara-shared");
+    let out_dir = tmp.path().join("out");
     std::fs::create_dir_all(&out_dir).unwrap();
 
     // First invocation
@@ -40,5 +40,5 @@ fn generate_types_is_deterministic() {
     assert!(status2.success());
     let content2 = std::fs::read_to_string(out_dir.join("types.ts")).unwrap();
 
-    assert_eq!(content1, content2, "generate_types must be deterministic for generate-types:check to pass");
+    assert_eq!(content1, content2, "generate_types must be deterministic so binding drift checks stay reliable");
 }
