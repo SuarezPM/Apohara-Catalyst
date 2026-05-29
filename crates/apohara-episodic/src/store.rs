@@ -19,10 +19,11 @@
 //! fresh process the `episodes_vec` virtual-table CREATE would otherwise fail.
 
 use anyhow::{Context, Result};
-use rusqlite::Connection;
+use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+use apohara_indexer::embeddings::feature_hash_embed;
 use apohara_indexer::EMBED_DIM;
 
 /// One past dispatch episode, the cross-run memory unit.
@@ -88,6 +89,90 @@ pub fn open_episode_db(path: &Path) -> Result<Connection> {
     Ok(conn)
 }
 
+/// Insert (or replace) an episode and its goal embedding. `providers` and
+/// `gate_verdicts` are stored as JSON text; the goal is feature-hash embedded
+/// into `episodes_vec`. The vec rowid is bound to the episodes rowid so the
+/// JOIN in `query_episodes` is constant-time (mirrors `insert_chunk`).
+pub fn insert_episode(conn: &Connection, episode: &Episode) -> Result<()> {
+    let providers_json =
+        serde_json::to_string(&episode.providers).context("serialize providers")?;
+    let verdicts_json =
+        serde_json::to_string(&episode.gate_verdicts).context("serialize gate_verdicts")?;
+
+    conn.execute(
+        "INSERT OR REPLACE INTO episodes \
+         (id, goal, timestamp, providers, winning_diff_summary, gate_verdicts, outcome) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![
+            episode.id,
+            episode.goal,
+            episode.timestamp,
+            providers_json,
+            episode.winning_diff_summary,
+            verdicts_json,
+            episode.outcome,
+        ],
+    )
+    .context("insert episode row")?;
+
+    let embed = feature_hash_embed(&episode.goal, EMBED_DIM);
+    let bytes: Vec<u8> = embed.iter().flat_map(|f| f.to_le_bytes()).collect();
+    conn.execute(
+        "INSERT OR REPLACE INTO episodes_vec (rowid, embedding) \
+         VALUES ((SELECT rowid FROM episodes WHERE id = ?1), ?2)",
+        params![episode.id, bytes],
+    )
+    .context("insert episode embedding")?;
+    Ok(())
+}
+
+/// Feature-similarity recall: embed `goal` with the same feature-hashing
+/// pipeline and ask vec0 for the `k` nearest past episodes, ascending distance.
+/// Mirrors `apohara_indexer::knn_query`'s JOIN. NOT semantic — keyword-ish over
+/// short goal strings (see module docs).
+pub fn query_episodes(conn: &Connection, goal: &str, k: usize) -> Result<Vec<Episode>> {
+    let embed = feature_hash_embed(goal, EMBED_DIM);
+    let bytes: Vec<u8> = embed.iter().flat_map(|f| f.to_le_bytes()).collect();
+    let mut stmt = conn
+        .prepare(
+            "SELECT episodes.id, episodes.goal, episodes.timestamp, episodes.providers, \
+                    episodes.winning_diff_summary, episodes.gate_verdicts, episodes.outcome \
+             FROM episodes_vec \
+             INNER JOIN episodes ON episodes.rowid = episodes_vec.rowid \
+             WHERE embedding MATCH ?1 AND k = ?2 \
+             ORDER BY distance",
+        )
+        .context("prepare episode knn statement")?;
+    let rows = stmt
+        .query_map(params![bytes, k as i64], |row| {
+            let providers_json: String = row.get(3)?;
+            let verdicts_json: String = row.get(5)?;
+            Ok((
+                Episode {
+                    id: row.get(0)?,
+                    goal: row.get(1)?,
+                    timestamp: row.get(2)?,
+                    providers: Vec::new(),
+                    winning_diff_summary: row.get(4)?,
+                    gate_verdicts: Vec::new(),
+                    outcome: row.get(6)?,
+                },
+                providers_json,
+                verdicts_json,
+            ))
+        })
+        .context("execute episode knn query")?;
+    let mut out = Vec::new();
+    for r in rows {
+        let (mut ep, providers_json, verdicts_json) = r.context("read episode row")?;
+        ep.providers = serde_json::from_str(&providers_json).context("deserialize providers")?;
+        ep.gate_verdicts =
+            serde_json::from_str(&verdicts_json).context("deserialize gate_verdicts")?;
+        out.push(ep);
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -143,5 +228,60 @@ mod tests {
             .query_row("PRAGMA busy_timeout", [], |r| r.get(0))
             .unwrap();
         assert_eq!(busy_timeout, 5000, "busy_timeout must be 5000ms");
+    }
+
+    fn ep(id: &str, goal: &str) -> Episode {
+        Episode {
+            id: id.to_string(),
+            goal: goal.to_string(),
+            timestamp: 1000,
+            providers: vec!["claude-code-cli".to_string()],
+            winning_diff_summary: "summary".to_string(),
+            gate_verdicts: vec!["passed".to_string()],
+            outcome: "applied".to_string(),
+        }
+    }
+
+    #[test]
+    #[serial(episodic_fresh_process)]
+    fn store_insert_and_query_roundtrips_all_fields() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open_episode_db(&dir.path().join("episodes.db")).unwrap();
+        let original = Episode {
+            id: "e1".to_string(),
+            goal: "add timeout parameter to fetchData".to_string(),
+            timestamp: 42,
+            providers: vec!["claude-code-cli".to_string(), "codex-cli".to_string()],
+            winning_diff_summary: "claude-code-cli changed 3 files".to_string(),
+            gate_verdicts: vec!["passed".to_string(), "failed".to_string()],
+            outcome: "applied".to_string(),
+        };
+        insert_episode(&conn, &original).unwrap();
+        let hits = query_episodes(&conn, "add timeout parameter to fetchData", 1).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0], original, "all fields must roundtrip via the store");
+    }
+
+    #[test]
+    #[serial(episodic_fresh_process)]
+    fn store_query_orders_by_feature_similarity() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open_episode_db(&dir.path().join("episodes.db")).unwrap();
+
+        // Query shares progressively fewer tokens with near < mid < far:
+        //   query: "fix login authentication bug"
+        //   near : "fix login authentication bug" (4 shared)
+        //   mid  : "fix login screen layout"      (2 shared: fix, login)
+        //   far  : "deploy production database"   (0 shared)
+        insert_episode(&conn, &ep("near", "fix login authentication bug")).unwrap();
+        insert_episode(&conn, &ep("mid", "fix login screen layout")).unwrap();
+        insert_episode(&conn, &ep("far", "deploy production database")).unwrap();
+
+        let hits = query_episodes(&conn, "fix login authentication bug", 3).unwrap();
+        assert_eq!(hits.len(), 3, "all three episodes retrievable");
+        // Distance ORDERING, not just retrieval: nearest-by-shared-tokens first,
+        // disjoint last. Catches feature-hash degeneracy on short goals.
+        assert_eq!(hits[0].id, "near", "exact-match goal must rank first");
+        assert_eq!(hits[2].id, "far", "disjoint goal must rank last");
     }
 }
