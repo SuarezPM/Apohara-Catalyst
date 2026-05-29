@@ -9,11 +9,11 @@
 <p align="center">
   <img alt="version" src="https://img.shields.io/badge/version-v1.0.0--rc.5-blue">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-green">
-  <img alt="rust" src="https://img.shields.io/badge/Rust-36%20crates%20%C2%B7%20~43.4k%20LOC-orange?logo=rust">
+  <img alt="rust" src="https://img.shields.io/badge/Rust-37%20crates%20%C2%B7%20~44.9k%20LOC-orange?logo=rust">
   <img alt="ui" src="https://img.shields.io/badge/UI-Dioxus%20(native%2C%20no%20webview)-purple">
   <img alt="local-first" src="https://img.shields.io/badge/100%25-local--first-success">
   <img alt="oauth" src="https://img.shields.io/badge/OAuth-zero%20by%20design-critical">
-  <img alt="tests" src="https://img.shields.io/badge/tests-1%2C120%20fns-informational">
+  <img alt="tests" src="https://img.shields.io/badge/tests-1%2C136%20fns-informational">
 </p>
 
 ---
@@ -128,6 +128,18 @@ Every provider runs through the same Rust crates — `apohara_dispatch::api::lis
 </details>
 
 <details>
+<summary><b>🧠 Cross-session episodic memory (`apohara-episodic`)</b></summary>
+
+<br>
+
+- **Every run becomes an episode.** At the end of each dispatch, Catalyst captures an `Episode { goal, providers, winning_diff_summary, gate_verdicts, outcome }` into a durable cross-run store at `~/.apohara/episodes/episodes.db` — separate from, and never disturbing, the per-run `orchestration.db`.
+- **Recall before the next run.** `recall_for_goal` pulls the closest past episodes and surfaces them as a `memory:recall` event before dispatch. Retrieval is **feature-similarity (NOT semantic)** — the same deterministic blake3 feature-hashing the indexer uses (384-dim, sqlite-vec KNN), so it's keyword-ish over short goal strings. **Zero tokens, zero model, fully local.**
+- **Reuses the indexer's primitives, adds no model.** `apohara-episodic` depends on `apohara-indexer`'s `feature_hash_embed` + sqlite-vec — no transformer, no download, ~0 resident RAM.
+- **Backs the MCP ledger.** An `EpisodicLedger` (`read_events`/`search_events`) replaces the old empty-stub ledger so past runs are queryable from the MCP surface.
+
+</details>
+
+<details>
 <summary><b>🚦 An orchestration engine that verifies before it merges</b></summary>
 
 <br>
@@ -189,6 +201,8 @@ apohara-catalyst              # from the terminal
 
 …or pick **"Apohara Catalyst"** from your desktop application menu.
 
+**Other platforms (Linux non-Arch / macOS):** the app itself is cross-platform — build it directly with `cargo install --path crates/apohara-desktop-dioxus` (only the `.desktop` launcher is Arch/freedesktop-specific). A binary-download `scripts/install.sh` (Linux/macOS, x86_64/aarch64) is wired and will work once a release is published — see *Status & scope*.
+
 **Check your environment first (optional):**
 
 ```bash
@@ -211,6 +225,7 @@ Make sure at least one of `claude`, `codex`, or `opencode` is installed and logg
 - ✅ **3 active providers by design:** `claude-code-cli`, `codex-cli`, `opencode-go`. Others are LEGACY behind `APOHARA_LEGACY_PROVIDERS=1`.
 - ⚠️ **Cross-platform installers are wired but not yet published.** The `scripts/install.sh` one-liner (Linux/macOS, x86_64/aarch64) and the AUR/Homebrew/Scoop manifests all target the same `apohara-<triple>.{tar.gz,zip}` release assets the build matrix produces; assets publish on tag. No published release exists yet — the tag cut is a Pablo-gated manual step.
 - ⚠️ **Daemon mode, SSH remote workers, smart router, and reactions ship OFF by default** and are not production-validated.
+- ⚠️ **Opt-in model-judge tier** (`APOHARA_MODEL_JUDGE=1`) is OFF by default and is the *only* token-spending path in the verification crate; the 7 quality gates stay pure-regex / zero-token. The flag currently assembles the judge prompt only — actual model dispatch is a deferred follow-up.
 - ⚠️ The seccomp/namespace sandbox is **Linux-only** and requires `kernel.unprivileged_userns_clone=1`; on macOS/Windows it falls back to no enforcement.
 
 We'd rather under-promise here than ship marketing numbers we can't back with code. No TTFT speedup percentage is claimed because none was measured.
@@ -219,14 +234,14 @@ We'd rather under-promise here than ship marketing numbers we can't back with co
 
 ## 🏛️ Architecture overview
 
-The workspace is **36 Rust crates / ~43,400 lines of Rust** across 357 `.rs` files, with **1,120** `#[test]`/`#[tokio::test]` functions and **zero** non-Rust runtime packages (no `package.json` anywhere in the repo). Edition 2021, `rust-version` 1.95. Grouped by concern:
+The workspace is **37 Rust crates / ~44,900 lines of Rust** across 379 `.rs` files, with **1,136** `#[test]`/`#[tokio::test]` functions and **zero** non-Rust runtime packages (no `package.json` anywhere in the repo). Edition 2021, `rust-version` 1.95. Grouped by concern:
 
 | Group | Crates |
 |---|---|
 | **Types & SSoT** | `apohara-types` (shared Rust↔TS via ts-rs, Intent→provider routing) · `apohara-spec` · `apohara-context-primitives` (SimHash + LSH) · `apohara-prompt-cache` |
 | **Safety** | `apohara-sandbox` (seccomp-bpf + namespaces) · `apohara-safety` (permissions + bash analyzer) · `apohara-pathsafety` · `apohara-audit` · `apohara-secrets` |
 | **Orchestration** | `apohara-dispatch` · `apohara-worktree` · `apohara-coordinator` · `apohara-verification` · `apohara-decomposer` · `apohara-projector` · `apohara-reaction-engine` · `apohara-attention` · `apohara-anti-thrash` · `apohara-token-accounting` |
-| **Knowledge** | `apohara-indexer` (tree-sitter + sqlite-vec + blake3) |
+| **Knowledge** | `apohara-indexer` (tree-sitter + sqlite-vec + blake3) · `apohara-episodic` (cross-session episode store, reuses the indexer's feature-hashing) |
 | **Surfaces** | `apohara-desktop-dioxus` (native UI) · `apohara-tui` (ratatui) · `apohara` (CLI) |
 | **Infra & MCP** | `apohara-daemon` · `apohara-client` · `apohara-transport` · `apohara-ws-hub` · `apohara-mcp` · `apohara-mcp-bridge` · `apohara-hooks` · `apohara-hooks-server` · `apohara-ssh-server` · `apohara-remote-worker` · `apohara-notifications` · `apohara-persistence` · `apohara-event-humanizer` |
 
