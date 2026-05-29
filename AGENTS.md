@@ -11,7 +11,7 @@
 | Run `apohara-types` tests | `cargo test -p apohara-types --lib --tests` |
 | Run `apohara-indexer` tests | `cargo test -p apohara-indexer` |
 | Start desktop dev | `cargo run -p apohara-desktop-dioxus` |
-| Generate ts-rs bindings (Rust→TS) | `cargo run -p apohara-types --bin generate_types` |
+| Generate ts-rs bindings (Rust→TS) | `cargo run -p apohara-types --bin generate_types --features ts-export` |
 | Check bindings didn't drift | `cargo test -p apohara-types` (codegen determinism test) |
 | Doctor (full env check) | `apohara doctor` |
 | Setup verification end-to-end | `apohara verify-setup` |
@@ -82,14 +82,14 @@ Before making changes, review the 33 disciplines in `docs/superpowers/specs/2026
 Highlights:
 - §0.1 Centralized IPC listeners (never per-component)
 - §0.4 Env sanitization on all spawns (no API keys to subprocesses)
-- §0.7 ts-rs Single Source of Truth (never hand-edit the generated per-crate `crates/<X>/bindings/*.ts`; regenerate via `cargo run -p apohara-types --bin generate_types`)
+- §0.7 ts-rs Single Source of Truth (never hand-edit the generated per-crate `crates/<X>/bindings/*.ts`; regenerate via `cargo run -p apohara-types --bin generate_types --features ts-export`)
 - §0.8 Atomic file writes (mkstemp + rename)
 - §0.14 Token accounting: absolutes > deltas
 - §0.16 enum_dispatch instead of `Box<dyn>` for providers
 
 ## What NOT to do
 
-- **Do NOT** hand-edit the generated ts-rs bindings (`crates/<X>/bindings/*.ts`) — regenerate via `cargo run -p apohara-types --bin generate_types`
+- **Do NOT** hand-edit the generated ts-rs bindings (`crates/<X>/bindings/*.ts`) — regenerate via `cargo run -p apohara-types --bin generate_types --features ts-export`
 - **Do NOT** commit to `main` directly — open a PR (this is a public repo from Stage 11 onwards)
 - **Do NOT** add OAuth flows for providers — CLI wrappers only (Pablo's hard rule: TOS prohibits programmatic OAuth for several providers; agents like Anthropic explicitly blocked from OAuth-based wrapping).
 - **Do NOT** add providers to the active roster beyond `claude-code-cli`, `codex-cli`, `opencode-go` — others are LEGACY behind `APOHARA_LEGACY_PROVIDERS=1`
@@ -133,11 +133,11 @@ Each rule below cost real time / money / trust to find. Treat them as load-beari
 
 **The rule:** Provider config paths come from the UPSTREAM CLI's source, not from convention. Verify against the reference repo each release: `upstream-source/packages/opencode/src/config/config.ts:340` for opencode, `upstream-source/src/main/agent-trust-presets.ts` for cursor / copilot / codex. When the CLI changes its config discovery, our injection must follow.
 
-### **Generated bindings MUST come back through `cargo run -p apohara-types --bin generate_types` after every Rust schema change**
+### **Generated bindings MUST come back through `cargo run -p apohara-types --bin generate_types --features ts-export` after every Rust schema change**
 
 **Why:** Pre-`dfad239`, `crates/apohara-types/src/bin/generate_types.rs` was a stub that only wrote a header. Every `bun run generate-types` invocation silently overwrote `packages/apohara-shared/types.ts` with the stub — the §0.7 SSoT was a no-op, and Rust↔TS drift was undetectable. CI's `generate-types:check` only proved the stub matched itself.
 
-**The rule:** When you add `#[derive(TS)]` anywhere, run `cargo run -p apohara-types --bin generate_types` and commit the regenerated `crates/<X>/bindings/*.ts` in the SAME commit. Do not hand-edit the generated bindings. The codegen determinism test (`cargo test -p apohara-types`, `tests/codegen.rs`) blocks drift.
+**The rule:** When you add `#[derive(TS)]` anywhere, run `cargo run -p apohara-types --bin generate_types --features ts-export` and commit the regenerated `crates/<X>/bindings/*.ts` in the SAME commit. Do not hand-edit the generated bindings. The codegen determinism test (`cargo test -p apohara-types`, `tests/codegen.rs`) blocks drift.
 
 ---
 
