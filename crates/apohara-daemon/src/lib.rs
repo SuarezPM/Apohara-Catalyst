@@ -5,8 +5,8 @@
 //! (`apohara-client`) connect via local socket; daemon publishes events to
 //! subscribers and exposes a health endpoint.
 //!
-//! Defense-in-depth: if the daemon is not running, `apohara` CLI falls back to
-//! monolithic mode (see `src/cli/entry.ts`).
+//! Defense-in-depth: if the daemon is not running, the `apohara` CLI binary
+//! falls back to monolithic mode (see the `apohara` crate's command entry).
 
 pub mod profiles;
 pub mod health;
