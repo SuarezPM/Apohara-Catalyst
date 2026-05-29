@@ -1,3 +1,5 @@
+> ⚠️ **HISTORICAL / SUPERSEDED** — This document describes the pre-Dioxus architecture (Tauri v2 + React 19 + Bun, Sprint ≤22). The current stack is a **native Dioxus desktop + a tree-sitter / sqlite-vec / blake3 indexer** — there is no `packages/`, no Tauri, no React, and no Bun in the repo. Kept as a historical record; see `README.md` and `ARCHITECTURE.md` for current reality.
+
 # Perplexity Pro consensus research prompt
 
 **Use:** paste into Perplexity Pro with model = "Best", search depth = comprehensive, response mode = detailed. Generated as a counter-research lane alongside Claude Opus 4.7 so the two outputs can be compared for consensus.
