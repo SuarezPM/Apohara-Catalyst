@@ -13,6 +13,7 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 apohara-types = { path = "../apohara-types" }
 apohara-safety = { path = "../apohara-safety" }
+apohara-token-accounting = { path = "../apohara-token-accounting" }
 
 [dev-dependencies]
 tempfile = "3"

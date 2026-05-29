@@ -777,6 +777,7 @@ version = "1.0.0-rc.5"
 dependencies = [
  "anyhow",
  "apohara-safety",
+ "apohara-token-accounting",
  "apohara-types",
  "criterion",
  "regex",

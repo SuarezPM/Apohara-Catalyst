@@ -9,10 +9,14 @@ pub mod critic_prompt;
 pub mod dual_status_ac;
 pub mod hallucination_flag;
 pub mod api;
+pub mod judge;
 pub mod quality_gates;
 pub mod verification_rounds;
 
 pub use critic_prompt::{build_critic_prompt, CriticContext};
+pub use judge::{
+    build_judge_prompt, judge_enabled, judge_enabled_from_env, record_judge_cost,
+};
 pub use dual_status_ac::{AcSpec, AcStatus, AdminStatus, DevStatus, DualStatusAc};
 pub use hallucination_flag::{detect_hallucinations, DetectArgs, DetectResult};
 pub use quality_gates::{
