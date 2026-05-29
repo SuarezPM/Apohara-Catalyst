@@ -10,17 +10,15 @@
 | Build all crates | `cargo build --workspace` |
 | Run `apohara-types` tests | `cargo test -p apohara-types --lib --tests` |
 | Run `apohara-indexer` tests | `cargo test -p apohara-indexer` |
-| Build TS bundle | `bun run build` |
-| Run TS tests | `bun test` |
 | Start desktop dev | `cargo run -p apohara-desktop-dioxus` |
-| Generate TS types from Rust | `bun run generate-types` |
-| Check types didn't drift | `bun run generate-types:check` |
+| Generate ts-rs bindings (Rust→TS) | `cargo run -p apohara-types --bin generate_types` |
+| Check bindings didn't drift | `cargo test -p apohara-types` (codegen determinism test) |
 | Doctor (full env check) | `apohara doctor` |
 | Setup verification end-to-end | `apohara verify-setup` |
 
 ## Module map
 
-> Status: this table reflects the actual workspace after Stages 1-10. The Rust workspace lives in `Cargo.toml` `[workspace.members]` (17 crates). The TS side lives in `packages/` (4) and `src/core/` (top-level domains). Per-crate `AGENTS.md` files are added when the corresponding Stage/Task lands and are linked here as they appear — entries without a link have no per-crate doc yet.
+> Status: the workspace is now **37 Rust crates** (`Cargo.toml` `[workspace.members]`) — the table below is a partial Stages 1-10 map; see `Cargo.toml` for the full list. **There is no TypeScript side anymore:** the former `packages/` and `src/core/` TS code was ported to Rust crates during the Dioxus migration (no `packages/`, no `src/`, no `package.json` in the repo). Per-crate `AGENTS.md` files are linked here as they land.
 
 ### Rust crates (`crates/`)
 
@@ -55,23 +53,9 @@ toolchain. ts-rs bindings emit per-crate to `crates/<X>/bindings/*.ts`
 | `crates/apohara-tui` | ratatui terminal UI (Dashboard, AgentList, CostTable, config wizard) |
 | `crates/apohara` | `apohara` CLI (`doctor`, `verify-setup`, `plan`, …) |
 
-### TypeScript domains (`src/core/`)
+### Former TypeScript domains (now Rust crates)
 
-| Path | Responsibility |
-|---|---|
-| `src/core/orchestration/` | bun:sqlite orchestration DB, scheduler, decision gates, coordinator-runs, drift probe, circuit breaker, setup verification |
-| `src/core/safety/` | Permission patterns, bash compound analyzer, settings hierarchy, durable prompt, runnerPolicy (planCompiler / presets / fsSnapshot) |
-| `src/core/spec/` | SPEC.md watcher + plan documents + plan status cache |
-| `src/core/mcp/` | Internal MCP servers (bootstrap, canonical schema, mcpInjection, `base/` + `servers/` for ledger/runs/indexer/settings) |
-| `src/core/providers/` | `BaseAgentProvider` + 3 active drivers (Claude / Codex / OpenCode), active vs. legacy roster, trust presets, mixins/protocols/streams |
-| `src/core/hooks/` | Agent-hooks installer + events bridge |
-| `src/core/decomposer/` | SPEC → tasks manifest decomposer |
-| `src/core/verification/` | Verification mesh + `qualityGates/` (JCR gate orchestration) |
-| `src/core/telemetry/` | Anonymous install ID + telemetry plumbing |
-| `src/core/persistence/` | Atomic file writes (§0.8), env sanitizer (§0.4), shared defaults |
-| `src/core/anti-thrash/` | TS counterpart of strategy-rotation tracker |
-| `src/core/context/` | Per-request context propagation |
-| `src/core/cli/` | Shared CLI errors + output helpers (`apohara doctor`, `verify-setup`, etc.) |
+The orchestration / safety / spec / mcp / providers / hooks / decomposer / verification / persistence / anti-thrash / cli domains were TypeScript under `src/core/` before the Dioxus migration. They now live as Rust crates — e.g. `apohara-coordinator` + `apohara-dispatch` (orchestration + provider drivers), `apohara-safety`, `apohara-spec`, `apohara-mcp` (+ `apohara-mcp-bridge`), `apohara-hooks` (+ `apohara-hooks-server`), `apohara-decomposer`, `apohara-verification`, `apohara-persistence`, `apohara-anti-thrash`, and the `apohara` CLI. See the crate tables above and `Cargo.toml` for the full set. **No `src/` TypeScript tree remains in the repo.**
 
 ## Spec source of truth
 
@@ -98,14 +82,14 @@ Before making changes, review the 33 disciplines in `docs/superpowers/specs/2026
 Highlights:
 - §0.1 Centralized IPC listeners (never per-component)
 - §0.4 Env sanitization on all spawns (no API keys to subprocesses)
-- §0.7 ts-rs Single Source of Truth (never edit `packages/apohara-shared/types.ts` by hand)
+- §0.7 ts-rs Single Source of Truth (never hand-edit the generated per-crate `crates/<X>/bindings/*.ts`; regenerate via `cargo run -p apohara-types --bin generate_types`)
 - §0.8 Atomic file writes (mkstemp + rename)
 - §0.14 Token accounting: absolutes > deltas
 - §0.16 enum_dispatch instead of `Box<dyn>` for providers
 
 ## What NOT to do
 
-- **Do NOT** edit `packages/apohara-shared/types.ts` manually — regenerate via `bun run generate-types`
+- **Do NOT** hand-edit the generated ts-rs bindings (`crates/<X>/bindings/*.ts`) — regenerate via `cargo run -p apohara-types --bin generate_types`
 - **Do NOT** commit to `main` directly — open a PR (this is a public repo from Stage 11 onwards)
 - **Do NOT** add OAuth flows for providers — CLI wrappers only (Pablo's hard rule: TOS prohibits programmatic OAuth for several providers; agents like Anthropic explicitly blocked from OAuth-based wrapping).
 - **Do NOT** add providers to the active roster beyond `claude-code-cli`, `codex-cli`, `opencode-go` — others are LEGACY behind `APOHARA_LEGACY_PROVIDERS=1`
