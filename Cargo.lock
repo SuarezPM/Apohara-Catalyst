@@ -388,7 +388,6 @@ version = "1.0.0-rc.5"
 dependencies = [
  "anyhow",
  "apohara-coordinator",
- "apohara-sandbox",
  "apohara-secrets",
  "apohara-token-accounting",
  "apohara-types",
