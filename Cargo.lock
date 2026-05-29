@@ -500,6 +500,7 @@ name = "apohara-mcp"
 version = "1.0.0-rc.5"
 dependencies = [
  "anyhow",
+ "apohara-episodic",
  "apohara-mcp-bridge",
  "apohara-safety",
  "apohara-types",

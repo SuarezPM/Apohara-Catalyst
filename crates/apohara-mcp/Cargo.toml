@@ -25,6 +25,7 @@ tempfile = "3"
 apohara-types = { path = "../apohara-types" }
 apohara-mcp-bridge = { path = "../apohara-mcp-bridge" }
 apohara-safety = { path = "../apohara-safety" }
+apohara-episodic = { path = "../apohara-episodic" }
 
 [dev-dependencies]
 criterion = "0.5"

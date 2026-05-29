@@ -14,7 +14,9 @@ pub mod path;
 pub mod store;
 
 pub use path::default_episode_db_path;
-pub use store::{insert_episode, open_episode_db, query_episodes, Episode};
+pub use store::{
+    insert_episode, list_episodes, open_episode_db, query_episodes, search_episodes, Episode,
+};
 
 use anyhow::Result;
 
