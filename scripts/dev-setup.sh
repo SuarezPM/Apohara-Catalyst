@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# Apohara dev-setup automation (vibe-kanban #14 / G5.F.5).
+# Apohara dev-setup automation.
 #
-# Installs deps, sets up the React/React-DOM symlink that
-# `packages/desktop` needs, and verifies the toolchain so a fresh clone
-# can run `bun run dev` end-to-end.
+# Verifies a fresh clone can build and run the native (Dioxus) desktop +
+# CLI. The project is Rust-native — there is no Node/Bun toolchain, no
+# `packages/`, and no `package.json` (the pre-Dioxus TS/React stack was
+# removed in the Sprint-23 migration).
 #
 # Idempotent: safe to re-run. Each step prints "ok" / "skip" / "fix" so
 # the operator can read the trail.
 #
 # Exit codes:
 #   0   everything ok (or nothing to do)
-#   1   missing required toolchain (bun, cargo)
-#   2   workspace install failed
-#   3   symlink failed
+#   1   missing required toolchain (cargo, git)
+#   2   workspace build failed
 
 set -euo pipefail
 
@@ -34,70 +34,43 @@ require() {
 
 # --- 1. toolchain check ---------------------------------------------
 log "checking toolchain"
-require bun
 require cargo
 require git
-ok "bun $(bun --version)"
 ok "cargo $(cargo --version | awk '{print $2}')"
+ok "git $(git --version | awk '{print $3}')"
 
-# --- 2. bun install -------------------------------------------------
-log "installing JS deps"
-if [ -f bun.lockb ] || [ -f bun.lock ]; then
-  bun install --frozen-lockfile || bun install
-  ok "bun install completed"
-else
-  bun install
-  ok "bun install (no lockfile present)"
-fi
-
-# --- 3. desktop react symlink ---------------------------------------
-# The desktop package needs the workspace-root react node_modules to
-# avoid two copies of React 19. Mirror what Pablo does manually.
-log "linking react for packages/desktop"
-DESKTOP_NM="$REPO_ROOT/packages/desktop/node_modules"
-mkdir -p "$DESKTOP_NM"
-for pkg in react react-dom; do
-  src="$REPO_ROOT/node_modules/$pkg"
-  dst="$DESKTOP_NM/$pkg"
-  if [ ! -d "$src" ]; then
-    skip "$pkg not in root node_modules — will be picked up via workspaces"
-    continue
-  fi
-  if [ -L "$dst" ] && [ "$(readlink "$dst")" = "$src" ]; then
-    ok "symlink $pkg already present"
-    continue
-  fi
-  rm -rf "$dst"
-  ln -s "$src" "$dst"
-  ok "linked $pkg"
-done
-
-# --- 4. cargo build (workspace-wide, debug) -------------------------
+# --- 2. cargo build (workspace-wide, debug) -------------------------
 log "verifying Rust workspace builds"
-if cargo build --workspace >/dev/null 2>&1; then
+if cargo build --workspace; then
   ok "cargo build --workspace clean"
 else
-  skip "cargo build --workspace had warnings — re-run manually for details"
+  fail "cargo build --workspace failed — fix the errors above"
+  exit 2
 fi
 
-# --- 5. ts-rs bindings up to date -----------------------------------
-log "checking ts-rs bindings"
-if bun run generate-types:check >/dev/null 2>&1; then
-  ok "ts-rs bindings up to date"
+# --- 3. ts-rs bindings ----------------------------------------------
+# ts-rs emits per-type bindings into crates/<X>/bindings/*.ts (gitignored)
+# when each crate's tests run; `generate_types` aggregates them on demand.
+# The codegen test exercises the aggregator and asserts deterministic
+# output, so running it is the canonical "bindings are healthy" check.
+log "checking ts-rs binding codegen"
+if cargo test -p apohara-types >/dev/null 2>&1; then
+  ok "ts-rs binding codegen deterministic"
 else
-  skip "ts-rs bindings drifted — run 'bun run generate-types'"
+  skip "ts-rs codegen test failed — run 'cargo test -p apohara-types' for details"
 fi
 
-# --- 6. doctor (env diagnostics) ------------------------------------
+# --- 4. doctor (env diagnostics) ------------------------------------
 log "running apohara doctor"
-if bun run src/cli.ts doctor >/dev/null 2>&1; then
+if cargo run --quiet -p apohara -- doctor >/dev/null 2>&1; then
   ok "doctor reports green"
 else
-  skip "doctor reported warnings — run 'apohara doctor' for details"
+  skip "doctor reported warnings — run 'cargo run -p apohara -- doctor' for details"
 fi
 
 log "dev-setup complete"
 echo
 echo "Next steps:"
-echo "  1. cd packages/desktop && bun run dev"
-echo "  2. Open http://localhost:7331"
+echo "  • Launch the desktop UI:  cargo run -p apohara-desktop-dioxus"
+echo "  • Or the terminal UI:     cargo run -p apohara-tui"
+echo "  • Env diagnostics:        cargo run -p apohara -- doctor"
