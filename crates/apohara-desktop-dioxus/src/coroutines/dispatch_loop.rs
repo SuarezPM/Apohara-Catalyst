@@ -62,6 +62,13 @@ struct Candidate {
 
 async fn run_dispatch(objective: String) {
     set_status(RunStatus::Dispatching);
+
+    // Feature-similarity recall (NOT semantic): surface up to top-k past
+    // episodes with similar goals so the UI/context sees prior outcomes. Plain
+    // text injection, no model call. Best-effort — a fresh store recalls
+    // nothing and any error is non-fatal.
+    emit_recall_event(&objective);
+
     let repo = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let providers: Vec<_> = list_active_providers()
         .into_iter()
@@ -148,6 +155,35 @@ async fn run_dispatch(objective: String) {
         code_diff::set(diff);
     }
     set_status(RunStatus::Idle);
+}
+
+/// Recall past episodes for `objective` and push a `memory:recall` SSE event so
+/// the UI/context sees prior outcomes. Best-effort: recall errors are logged,
+/// an empty store emits nothing. This is **feature-similarity recall** (no
+/// model) — plain text injection of past goals/outcomes.
+fn emit_recall_event(objective: &str) {
+    const RECALL_TOP_K: usize = 3;
+    match apohara_episodic::recall_for_goal(objective, RECALL_TOP_K) {
+        Ok(episodes) if !episodes.is_empty() => {
+            push_event(SseEvent {
+                kind: "memory:recall".to_string(),
+                payload: format_recall_payload(&episodes),
+                ts: now_ms(),
+            });
+        }
+        Ok(_) => {} // fresh store / no similar episodes — nothing to surface
+        Err(e) => tracing::warn!("episodic recall failed (non-fatal): {e}"),
+    }
+}
+
+/// Render recalled episodes as a plain-text block (no model). Pure fn so it is
+/// unit-testable. Each line is `feature-similarity recall: <goal> -> <outcome>`.
+fn format_recall_payload(episodes: &[Episode]) -> String {
+    episodes
+        .iter()
+        .map(|e| format!("feature-similarity recall: {} -> {}", e.goal, e.outcome))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Build an [`Episode`] from a finished run's candidates + the selected diff.
@@ -350,6 +386,39 @@ mod tests {
         // winning_diff_summary comes from the selected Diff (codex-cli, 2 files).
         assert_eq!(ep.winning_diff_summary, "codex-cli changed 2 file(s)");
         assert_eq!(ep.outcome, "winner-selected");
+    }
+
+    #[test]
+    fn format_recall_payload_uses_feature_similarity_language() {
+        let episodes = vec![
+            Episode {
+                id: "a".into(),
+                goal: "fix login bug".into(),
+                timestamp: 1,
+                providers: vec![],
+                winning_diff_summary: String::new(),
+                gate_verdicts: vec![],
+                outcome: "winner-selected".into(),
+            },
+            Episode {
+                id: "b".into(),
+                goal: "add cache layer".into(),
+                timestamp: 2,
+                providers: vec![],
+                winning_diff_summary: String::new(),
+                gate_verdicts: vec![],
+                outcome: "no-change".into(),
+            },
+        ];
+        let payload = format_recall_payload(&episodes);
+        // Language MUST be "feature-similarity recall", never "semantic".
+        assert!(payload.contains("feature-similarity recall"));
+        assert!(!payload.to_lowercase().contains("semantic"));
+        assert_eq!(
+            payload,
+            "feature-similarity recall: fix login bug -> winner-selected\n\
+             feature-similarity recall: add cache layer -> no-change"
+        );
     }
 
     #[test]
