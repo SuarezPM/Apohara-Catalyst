@@ -95,15 +95,26 @@ jobs:
           fi
         shell: bash
 
+      - name: Build release binary (desktop)
+        run: |
+          if [ "${{ matrix.cross }}" = "true" ]; then
+            cross build --release --target ${{ matrix.target }} -p apohara-desktop-dioxus
+          else
+            cargo build --release --target ${{ matrix.target }} -p apohara-desktop-dioxus
+          fi
+        shell: bash
+
       - name: Stage artifacts
         run: |
           mkdir -p staging
           if [ "${{ matrix.archive }}" = "zip" ]; then
             cp target/${{ matrix.target }}/release/apohara.exe staging/
             cp target/${{ matrix.target }}/release/apohara-tui.exe staging/
+            cp target/${{ matrix.target }}/release/apohara-desktop-dioxus.exe staging/
           else
             cp target/${{ matrix.target }}/release/apohara staging/
             cp target/${{ matrix.target }}/release/apohara-tui staging/
+            cp target/${{ matrix.target }}/release/apohara-desktop-dioxus staging/
           fi
           cp README.md LICENSE RELEASE_NOTES.md staging/ || true
         shell: bash
