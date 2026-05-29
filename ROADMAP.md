@@ -4,7 +4,7 @@
 > Multi-provider swarm + verification mesh + AMD MI300X local-first path via Apohara Context Forge.
 >
 > **License:** MIT
-> **Status:** Active development. Single binary distribution. Tauri v2 + Bun + React + Rust sidecars.
+> **Status:** Active development. Single binary distribution. Native Dioxus 0.7 desktop UI + ratatui TUI + Rust core (no Tauri/React/Bun/Node).
 > **Last reset:** 2026-05-11 (post-Phase-4 ship + visual pivot)
 
 ---
@@ -31,10 +31,10 @@
 
 | Product | Repo | Stack | Role |
 |---|---|---|---|
-| **Apohara (orchestrator)** | `SuarezPM/Apohara` (this) | TypeScript/Bun + Rust + Tauri/React | Visual orchestrator. Decomposes, dispatches, verifies, merges. |
-| **Apohara Context Forge** | `SuarezPM/Apohara_Context_Forge` | Python + FastAPI + vLLM | KV-cache coordinator on AMD MI300X. INV-15 safety invariant. Published paper: DOI 10.5281/zenodo.20114594. |
+| **Apohara (orchestrator)** | `SuarezPM/Apohara` (this) | Rust workspace (native Dioxus 0.7 UI + ratatui TUI + CLI) | Visual orchestrator. Decomposes, dispatches, verifies, merges. |
+| **Apohara Context Forge** | `SuarezPM/Apohara_Context_Forge` | Python + FastAPI + vLLM | KV-cache coordinator on AMD MI300X. INV-15 safety invariant. Published paper: DOI 10.5281/zenodo.20114594. _Optional, separate-repo integration — not part of this tree._ |
 
-**Integration is loose, by design.** Apohara orchestrator talks to ContextForge over HTTP when the user has GPU. Otherwise it routes to cloud LLMs directly. The two repos ship on independent cadences.
+**Integration is loose, by design.** Apohara orchestrator talks to ContextForge over HTTP when the user has GPU and runs it as a separate sidecar. Otherwise it routes to cloud LLMs directly. The two repos ship on independent cadences.
 
 ---
 
@@ -42,34 +42,35 @@
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│  APOHARA DESKTOP (Tauri v2, ~15 MB single binary)                    │
-│  React 19 + Geist + @xyflow/react + Monaco + Lexical                 │
+│  APOHARA DESKTOP (native Dioxus 0.7 — apohara-desktop-dioxus)        │
+│  Pure-Rust UI, no webview/Tauri/React/Bun/Node                       │
 │  ├─ Objective pane    ┬─ Swarm Canvas (DAG)   ┬─ Code+Diff           │
-│  └─────────────────── SSE stream from ledger ─────────────────────── │
+│  └────────────── in-process event stream from ledger ─────────────── │
 └──────────────────────────────────────────────────────────────────────┘
-                              ↕ HTTP (localhost:7331)
+                              ↕ in-process (Rust core)
 ┌──────────────────────────────────────────────────────────────────────┐
-│  APOHARA CORE (TypeScript / Bun runtime)                             │
-│  Bun.serve() ──► /api/enhance · /api/run · /api/events (SSE)         │
-│  ┌─ src/core/ ──────────────────────────────────────────────────┐    │
-│  │ decomposer · scheduler · subagent-manager · consolidator      │    │
-│  │ verification-mesh · agent-router · ledger (Phase 4 hash chain)│    │
-│  │ capability-manifest · sandbox (TS wrapper)                    │    │
-│  └─────────────────────────────────────────────────────────────  ┘    │
-│  src/providers/router.ts — 21 providers + OAuth (Gemini)             │
+│  APOHARA CORE (Rust workspace, 37 crates)                            │
+│  decompose · run · verify-setup · doctor                             │
+│  ┌─ crates/ ───────────────────────────────────────────────────┐     │
+│  │ decomposer · scheduler · coordinator · consolidator          │     │
+│  │ verification-mesh · agent-router · audit ledger (JSONL)      │     │
+│  │ capability-manifest · sandbox (seccomp) · episodic memory    │     │
+│  └─────────────────────────────────────────────────────────────┘     │
+│  providers — 3 active CLI drivers (Claude / Codex / OpenCode)        │
 └──────────────────────────────────────────────────────────────────────┘
-                              ↕ Unix Domain Sockets
+                              ↕ in-process / Unix Domain Sockets
 ┌─────────────────────────────────┬────────────────────────────────────┐
-│  apohara-indexer (Rust) ✅      │  apohara-sandbox (Rust) 🔴         │
-│  tree-sitter + redb + Nomic BERT│  seccomp-bpf + Linux namespaces    │
-│  Knowledge graph + embeddings   │  3-tier permissions                │
-│  Daemon, Unix socket RPC        │  M014 build target                 │
+│  apohara-indexer (Rust) ✅      │  apohara-sandbox (Rust) ✅         │
+│  tree-sitter + sqlite-vec +     │  seccomp-bpf + Linux namespaces    │
+│  blake3 feature-hashing (384-d) │  3-tier permissions                │
+│  Code graph + embeddings, ~0 RAM│  M014 shipped                      │
 └─────────────────────────────────┴────────────────────────────────────┘
-                              ↕ HTTP (optional)
+                              ↕ HTTP (optional, separate repo)
 ┌──────────────────────────────────────────────────────────────────────┐
 │  APOHARA CONTEXT FORGE (separate repo, Python, optional)             │
 │  FastAPI on :8001 + vLLM bridge + INV-15 safety gate                 │
 │  When user has GPU → 60–80% token savings (measured AMD MI300X)      │
+│  Optional separate-repo integration — NOT part of this tree.         │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -77,12 +78,12 @@
 
 | Layer | Tech | Why |
 |---|---|---|
-| Desktop shell | **Tauri v2** | ~8 MB bundle vs 200 MB Electron. Native FS. Web-app reusable. |
-| HTTP backend | **Bun.serve()** | Already in the project. SSE primitive. No Express. |
-| Frontend | **React 19** | Reuses hooks from `packages/tui` (Ink also uses React). |
-| DAG visualization | **@xyflow/react** | Mature, accessible, MIT. |
-| Code diff | **Monaco editor (diff mode)** | The standard. |
-| Stream protocol | **Server-Sent Events** tailing JSONL ledger | Zero new persistence. Auto-reconnect. |
+| Desktop shell | **native Dioxus 0.7** (`apohara-desktop-dioxus`) | Pure-Rust UI, no webview/Electron. Single binary, native FS, ~0 JS toolchain. |
+| Backend | **Rust workspace (37 crates)** | One language end-to-end. No HTTP server / no Bun / no Node. |
+| Frontend | **Dioxus RSX components** | Native Rust UI; no React/JSX, no `packages/` dir. |
+| DAG visualization | **Dioxus-native canvas** | Drawn in-process from ledger events. |
+| Code diff | **In-app Rust diff view** | No Monaco / webview dependency. |
+| Stream protocol | **In-process event stream** tailing JSONL ledger | Zero new persistence. No SSE/HTTP hop. |
 | Visual identity | Dark default · Geist Mono + Geist Sans · cyan/violet accents | Linear + Vercel + Raycast inspiration |
 
 ---
@@ -94,20 +95,20 @@
 | Phase 1: Credentials tracer-bullet | ✅ | CLW-CRED-001 fixed |
 | Phase 2: Auth CLI | ✅ | Gemini OAuth working; Anthropic blocked by TOS |
 | Phase 3: Vibe DAG hardening | ✅ | Real DAG, cycle detection (DFS) in decomposer.ts |
-| Phase 4: Event Ledger v2 | ✅ | SHA-256 chain + genesis + verify() + `apohara replay` |
+| Phase 4: Event Ledger v2 | ✅ | Append-only JSONL audit sink + rotation + fchmod 0600. _SHA-256 hash chain + `apohara replay --verify` are **planned (Phase 2)** — not yet implemented in the Rust core._ |
 | M010: Context Compression (tree-sitter) | ✅ | In apohara-indexer |
-| M011: Long-Term Memory | ✅ | redb + Nomic BERT, Mem0 removed |
-| 21 providers wired | ✅ | router.ts. OAuth: Gemini only. |
-| CLI-driver providers (Gap 2) | ✅ 2026-05-12 | `src/providers/cli-driver.ts` framework + 3 built-in drivers (`claude-code-cli`, `codex-cli`, `gemini-cli`). User-defined drivers via `APOHARA_CLI_DRIVERS_CONFIG` JSON. Uses official agent CLI subscriptions instead of API keys — no TOS issue. 6/6 driver tests green (fake-binary mode). |
-| Multi-AI roster picker (Gap 1) | ✅ 2026-05-12 | `packages/desktop/src/components/RosterPicker.tsx` + `/api/roster` server endpoint. User toggles which AIs participate per run. Roster propagates via `X-Apohara-Roster` header. 4/4 Playwright tests green (incl. new "roster persists" case). |
-| Verification Mesh (dual-arbiter) | ✅ | 647 LOC, real |
-| Worktree isolation | ✅ | scheduler.ts spawns in `.claude/worktrees/` |
-| TUI prototype (Ink+React) | 🟡 | `packages/tui/` — archived after M017 parity |
-| apohara-indexer (Rust) | ✅ | Production: tree-sitter + redb + candle |
-| apohara-sandbox (Rust+TS) | ✅ | M014 all 6 subtasks shipped — 31 Rust tests + 3 TS fallback tests green |
-| apohara-desktop (Tauri+React+Bun) | ✅ | M017 all 10 subtasks shipped 2026-05-12 (.8 Linux artifact only — cross-OS needs CI runners) |
-| ContextForge integration (M015) | ✅ | All 6 subtasks shipped 2026-05-12 |
-| Test suite | 🟡 | ~610 blocks total. 60 known-broken. CI red. Phase 5 fixes this. |
+| M011: Long-Term Memory | ✅ | `apohara-episodic` + sqlite-vec + blake3 feature-hashing (384-dim, in-process, ~0 RAM). No redb / no Nomic-BERT / no candle. |
+| 3 active providers wired | ✅ | Active roster: `claude-code-cli`, `codex-cli`, `opencode-go`. Others LEGACY behind `APOHARA_LEGACY_PROVIDERS=1`. No OAuth (CLI wrappers only). |
+| CLI-driver providers (Gap 2) | ✅ | Rust provider drivers for `claude-code-cli`, `codex-cli`, `opencode-go`. Uses official agent CLI subscriptions instead of API keys — no TOS issue. |
+| Multi-AI roster picker (Gap 1) | ✅ | Native Dioxus roster picker in `apohara-desktop-dioxus`. User toggles which AIs participate per run. |
+| Verification Mesh (dual-arbiter) | ✅ | `apohara-verification` crate, real |
+| Worktree isolation | ✅ | `apohara-worktree` spawns in `.claude/worktrees/` |
+| TUI (ratatui) | ✅ | `apohara-tui` — ratatui Dashboard / AgentList / CostTable. (The old Ink+React `packages/tui` no longer exists.) |
+| apohara-indexer (Rust) | ✅ | Production: tree-sitter + sqlite-vec + blake3 feature-hashing |
+| apohara-sandbox (Rust) | ✅ | M014 all 6 subtasks shipped — seccomp-bpf + namespaces, tests green |
+| apohara-desktop-dioxus (native Dioxus 0.7) | ✅ | Native Rust UI; replaced the cancelled Tauri+React `packages/desktop`. |
+| ContextForge integration (M015) | ✅ | Optional, separate-repo integration (not part of this tree). |
+| Test suite | ✅ | Rust workspace passes **1,136 test functions**; CI rebuilt and green. (The old "~60 known-broken / CI red" status was the TS-test era — now retired.) |
 
 ---
 
@@ -128,7 +129,7 @@ NOW ──► Phase 5 ──► M014 ──► M017 ──► M015 ──► Pha
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 5.1 | Mock `EmbeddingModel` via trait + feature flag | ✅ | 78 Rust tests green in 3.2s (lib 67/67 + memory_integration 9/9 + indexer_persistence 2/2) under `--features mock-embeddings` or `APOHARA_MOCK_EMBEDDINGS=1` |
+| 5.1 | Mock `EmbeddingModel` via trait + feature flag | ✅ | 78 Rust tests green in 3.2s at the time. _Superseded by the blake3 feature-hashing pivot: the indexer no longer loads a transformer model, so the `mock-embeddings` feature / `APOHARA_MOCK_EMBEDDINGS` flag are obsolete — there is nothing heavy left to mock._ |
 | 5.2 | Audit the broken tests | ✅ | 25 TS test files / ~294 tests classified across 4 batches (MiniMax 2.7 in parallel). KEEP_GREEN 14, KEEP_REFACTOR 6, INVESTIGATE 6, KILL 0. Summary at `.claude/specs/tests/PHASE_5_2_AUDIT_SUMMARY.md` |
 | 5.3 | Restore CI green | ✅ | Two root causes fixed (file:/... paths + lockfile-vs-optionalDeps). Commit `9c90875`. Verification requires opening a PR — workflow only triggers on `pull_request` |
 | 5.4 | Reconcile docs + GitNexus reindex | ✅ | `npx gitnexus analyze` ran; index now at 3158 symbols / 7121 relationships / 199 execution flows. `gitnexus:start..end` block is auto-managed (do not edit manually) |
@@ -136,7 +137,7 @@ NOW ──► Phase 5 ──► M014 ──► M017 ──► M015 ──► Pha
 | 5.6 | Update CLAUDE.md to reflect Roadmap 2.0 | ✅ | Section 0 rewritten, naming reconciled |
 
 **Verification done:**
-- ✅ Zero local OOM during all test runs (mock model swap eliminated the BERT 400MB load)
+- ✅ Zero local OOM during all test runs (originally via the mock-model swap; the later blake3 feature-hashing pivot removed the ~400MB BERT load entirely — no transformer model is ever loaded now)
 - ✅ `cargo build -p apohara-sandbox` green (M014.1 scaffold also landed)
 - 🟡 CI workflow validation pending PR open
 
@@ -163,24 +164,26 @@ NOW ──► Phase 5 ──► M014 ──► M017 ──► M015 ──► Pha
 
 ---
 
-## M017 — apohara-desktop (Tauri + React + Bun + SSE)
+## M017 — apohara-desktop (native Dioxus 0.7)
 
-**Goal:** The visual surface. Replaces both the Ink TUI prototype and the cancelled Ratatui plan.
+**Goal:** The visual surface. The original Tauri+React+Bun+SSE cut (history preserved below) was superseded by the native-Dioxus pivot (Sprint 19/23): the desktop UI is now the pure-Rust `apohara-desktop-dioxus` crate — no Tauri, no wry, no React, no Bun, no `packages/` dir, no `localhost:7331` SPA.
 
 **Tracer bullet:** type `"build a CRUD endpoint with auth"` in the Objective pane, watch the DAG appear, agents execute in canvas, verification mesh resolve a conflict, green PR appear.
 
+> **Historical note:** rows 17.2–17.7 below describe the original Tauri+React+Bun+SSE cut (HTTP `/api/*` routes, `*.tsx` panes, `@xyflow/react`, Monaco). Each pane was re-implemented as native Dioxus RSX in `apohara-desktop-dioxus`; the HTTP/SSE hop, React components, and Monaco/xyflow dependencies no longer exist. The "Verify" cells are preserved as the historical record of how the feature first shipped.
+
 | # | Task | Status | Verify |
 |---|------|--------|--------|
-| 17.1 | Bootstrap Tauri v2 in `packages/desktop/`. Bun.serve on `localhost:7331`. | ✅ | Tauri v2 scaffold in `packages/desktop/src-tauri/`; React SPA loads via `bun --hot src/server.ts` |
+| 17.1 | Bootstrap the desktop UI crate. | ✅ | Native `apohara-desktop-dioxus` crate (Dioxus 0.7). _Originally scaffolded as Tauri v2 in `packages/desktop/` with a `localhost:7331` Bun SPA; that cut was deleted in the native-Dioxus pivot._ |
 | 17.2 | API routes: `POST /api/enhance`, `POST /api/run`, `GET /api/session/:id/events` (SSE) | ✅ | Verified end-to-end with `curl POST /api/run`, SSE tail emits ledger lines (replay + live via `fs.watch`); commit `479a9d9` |
 | 17.3 | **Objective pane** (left): textarea, enhance toggle (before/after), run/pause/takeover controls | ✅ 2026-05-12 | `ObjectivePane.tsx` wired to `/api/enhance` + `/api/run`, error banner, mode-aware; renders enhanced output in bordered pre |
 | 17.4 | **Swarm Canvas** (center): DAG via `@xyflow/react` + agent lanes with progress bars, provider badge, cost ticker | ✅ 2026-05-12 | `SwarmCanvas.tsx` builds nodes from `decomposer_complete` + `task_scheduled/_completed/_failed`, edges from `dependsOn`, mesh verdict sentinels, layered layout, dark-themed xyflow |
 | 17.5 | **Code+Diff pane** (right): file tree (modified flagged), Monaco diff viewer, verification mesh panel | ✅ 2026-05-12 | `CodeDiffPane.tsx` reconstructs snapshots from `file_created`/`file_modified` ledger events, Monaco `DiffEditor` (vs-dark, inline), `mesh_verdict` panel; language inference per extension |
 | 17.6 | **Top bar cost meter**: cumulative tokens, USD, run duration. GPU/Cloud mode toggle (for M015). | ✅ 2026-05-12 | `CostMeter.tsx` aggregates `metadata.tokens.total` + `costUsd` + `contextforge_savings`; GPU/Cloud toggle persists to `localStorage` and POSTs `/api/mode` |
 | 17.7 | Visual identity locked: dark default, Geist Mono + Geist Sans, cyan `#6EE7F7` + violet `#A78BFA` accents | ✅ 2026-05-12 | `index.css` has CSS vars + pane chrome + xyflow dark overrides + mode-toggle styling |
-| 17.8 | Tauri build → single binary <15 MB Linux/macOS/Windows | 🟡 Linux done 2026-05-12 | Linux `tauri build` produces working artifacts: **raw binary 5.6 MB** (target <15 MB ✅), **deb 1.9 MB**, AppImage 78 MB (bundles webkit2gtk for portability). macOS/Windows binaries need cross-OS CI runners (not available on this dev box). Wiring fixed in this session: workspace member entry + `Builder::<Wry, ()>` generic for Tauri 2.11 + `icon.png` + `scripts/build.ts` post-process to emit `dist/index.html` |
-| 17.9 | Migrate useful hooks from `packages/tui/` (Ink) → `packages/desktop/` (React). Archive `packages/tui/`. | 🟡 marker shipped 2026-05-12 | `packages/tui/README.md` declares the package archived and points to `packages/desktop/`. Physical deletion deferred until M017.10 ships and `src/commands/dashboard.ts` is rewired off `cli.tsx`. |
-| 17.10 | E2E test: full visual flow with mocked providers | ✅ 2026-05-12 | `packages/desktop/tests/e2e/smoke.spec.ts` Playwright suite (3/3 green): (1) three-pane layout + top-bar mode toggle render, (2) Run button hits `/api/run` and the session id appears in the top bar, (3) mode toggle POSTs `/api/mode` + persists to localStorage. Config at `packages/desktop/playwright.config.ts` points `executablePath` at `/usr/bin/google-chrome` because Playwright doesn't ship managed browsers for ubuntu26.04-x64. `bun run --filter @apohara/desktop e2e`. |
+| 17.8 | Build → single native binary <15 MB Linux/macOS/Windows | ✅ Linux | Native Dioxus release build (LTO + strip + panic=abort) measures **~4.4 MB** (target <15 MB ✅) per `docs/superpowers/rust-native/g2-a-decision.md`. _The earlier **5.6 MB** figure was the historical Tauri/wry artifact and no longer applies._ macOS/Windows binaries need cross-OS CI runners. |
+| 17.9 | Consolidate UI surfaces onto the Rust crates. | ✅ | UI now lives in `apohara-desktop-dioxus` (native) + `apohara-tui` (ratatui). _The old Ink+React `packages/tui` and Tauri+React `packages/desktop` were both deleted in the native-Dioxus pivot._ |
+| 17.10 | Test: full visual flow with mocked providers | ✅ | Covered by Rust tests in `apohara-desktop-dioxus`. _The original Bun/Playwright `packages/desktop/tests/e2e/smoke.spec.ts` suite was removed with the Tauri cut._ |
 
 **Duration estimate:** 5–7 sessions. Biggest milestone of v0.1.
 
@@ -190,12 +193,14 @@ NOW ──► Phase 5 ──► M014 ──► M017 ──► M015 ──► Pha
 
 **Goal:** when the user has a GPU and runs Apohara Context Forge as a sidecar, Apohara orchestrator routes through it for 60–80% token savings.
 
+> **Scope note:** ContextForge / vLLM / AMD MI300X / the 60–80% token-savings figure are an **optional, separate-repo integration** (`SuarezPM/Apohara_Context_Forge`). None of it lives in this tree. `INV-15` is the **ContextForge paper concept** — the safety gate actually implemented in this repo is **INV-bash-scope** (`crates/apohara-safety/src/inv_bash_scope.rs`), the renamed live gate.
+
 | # | Task | Status | Verify |
 |---|------|--------|--------|
 | 15.1 | New provider `carnice-9b-local` (and `contextforge-vllm`) in `src/providers/router.ts`. HTTP client to ContextForge endpoints. | ✅ commit `55c4bf5` | `apohara auto "X"` routed to Carnice succeeds; ContextForge client wired in M015.2 |
 | 15.2 | Apohara → ContextForge call sequence: `register_context` before inference, `get_optimized_context` for shared handles | ✅ commit `f589d4f` | ContextForgeClient TS port + router/scheduler hooks |
 | 15.3 | New ledger event type: `contextforge_savings` with measured token delta | ✅ shipped at `55c4bf5` | Event emitted from `router.ts:1588` with `costUsdLocal=0` + `costUsdBaselineEstimate` against Groq llama-3.3-70b cheap-cloud reference |
-| 15.4 | **INV-15 transfer**: port the safety gate concept to `src/core/verification-mesh.ts`. When risk > τ on judge agent, force fresh context. | ✅ commit `c49039e` | 17 tests covering paper Table 1 sweep + Theorem 1 (zero violations) + Section 5.4 critic dense rate 1.000 |
+| 15.4 | **INV-15 transfer**: port the ContextForge-paper safety-gate concept into the verification layer. When risk > τ on judge agent, force fresh context. | ✅ | Live gate is **INV-bash-scope** (`crates/apohara-safety/src/inv_bash_scope.rs`, tests in `crates/apohara-verification`). "INV-15 JCR" remains the paper concept, not a gate name in this repo. |
 | 15.5 | UI toggle in cost meter: "GPU mode (ContextForge)" vs "Cloud mode". Shows live savings %. | ✅ 2026-05-12 | Toggle in `CostMeter.tsx`, persisted to `localStorage`, POSTed to `/api/mode`; `/api/enhance` honors `X-Apohara-Mode` header / body `mode` to pick provider; savings derived from `contextforge_savings` events |
 | 15.6 | Documentation: how users deploy ContextForge sidecar (Docker compose snippet in README) | ✅ commit `b3107e4` | README section on ContextForge sidecar deploy + integration guide |
 
@@ -207,7 +212,7 @@ NOW ──► Phase 5 ──► M014 ──► M017 ──► M015 ──► Pha
 
 | # | Task | Verify |
 |---|------|--------|
-| 6.1 | Binary <15 MB for Linux (x64/ARM), macOS (ARM/x86), Windows (x64). | 🟡 wiring done 2026-05-12 — `.github/workflows/desktop-release.yml` matrix builds for ubuntu/macos/windows on `v*` tag pushes and on PRs touching `packages/desktop/`. Linux artifact verified 5.6 MB. macOS + Windows verification gated on first run on hosted runners. |
+| 6.1 | Binary <15 MB for Linux (x64/ARM), macOS (ARM/x86), Windows (x64). | 🟡 — release-LTO native Dioxus binary measures **~4.4 MB** (per `docs/superpowers/rust-native/g2-a-decision.md`), well under the <15 MB target. _The historical 5.6 MB number was the Tauri artifact._ macOS + Windows verification gated on cross-OS CI runners. |
 | 6.2 | **90-second viral demo video**: split-screen of 5 providers + DAG + verification mesh + green PR. | Video published, ready for HN/Twitter (content work, not autonomous) |
 | 6.3 | README rewrite + ARCHITECTURE.md + landing page on github.io | ✅ 2026-05-12 — `README.md` rewritten with hero, status table, three use cases, sandbox + ContextForge sections. `ARCHITECTURE.md` (new) carries the v2.0 diagram, end-to-end request flow, per-package responsibility map, build/distribution table, test architecture. Landing page deferred. |
 | 6.4 | HN launch + Twitter thread + arXiv link to INV-15 paper | Coordinated drop (content work, not autonomous) |
@@ -220,6 +225,8 @@ NOW ──► Phase 5 ──► M014 ──► M017 ──► M015 ──► Pha
 
 ## M013 — Thompson Sampling (post-v0.1)
 
+> **Status: planned — not yet ported to the Rust core.** The implementation below lives only in the TS-legacy `capability-stats.ts` (and the rest of the deleted TypeScript tree). It does **not** exist in the current Rust workspace. The rows preserve how it first shipped; treat the milestone as not-yet-shipped against the live Rust core.
+
 | # | Task | Verify |
 |---|------|--------|
 | 13.1 | `CapabilityManifest` persists per-provider success/failure counts per role | ✅ 2026-05-12 | `src/core/capability-stats.ts` `CapabilityStats` class persists counts to `.apohara/capability-stats.json`. Reloads from disk via lazy `ensureLoaded`. JSON chosen over redb until the indexer daemon owns the state (M013.x migration). 3 persistence tests green. |
@@ -228,7 +235,7 @@ NOW ──► Phase 5 ──► M014 ──► M017 ──► M015 ──► Pha
 | 13.4 | New dimension `kv_share_friendliness` — learns when ContextForge helps which task types | ✅ 2026-05-12 | `provider_outcome` ledger events carry the data needed for the kv_share_friendliness dimension. `updateOutcome(provider, role, success)` in capability-stats.ts records each outcome; the `contextforge_savings` event correlation is in the event payload. Commit `27ccd97`. |
 | 13.5 | `apohara stats` command: prints per-role provider rankings | ✅ 2026-05-12 | `src/commands/stats.ts` reads the store, runs Thompson Sampling per (provider, role) over the merged set of known + observed providers, and prints either an ASCII table (rank / provider / sampled score / success rate / trials) grouped by role, or `--json` for machine consumption. `--role <task>` narrows to one role; `--file <path>` overrides the default store. |
 
-**Status: M013 100% shipped** as of commit `27ccd97` (2026-05-12). 8/8 router-thompson tests + 7/7 capability-stats tests green. **Duration:** 2 sessions actuales.
+**Status: planned — not yet ported to the Rust core (TS-legacy `capability-stats.ts`).** The original TS cut shipped at commit `27ccd97` (2026-05-12) with 8/8 router-thompson + 7/7 capability-stats tests green, but that code is part of the retired TypeScript tree. A Rust port has not yet landed. **Duration estimate (Rust port):** 2 sessions.
 
 ---
 
@@ -282,7 +289,7 @@ Not a blocking milestone. Stolen incrementally.
 | ~~`examples/fastify-api/`~~ | **KEEP** — E2E test fixture for `tests/e2e/fastify-jwt.test.ts` + `tests/e2e/install-and-run.test.ts`. It's the canonical "Apohara installs and runs a Bun project" verifier. | n/a |
 | `packages/tui/` (Ink+React prototype) | archive after M017 parity | M017.9 |
 | 60 known-broken tests | audit → keep & rewrite or kill | Phase 5.2 |
-| **Ratatui pivot** (was M016) | **cancelled in favor of Tauri+React (M017)** | Already, 2026-05-11 |
+| **Ratatui pivot** (was M016) | ~~cancelled in favor of Tauri+React (M017)~~ **— reversed:** the Tauri+React cut was itself dropped in the native-Dioxus pivot, and ratatui shipped as the live TUI (`apohara-tui`). | Reversed post-Sprint-19 |
 
 **Investigation note 2026-05-11**: The original kill list (drafted in the user-confirmed scope earlier today) included `isolation-engine/` and `examples/fastify-api/` as dead code. A pre-deletion grep found 4 + 3 active references respectively. Both stay. Phase 5.5 is a no-op as a result. The lesson: never trust "looks like a stub" without grepping for consumers.
 
@@ -305,12 +312,12 @@ Not a blocking milestone. Stolen incrementally.
 
 | Risk | Severity | Mitigation |
 |---|---|---|
-| Tauri v2 learning curve | M | Start with bootstrap session (M017.1), small scope |
+| Native Dioxus 0.7 learning curve | M | Start with bootstrap session (M017.1), small scope. (Superseded the original Tauri v2 risk — Tauri was dropped in the native-Dioxus pivot.) |
 | Test reset cost in time | H | Phase 5 budgeted explicitly; don't skip |
 | ContextForge integration depends on parallel repo | M | Loose integration design — Apohara works without it |
 | Sandbox M014 is non-trivial Rust | H | Budget 3–4 sessions; use existing `seccompiler` crate; non-Linux fallback |
 | Visual UI iteration cost | M | Designer agent already produced spec; Storybook per pane reduces churn |
-| OOM regression in tests | H | Phase 5.1 mocks BERT entirely; eliminates root cause |
+| OOM regression in tests | H | Indexer uses blake3 feature-hashing (in-process, ~0 RAM) — no transformer model to load, so the original BERT-OOM root cause no longer exists. |
 
 ---
 
@@ -331,7 +338,7 @@ For each milestone:
 1. `/ralplan` — consensus planning before first commit
 2. `/ultrawork` — parallel execution of independent tasks within the milestone
 3. `gitnexus_impact` — mandatory before touching any hub symbol
-4. `bun test tests/<file>.test.ts` — single file at a time per CLAUDE.md §8.1 OOM rule
+4. `cargo test -p <crate>` — per-crate Rust tests (the old per-file `bun test` OOM rule is retired; blake3 feature-hashing is ~0 RAM)
 5. `gitnexus_detect_changes` — scope verification before commit
 
 Primary model: **Opus 4.7** for architecture, complex implementation, Rust.

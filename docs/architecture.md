@@ -11,7 +11,7 @@ in [`PRINCIPLES.md`](../PRINCIPLES.md) and [`ARCHITECTURE.md`](../ARCHITECTURE.m
 
 ```mermaid
 flowchart LR
-    UI[Tauri 2 + React 19 UI] -->|prompt| Daemon
+    UI[Dioxus 0.7 native UI] -->|prompt| Daemon
     Daemon[apohara-daemon] -->|dispatch| Worker1[Claude Code CLI]
     Daemon --> Worker2[Codex CLI]
     Daemon --> Worker3[OpenCode CLI]
@@ -57,7 +57,7 @@ append + SSE fan-out.
 | `apohara-attention` | Attention bands state machine (HOT/WARM/COOL/IDLE). |
 | `apohara-event-humanizer` | Provider events → human-readable labels. |
 | `apohara-anti-thrash` | Strategy rotation tracker (anti-loop). |
-| `apohara-indexer` | tree-sitter + redb + Nomic BERT (OOM hazard, see below). |
+| `apohara-indexer` | tree-sitter + sqlite-vec storage + blake3 feature-hashing embeddings (~0 RAM, no model). |
 | `apohara-sandbox` | seccomp-bpf + namespaces sandbox. |
 
 ### TypeScript domains (`src/core/`)
@@ -77,19 +77,21 @@ append + SSE fan-out.
 | `mcp/` | Internal MCP servers (bootstrap, canonical schema, injection). |
 | `cli/` | Shared CLI errors + output helpers (`apohara doctor`, `verify-setup`, etc.). |
 
-### Packages (`packages/`)
+### Surfaces (Rust crates)
 
-| Package | Responsibility |
+The UI is now native Rust — there is no `packages/` directory and no
+TypeScript/Node toolchain. Three surfaces ship:
+
+| Crate | Responsibility |
 |---|---|
-| `desktop/` | Tauri 2 + React 19 UI (TaskBoard, Plans, Permissions, VerificationTimeline). |
-| `apohara-shared/` | ts-rs SSoT types — **never edit by hand** (§0.7). |
-| `github-bridge/` | Issue → reaction trigger; poll-only in v1.0 (webhook returns 501). |
-| `tui/` | Ink-based terminal UI (Dashboard, AgentList, CostTable, config wizard). |
+| `crates/apohara-desktop-dioxus` | Dioxus 0.7 native desktop UI (TaskBoard, Plans, Permissions, VerificationTimeline). No webview, no Electron. |
+| `crates/apohara-tui` | ratatui terminal UI (Dashboard, AgentList, CostTable, config wizard). |
+| `crates/apohara` | `apohara` CLI (`doctor`, `verify-setup`, `plan`, …). |
 
 ## Identity rules (NON-negotiable)
 
-- **Tauri 2**, NO Electron.
-- **bun:sqlite + Rust SQLx**, NO PostgreSQL.
+- **Native Dioxus 0.7 UI**, NO Electron, NO webview, NO React/Bun/Node.
+- **SQLite on disk** (`~/.apohara/orchestration.db`), NO PostgreSQL.
 - **Single-user-per-machine**, NO multi-tenant.
 - **CLI wrappers ONLY**, NO OAuth flows.
 - **Local-first**, NO cloud sync.
@@ -102,7 +104,7 @@ are guardrails, not suggestions. The ones that bite hardest in practice:
 
 - **§0.1** centralised IPC listeners — never per-component subscribers.
 - **§0.4** env sanitisation on every spawn — no API keys reach a subprocess.
-- **§0.7** ts-rs SSoT — `packages/apohara-shared/types.ts` is generated.
+- **§0.7** ts-rs SSoT — Rust types in `apohara-types` are the source of truth; ts-rs emits the bindings (`crates/<X>/bindings/*.ts`), never hand-edited.
 - **§0.8** atomic file writes — `mkstemp` + `rename`, never partial writes.
 - **§0.14** token accounting — absolutes win, deltas drift.
 - **§0.16** `enum_dispatch` for providers — no `Box<dyn>` in hot paths.
@@ -111,21 +113,22 @@ See the "Past incidents" section of `CLAUDE.md` for the bugs that taught us
 each rule. Breaking one regresses Apohara measurably; the audit history
 preserves the *why* so future engineers don't relitigate.
 
-## OOM hazard with `cargo test`
+## Indexer testing
 
-**NEVER** run bare `cargo test` or `cargo test -p apohara-indexer`. The Nomic
-BERT model is ~400 MB and `cargo test` spawns lib + integration binaries
-concurrently, OOM-ing a 16 GB host. See spec §10 R1.
-
-Always run one test binary at a time:
+`cargo test -p apohara-indexer` runs the full suite (lib + integration) in
+parallel — no special handling required. The indexer uses sqlite-vec for
+storage and deterministic blake3 feature-hashing for embeddings: both are
+in-process, use ~0 RAM, and load no model. The historical OOM hazard (the
+old ~400 MB Nomic BERT model and the "one test binary at a time" rule, spec
+§10 R1) was retired when that stack was replaced — see
+[`crates/apohara-indexer/AGENTS.md`](../crates/apohara-indexer/AGENTS.md).
 
 ```bash
-cargo test -p apohara-indexer --lib
-cargo test -p apohara-indexer --test memory_integration
-cargo test -p apohara-indexer --test indexer_persistence
+cargo test -p apohara-indexer                            # everything
+cargo test -p apohara-indexer --lib                      # unit tests
+cargo test -p apohara-indexer --test sqlite_vec_storage  # contract
+cargo test -p apohara-indexer --test persistence_reopen  # reopen survives
 ```
-
-CI uses `APOHARA_MOCK_EMBEDDINGS=1` to skip the model load entirely.
 
 ## Further reading
 
