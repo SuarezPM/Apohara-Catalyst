@@ -43,6 +43,25 @@ jobs:
       - name: cargo clippy --workspace --all-targets -- -D warnings
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      # Asset-name drift guard (T-A6): the set of triples install.sh's
+      # `uname_to_triple()` can resolve MUST be a subset of release.yml's
+      # build-matrix targets, or `install.sh` 404s on a platform CI never
+      # built. Extract both triple lists and fail loud on any divergence.
+      - name: triple-consistency guard (install.sh vs release.yml)
+        run: |
+          set -eu
+          # Triples install.sh's uname_to_triple() can resolve.
+          install_triples="$(grep -oE '[a-z0-9_]+-(unknown-linux-gnu|apple-darwin)' scripts/install.sh | sort -u)"
+          # Triples release.yml actually builds (matrix `target:` entries).
+          release_triples="$(grep -oE 'target: [a-z0-9_]+-[a-z0-9-]+' .github/workflows/release.yml | sed 's/target: //' | sort -u)"
+          missing="$(comm -23 <(printf '%s\n' "$install_triples") <(printf '%s\n' "$release_triples"))"
+          if [ -n "$missing" ]; then
+            echo "::error::install.sh resolves triples not built by release.yml:"
+            printf '%s\n' "$missing"
+            exit 1
+          fi
+          echo "OK: install.sh triple set is a subset of release.yml matrix targets."
+
   # G7.D.2 — cargo-audit gate. Runs on every PR; fails on any
   # advisory (`--deny warnings`). Pinned to ubuntu-22.04 because
   # cargo-audit's binary install is fastest on Linux runners.
