@@ -1,0 +1,32 @@
+[package]
+name = "apohara-episodic"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "apohara_episodic"
+path = "src/lib.rs"
+
+[dependencies]
+# Workspace-inherited (single source of version truth — see root Cargo.toml's
+# [workspace.dependencies]).
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Reuse the indexer's sqlite-vec + feature-hashing primitives (vec0 registration,
+# EMBED_DIM, feature_hash_embed) rather than reinventing the embedding/storage layer.
+apohara-indexer = { path = "../apohara-indexer" }
+
+# Crate-local deps (not in [workspace.dependencies] — version pinned here).
+# rusqlite "bundled" statically compiles SQLite + extension support; "load_extension"
+# matches the indexer so the shared vec0 auto-extension registration works.
+rusqlite = { version = "0.32", features = ["bundled", "load_extension"] }
+# `dirs` pinned to 6.0 to match apohara-indexer (the workspace default is 5.0);
+# both crates resolve user paths under `~/.apohara/`, so keep them on one version.
+dirs = "6.0.0"
+
+[dev-dependencies]
+tempfile = "3"
+serial_test = "3"
