@@ -133,11 +133,11 @@ Each rule below cost real time / money / trust to find. Treat them as load-beari
 
 **The rule:** Provider config paths come from the UPSTREAM CLI's source, not from convention. Verify against the reference repo each release: `reference/opencode/packages/opencode/src/config/config.ts:340` for opencode, `reference/orca/src/main/agent-trust-presets.ts` for cursor / copilot / codex. When the CLI changes its config discovery, our injection must follow.
 
-### **Generated files MUST come back through `bun run generate-types` after every Rust schema change**
+### **Generated bindings MUST come back through `cargo run -p apohara-types --bin generate_types` after every Rust schema change**
 
 **Why:** Pre-`dfad239`, `crates/apohara-types/src/bin/generate_types.rs` was a stub that only wrote a header. Every `bun run generate-types` invocation silently overwrote `packages/apohara-shared/types.ts` with the stub — the §0.7 SSoT was a no-op, and Rust↔TS drift was undetectable. CI's `generate-types:check` only proved the stub matched itself.
 
-**The rule:** When you add `#[derive(TS)]` anywhere, run `bun run generate-types` and commit the regenerated `packages/apohara-shared/types.ts` in the SAME commit. Do not hand-edit the generated file. The CI check will block merges that drift.
+**The rule:** When you add `#[derive(TS)]` anywhere, run `cargo run -p apohara-types --bin generate_types` and commit the regenerated `crates/<X>/bindings/*.ts` in the SAME commit. Do not hand-edit the generated bindings. The codegen determinism test (`cargo test -p apohara-types`, `tests/codegen.rs`) blocks drift.
 
 ---
 
