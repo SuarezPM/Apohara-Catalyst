@@ -12,3 +12,19 @@
 
 pub mod path;
 pub mod store;
+
+pub use path::default_episode_db_path;
+pub use store::{insert_episode, open_episode_db, query_episodes, Episode};
+
+use anyhow::Result;
+
+/// Capture one episode into the default home-anchored store
+/// (`~/.apohara/episodes/episodes.db`). Opens the DB (triggering the
+/// process-global vec0 registration) and inserts the episode.
+///
+/// Callers in the dispatch path should treat this as best-effort: log on
+/// `Err`, never block or panic the run.
+pub fn capture_episode(episode: &Episode) -> Result<()> {
+    let conn = open_episode_db(&default_episode_db_path())?;
+    insert_episode(&conn, episode)
+}

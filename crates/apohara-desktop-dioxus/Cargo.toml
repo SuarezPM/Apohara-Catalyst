@@ -27,6 +27,7 @@ apohara-decomposer = { path = "../apohara-decomposer" }
 apohara-token-accounting = { path = "../apohara-token-accounting" }
 apohara-worktree = { path = "../apohara-worktree" }
 apohara-verification = { path = "../apohara-verification" }
+apohara-episodic = { path = "../apohara-episodic" }
 futures-util = "0.3"
 fuzzy-matcher = "0.3"
 petgraph = "0.6"

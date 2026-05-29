@@ -19,6 +19,7 @@ use futures_util::StreamExt;
 
 use apohara_dispatch::api::list_active_providers;
 use apohara_dispatch::{CliDriver, DispatchRequest};
+use apohara_episodic::Episode;
 use apohara_verification::{run_all_gates, AgentRole, GateInput};
 use apohara_worktree::lifecycle::{self, CleanupReason};
 
@@ -131,10 +132,62 @@ async fn run_dispatch(objective: String) {
     }
 
     set_status(RunStatus::Verifying);
-    if let Some(diff) = winning_diff(&candidates) {
+    let diff = winning_diff(&candidates);
+
+    // End-of-run episodic capture (best-effort: log on error, never block the
+    // run). Single-writer per run (one coroutine, after the provider loop);
+    // cross-session contention is handled by the busy_timeout set in
+    // open_episode_db. `winning_diff` borrows `&candidates`, so reading them
+    // here is order-independent of the diff selection above.
+    let episode = build_episode(&objective, &candidates, diff.as_ref(), now_ms() as i64);
+    if let Err(e) = apohara_episodic::capture_episode(&episode) {
+        tracing::warn!("episodic capture failed (non-fatal): {e}");
+    }
+
+    if let Some(diff) = diff {
         code_diff::set(diff);
     }
     set_status(RunStatus::Idle);
+}
+
+/// Build an [`Episode`] from a finished run's candidates + the selected diff.
+/// Pure function (no I/O) so it is unit-testable. Maps each candidate's
+/// `gates_passed` bool → a verdict string and collects the provider ids; takes
+/// the winning-diff summary from the selected [`Diff`] (provider winner + file
+/// count), since `Candidate` carries no per-gate verdict blocks.
+fn build_episode(
+    objective: &str,
+    candidates: &[Candidate],
+    diff: Option<&Diff>,
+    timestamp: i64,
+) -> Episode {
+    let providers: Vec<String> = candidates.iter().map(|c| c.provider_id.clone()).collect();
+    let gate_verdicts: Vec<String> = candidates
+        .iter()
+        .map(|c| {
+            if c.gates_passed {
+                "passed".to_string()
+            } else {
+                "failed".to_string()
+            }
+        })
+        .collect();
+    let (winning_diff_summary, outcome) = match diff {
+        Some(d) => (
+            format!("{} changed {} file(s)", d.provider_winner, d.files_changed.len()),
+            "winner-selected".to_string(),
+        ),
+        None => (String::new(), "no-change".to_string()),
+    };
+    Episode {
+        id: format!("run-{timestamp}"),
+        goal: objective.to_string(),
+        timestamp,
+        providers,
+        winning_diff_summary,
+        gate_verdicts,
+        outcome,
+    }
 }
 
 /// Build the `DispatchRequest` for a provider run. `provider_binary` is the
@@ -269,6 +322,50 @@ mod tests {
             gates_passed: true,
         }];
         assert!(winning_diff(&candidates).is_none());
+    }
+
+    #[test]
+    fn build_episode_maps_candidates_and_winning_diff() {
+        let candidates = vec![
+            Candidate {
+                provider_id: "claude-code-cli".into(),
+                unified: "diff-a".into(),
+                files: vec!["a.rs".into()],
+                gates_passed: false,
+            },
+            Candidate {
+                provider_id: "codex-cli".into(),
+                unified: "diff-b".into(),
+                files: vec!["b.rs".into(), "c.rs".into()],
+                gates_passed: true,
+            },
+        ];
+        let diff = winning_diff(&candidates);
+        let ep = build_episode("add a feature", &candidates, diff.as_ref(), 7);
+        assert_eq!(ep.goal, "add a feature");
+        assert_eq!(ep.timestamp, 7);
+        assert_eq!(ep.providers, vec!["claude-code-cli", "codex-cli"]);
+        // gates_passed bool → verdict string, positionally per candidate.
+        assert_eq!(ep.gate_verdicts, vec!["failed", "passed"]);
+        // winning_diff_summary comes from the selected Diff (codex-cli, 2 files).
+        assert_eq!(ep.winning_diff_summary, "codex-cli changed 2 file(s)");
+        assert_eq!(ep.outcome, "winner-selected");
+    }
+
+    #[test]
+    fn build_episode_no_change_when_no_winner() {
+        let candidates = vec![Candidate {
+            provider_id: "claude-code-cli".into(),
+            unified: String::new(),
+            files: vec![],
+            gates_passed: false,
+        }];
+        let diff = winning_diff(&candidates);
+        assert!(diff.is_none());
+        let ep = build_episode("no-op goal", &candidates, diff.as_ref(), 9);
+        assert_eq!(ep.outcome, "no-change");
+        assert_eq!(ep.winning_diff_summary, "");
+        assert_eq!(ep.gate_verdicts, vec!["failed"]);
     }
 
     #[test]
