@@ -43,6 +43,7 @@ members = [
     "crates/apohara-tui",
     "crates/apohara-context-primitives",
     "crates/apohara-prompt-cache",
+    "crates/apohara-episodic",
 ]
 
 [workspace.package]

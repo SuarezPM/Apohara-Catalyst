@@ -406,6 +406,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "apohara-episodic"
+version = "1.0.0-rc.5"
+dependencies = [
+ "anyhow",
+ "apohara-indexer",
+ "dirs 6.0.0",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "tempfile",
+]
+
+[[package]]
 name = "apohara-event-humanizer"
 version = "1.0.0-rc.5"
 dependencies = [
