@@ -10,45 +10,71 @@ use serde::{Deserialize, Serialize};
 
 use crate::AppState;
 
+/// Normalized hook events the loopback server accepts.
+///
+/// Field optionality is load-bearing: the native hook scripts forward the host
+/// CLI's *raw* stdin JSON as the nested `payload`, and that shape does not carry
+/// every field this server tracks. For example Claude Code's `PostToolUse`
+/// stdin uses `tool_response` (aliased here onto `tool_output`) and ships
+/// neither `duration_ms` nor `timestamp`. Required fields here are limited to
+/// the ones a host actually guarantees per event (e.g. `tool_name` on tool
+/// events); everything the orchestrator merely *prefers* defaults so the native
+/// POST validates to 200 instead of 422. Unknown stdin fields (`session_id`,
+/// `cwd`, `hook_event_name`, …) are ignored by serde.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum HookEventPayload {
     PreToolUse {
         tool_name: String,
+        #[serde(default)]
         tool_input: serde_json::Value,
+        #[serde(default)]
         timestamp: i64,
     },
     PostToolUse {
         tool_name: String,
+        // Claude Code's stdin names this `tool_response`; accept either.
+        #[serde(default, alias = "tool_response")]
         tool_output: serde_json::Value,
+        #[serde(default)]
         duration_ms: u64,
+        #[serde(default)]
         timestamp: i64,
     },
     PostToolUseFailure {
         tool_name: String,
+        #[serde(default)]
         error: String,
+        #[serde(default)]
         timestamp: i64,
     },
     Stop {
+        #[serde(default)]
         reason: StopReason,
+        #[serde(default)]
         timestamp: i64,
     },
     UserPromptSubmit {
+        #[serde(default)]
         prompt: String,
+        #[serde(default)]
         timestamp: i64,
     },
     PermissionRequest {
         tool_name: String,
+        #[serde(default)]
         tool_input: serde_json::Value,
         #[serde(default)]
         scope_proposed: Option<String>,
+        #[serde(default)]
         timestamp: i64,
     },
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Default, Deserialize, Serialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum StopReason {
+    #[default]
     Completed,
     Interrupted,
     Crashed,

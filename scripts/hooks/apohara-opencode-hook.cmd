@@ -20,8 +20,16 @@ set "PAYLOAD="
 for /f "delims=" %%L in ('more') do set "PAYLOAD=!PAYLOAD!%%L"
 if "%PAYLOAD%"=="" set "PAYLOAD={}"
 
+REM Derive the server's snake_case discriminant from the PascalCase
+REM hook_event_name carried on stdin, mapped via PowerShell. Falls back to
+REM APOHARA_HOOK_TYPE, then "unknown".
+set "EVENT_TYPE="
+for /f "delims=" %%E in ('powershell -NoProfile -Command "$p = $env:PAYLOAD | ConvertFrom-Json; switch ($p.hook_event_name) { 'PreToolUse' {'pre_tool_use'} 'PostToolUse' {'post_tool_use'} 'PostToolUseFailure' {'post_tool_use_failure'} 'Stop' {'stop'} 'StopFailure' {'stop'} 'UserPromptSubmit' {'user_prompt_submit'} 'PermissionRequest' {'permission_request'} default {''} }"') do set EVENT_TYPE=%%E
+if "%EVENT_TYPE%"=="" set "EVENT_TYPE=%APOHARA_HOOK_TYPE%"
+if "%EVENT_TYPE%"=="" set "EVENT_TYPE=unknown"
+
 REM Compose envelope
-set "ENV_JSON={\"type\":\"%APOHARA_HOOK_TYPE%\",\"pane_key\":\"%APOHARA_PANE_KEY%\",\"task_id\":\"%APOHARA_TASK_ID%\",\"worktree_id\":\"%APOHARA_WORKTREE_ID%\",\"payload\":%PAYLOAD%}"
+set "ENV_JSON={\"type\":\"%EVENT_TYPE%\",\"pane_key\":\"%APOHARA_PANE_KEY%\",\"task_id\":\"%APOHARA_TASK_ID%\",\"worktree_id\":\"%APOHARA_WORKTREE_ID%\",\"payload\":%PAYLOAD%}"
 
 curl.exe -s --max-time 2 -X POST "http://127.0.0.1:%PORT%/event" -H "Authorization: Bearer %TOKEN%" -H "Content-Type: application/json" -d "%ENV_JSON%" >nul 2>&1
 

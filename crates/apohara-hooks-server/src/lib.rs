@@ -88,9 +88,12 @@ impl HooksServer {
     }
 
     /// Subscribe to the live hook-event stream. Returns a fresh receiver that
-    /// only sees events sent after this call — the desktop bridge subscribes
-    /// immediately after `start`, before any CLI is spawned, so no event is
-    /// missed in practice.
+    /// only sees events sent *after* this call: any event broadcast between
+    /// `start` and this `subscribe` is lost to this receiver — there is no
+    /// replay of pre-subscription events. Subscribe before spawning any CLI to
+    /// minimize that window. Once subscribed, a receiver that falls behind the
+    /// channel capacity gets `RecvError::Lagged` (handled by callers) rather
+    /// than silently dropping events.
     pub fn subscribe(&self) -> tokio::sync::broadcast::Receiver<HookEventPayload> {
         self.broadcaster.subscribe()
     }

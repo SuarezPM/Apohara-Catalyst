@@ -75,9 +75,11 @@ fn overlay_worktree_env(
 
 /// Correlation identifiers the agent-hooks scripts need to build their event
 /// envelope. Exported on the spawned CLI's env as `APOHARA_PANE_KEY` /
-/// `APOHARA_TASK_ID` / `APOHARA_WORKTREE_ID` (the script sets
-/// `APOHARA_HOOK_TYPE` itself per-invocation). All are `APOHARA_*`, so the
-/// §0.4 allowlist below already permits them — no host secret leaks.
+/// `APOHARA_TASK_ID` / `APOHARA_WORKTREE_ID`. The event `type` is NOT exported
+/// here — the same hook script handles every event, so it derives the type
+/// from the `hook_event_name` field on the CLI's stdin payload per-invocation.
+/// All are `APOHARA_*`, so the §0.4 allowlist below already permits them — no
+/// host secret leaks.
 ///
 /// `pane_key` is required for correlation; the other two are optional and
 /// simply omitted from the env when `None`.

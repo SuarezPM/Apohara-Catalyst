@@ -35,6 +35,102 @@ async fn accepts_pre_tool_use_event() {
     server.shutdown().await;
 }
 
+/// The native handshake: the hook scripts derive `type` from Claude Code's
+/// `hook_event_name` and forward CC's *raw* stdin object as the nested
+/// `payload`. That payload carries `session_id`/`cwd`/`hook_event_name`,
+/// names the field `tool_response` (not `tool_output`), and omits
+/// `duration_ms`/`timestamp`. This must validate to 200 — not the 422 the
+/// review caught — so we exercise the exact envelopes the scripts POST.
+#[tokio::test]
+async fn accepts_native_claude_code_handshake_payloads() {
+    let config = ServerConfig {
+        bearer_token: "t".to_string(),
+        bind_addr: "127.0.0.1:0".parse().unwrap(),
+    };
+    let server = HooksServer::start(Arc::new(config)).await.unwrap();
+    let url = format!("http://{}/event", server.bound_addr());
+    let client = reqwest::Client::new();
+
+    // PreToolUse — derived type "pre_tool_use", payload is CC's raw stdin.
+    let pre_tool_use = serde_json::json!({
+        "type": "pre_tool_use",
+        "pane_key": "pane-1",
+        "task_id": "",
+        "worktree_id": "",
+        "payload": {
+            "session_id": "abc123",
+            "transcript_path": "/home/u/.claude/projects/x/transcript.jsonl",
+            "cwd": "/home/u/proj",
+            "permission_mode": "default",
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Bash",
+            "tool_input": { "command": "npm test" }
+        }
+    });
+
+    // PostToolUse — CC names the result `tool_response` and ships neither
+    // `duration_ms` nor `timestamp`. This is the shape that produced the 422.
+    let post_tool_use = serde_json::json!({
+        "type": "post_tool_use",
+        "pane_key": "pane-1",
+        "task_id": "",
+        "worktree_id": "",
+        "payload": {
+            "session_id": "abc123",
+            "cwd": "/home/u/proj",
+            "hook_event_name": "PostToolUse",
+            "tool_name": "Bash",
+            "tool_input": { "command": "git status" },
+            "tool_response": { "stdout": "clean", "stderr": "", "exit_code": 0 }
+        }
+    });
+
+    // Stop — CC sends no `reason`/`timestamp`.
+    let stop = serde_json::json!({
+        "type": "stop",
+        "pane_key": "pane-1",
+        "task_id": "",
+        "worktree_id": "",
+        "payload": {
+            "session_id": "abc123",
+            "hook_event_name": "Stop"
+        }
+    });
+
+    // UserPromptSubmit — only `prompt` guaranteed.
+    let user_prompt = serde_json::json!({
+        "type": "user_prompt_submit",
+        "pane_key": "pane-1",
+        "task_id": "",
+        "worktree_id": "",
+        "payload": {
+            "session_id": "abc123",
+            "hook_event_name": "UserPromptSubmit",
+            "prompt": "build the thing"
+        }
+    });
+
+    for body in [pre_tool_use, post_tool_use, stop, user_prompt] {
+        let event_type = body["type"].as_str().unwrap().to_string();
+        let resp = client
+            .post(&url)
+            .header("Authorization", "Bearer t")
+            .json(&body)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            200,
+            "native handshake for {event_type} must be accepted (200), not 422"
+        );
+        let body: serde_json::Value = resp.json().await.unwrap();
+        assert_eq!(body["accepted"], true);
+    }
+
+    server.shutdown().await;
+}
+
 #[tokio::test]
 async fn rejects_unknown_event_type() {
     let config = ServerConfig {

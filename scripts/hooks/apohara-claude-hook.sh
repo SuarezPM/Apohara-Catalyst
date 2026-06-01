@@ -5,8 +5,13 @@
 # Reads stdin (Claude Code hook payload), POSTs to the apohara-hooks-server
 # loopback endpoint, NEVER fails the CLI (always exits 0).
 #
+# The event "type" is derived from the `hook_event_name` field Claude Code
+# passes on stdin (PreToolUse/PostToolUse/Stop/UserPromptSubmit/...), mapped to
+# the snake_case discriminants the loopback server expects. The spawn cannot
+# set it: the same script handles every event, and only the stdin payload knows
+# which one fired.
+#
 # Env vars injected by Apohara when spawning Claude:
-#   APOHARA_HOOK_TYPE         (pre_tool_use|post_tool_use|stop|...)
 #   APOHARA_TASK_ID           (optional)
 #   APOHARA_WORKTREE_ID       (optional)
 #   APOHARA_PANE_KEY          (required for correlation)
@@ -30,9 +35,26 @@ fi
 PAYLOAD=$(cat)
 [ -z "$PAYLOAD" ] && PAYLOAD="{}"
 
+# Derive the server's snake_case discriminant from Claude Code's PascalCase
+# `hook_event_name` (carried on stdin). Falls back to APOHARA_HOOK_TYPE (set by
+# other hosts that wire the var) and finally to "unknown".
+HOOK_EVENT_NAME=""
+if command -v jq >/dev/null 2>&1; then
+  HOOK_EVENT_NAME=$(printf '%s' "$PAYLOAD" | jq -r '.hook_event_name // empty' 2>/dev/null)
+fi
+case "$HOOK_EVENT_NAME" in
+  PreToolUse)        EVENT_TYPE="pre_tool_use" ;;
+  PostToolUse)       EVENT_TYPE="post_tool_use" ;;
+  PostToolUseFailure) EVENT_TYPE="post_tool_use_failure" ;;
+  Stop|StopFailure)  EVENT_TYPE="stop" ;;
+  UserPromptSubmit)  EVENT_TYPE="user_prompt_submit" ;;
+  PermissionRequest) EVENT_TYPE="permission_request" ;;
+  *)                 EVENT_TYPE="${APOHARA_HOOK_TYPE:-unknown}" ;;
+esac
+
 ENVELOPE=$(cat <<EOF
 {
-  "type": "${APOHARA_HOOK_TYPE:-unknown}",
+  "type": "${EVENT_TYPE}",
   "pane_key": "${APOHARA_PANE_KEY:-}",
   "task_id": "${APOHARA_TASK_ID:-}",
   "worktree_id": "${APOHARA_WORKTREE_ID:-}",
