@@ -11,15 +11,22 @@
 //! workspace-relative — the hook scripts live in `~/.<provider>/hooks/` and the
 //! provider's user-global settings register them:
 //!
-//!   - claude-code-cli → `~/.claude/settings.json`   (JSON, `hooks` object)
-//!   - opencode-go     → `~/.opencode/settings.json`  (JSON, `hooks` object)
-//!   - codex-cli       → `~/.codex/config.toml`       (TOML; codex hook support
-//!     is upstream-dependent, so we register a `[hooks]` table best-effort)
+//!   - claude-code-cli → `~/.claude/settings.json`   (JSON, `hooks` object —
+//!     a command-style `{type:"command", command:"bash …"}` registration)
+//!   - opencode-go     → REFUSED (see below)
+//!   - codex-cli       → REFUSED (no stable upstream hooks contract)
 //!
-//! NOTE on the opencode path: MCP injection writes `opencode.jsonc` at the
-//! WORKSPACE root (past-incident). Hooks are different — they are user-global
-//! and the spec `AGENT_CONFIG.hookConfigPath` is `~/.opencode/settings.json`.
-//! Do not conflate the two.
+//! NOTE on opencode (past-incident + upstream verification): opencode has NO
+//! JSON-config hooks mechanism comparable to Claude's. Its config lives at
+//! `~/.config/opencode/opencode.json[c]` (or workspace-root `opencode.json[c]`)
+//! and the old `~/.opencode/settings.json` path is read by NOTHING. More
+//! importantly, opencode "hooks" are JavaScript/TypeScript *plugin modules*
+//! (`.opencode/plugins/*.{js,ts}` exporting functions that return a hooks
+//! object — events like `tool.execute.before`), not shell-command entries in a
+//! settings file. A `bash apohara-opencode-hook.sh` command registration is
+//! therefore untranslatable to opencode's model. We REFUSE opencode hooks
+//! injection (same posture as codex) rather than write to a path/schema the
+//! CLI ignores. Verified against opencode.ai/docs/config and /docs/plugins.
 //!
 //! ## Safety (§0.8 + backup + idempotent)
 //!
@@ -64,6 +71,11 @@ pub struct HookInjectionResult {
 pub enum HookInjectionError {
     #[error("codex hooks injection not supported (no upstream contract)")]
     CodexUnsupported,
+    #[error(
+        "opencode hooks injection not supported (opencode hooks are JS/TS \
+         plugin modules, not a settings-file hooks block)"
+    )]
+    OpencodeUnsupported,
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
     #[error("serialize: {0}")]
@@ -72,39 +84,74 @@ pub enum HookInjectionError {
     NotAnObject { path: PathBuf },
 }
 
+/// Single source of truth for a provider's hook wiring: the HOME-relative
+/// config dir, settings file name, hook-script file name, and the script body
+/// compiled into the binary (`scripts/hooks/*` is the on-repo source). Only
+/// providers we actually support return `Some`; refused providers (codex,
+/// opencode) return `None`, so this also gates which providers are wirable.
+///
+/// Centralizing dir + names + body here (instead of duplicating the
+/// provider→script-name map across `resolve_paths`, the `include_str!` consts,
+/// and the install-step match) means the registered command, the installed
+/// file, and its bytes can never drift.
+pub(crate) struct HookAssets {
+    pub dir: &'static str,
+    pub settings_file: &'static str,
+    pub script_name: &'static str,
+    pub script_body: &'static str,
+}
+
+pub(crate) fn hook_assets(provider_id: ProviderId) -> Option<HookAssets> {
+    match provider_id {
+        ProviderId::ClaudeCodeCli => Some(HookAssets {
+            dir: ".claude",
+            settings_file: "settings.json",
+            script_name: "apohara-claude-hook.sh",
+            script_body: include_str!("../../../scripts/hooks/apohara-claude-hook.sh"),
+        }),
+        // Refused — opencode hooks are JS/TS plugins, codex has no contract.
+        ProviderId::OpencodeGo | ProviderId::CodexCli => None,
+    }
+}
+
 /// Resolve the HOME-relative hooks config path + the on-disk hook-script path
-/// for a provider, rooted at `config_home` (production: `$HOME`; tests: a
-/// `TempDir`). Returns `(settings_path, script_path)`.
+/// for a supported provider, rooted at `config_home` (production: `$HOME`;
+/// tests: a `TempDir`). Returns `(settings_path, script_path)`.
 ///
 /// `script_path` is what we register in the settings file; the caller is
 /// responsible for actually installing that script (via
 /// `apohara_hooks::install_hook`). Returning it here keeps the path
 /// resolution in one place so the registered command and the installed file
 /// can never drift.
+///
+/// Callers MUST refuse unsupported providers (codex/opencode) before reaching
+/// here — `inject_hooks_config` / `hooks_setup_for_provider_inner` already do.
 pub fn resolve_paths(provider_id: ProviderId, config_home: &Path) -> (PathBuf, PathBuf) {
-    let (dir, settings_file, script_name) = match provider_id {
-        ProviderId::ClaudeCodeCli => (".claude", "settings.json", "apohara-claude-hook.sh"),
-        ProviderId::OpencodeGo => (".opencode", "settings.json", "apohara-opencode-hook.sh"),
-        ProviderId::CodexCli => (".codex", "config.toml", "apohara-codex-hook.sh"),
-    };
-    let base = config_home.join(dir);
+    let assets = hook_assets(provider_id)
+        .expect("resolve_paths called for an unsupported provider — refuse it first");
+    let base = config_home.join(assets.dir);
     (
-        base.join(settings_file),
-        base.join("hooks").join(script_name),
+        base.join(assets.settings_file),
+        base.join("hooks").join(assets.script_name),
     )
 }
 
 /// Inject the apohara hooks block into the provider's settings, rooted at
 /// `config_home`. Idempotent + atomic + backup-on-overwrite.
 ///
-/// `codex-cli` returns [`HookInjectionError::CodexUnsupported`] — codex has no
-/// stable hooks contract yet, so we refuse rather than write a guessed schema.
+/// Only `claude-code-cli` is supported. `codex-cli` returns
+/// [`HookInjectionError::CodexUnsupported`] (no stable upstream contract) and
+/// `opencode-go` returns [`HookInjectionError::OpencodeUnsupported`] (opencode
+/// hooks are JS/TS plugin modules, not a settings-file block). In both cases we
+/// refuse rather than write a path/schema the CLI ignores.
 pub async fn inject_hooks_config(
     provider_id: ProviderId,
     config_home: &Path,
 ) -> Result<HookInjectionResult, HookInjectionError> {
-    if matches!(provider_id, ProviderId::CodexCli) {
-        return Err(HookInjectionError::CodexUnsupported);
+    match provider_id {
+        ProviderId::CodexCli => return Err(HookInjectionError::CodexUnsupported),
+        ProviderId::OpencodeGo => return Err(HookInjectionError::OpencodeUnsupported),
+        ProviderId::ClaudeCodeCli => {}
     }
     let (settings_path, script_path) = resolve_paths(provider_id, config_home);
     let command = format!("bash {}", script_path.display());
@@ -190,8 +237,10 @@ fn group_is_apohara(group: &Value) -> bool {
         .unwrap_or(false)
 }
 
-/// Rename an existing file to `<name>.bak` (best-effort, returns the backup
-/// path when one was made). Mirrors the installer's backup discipline.
+/// Copy an existing file to `<name>.bak` ONE-SHOT: the backup is created only
+/// if it does not already exist, so an idempotent re-run never overwrites the
+/// pristine original with the already-injected copy. Returns the backup path
+/// when one was made (or already present). Mirrors the installer's discipline.
 async fn backup_existing(path: &Path) -> Result<Option<PathBuf>, std::io::Error> {
     match tokio::fs::metadata(path).await {
         Ok(_) => {
@@ -199,8 +248,16 @@ async fn backup_existing(path: &Path) -> Result<Option<PathBuf>, std::io::Error>
                 "{}.bak",
                 path.extension().and_then(|e| e.to_str()).unwrap_or("")
             ));
-            tokio::fs::copy(path, &backup).await?;
-            Ok(Some(backup))
+            // ONE-SHOT: never clobber a pre-existing .bak — the first run
+            // already captured the pristine original.
+            match tokio::fs::metadata(&backup).await {
+                Ok(_) => Ok(Some(backup)),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    tokio::fs::copy(path, &backup).await?;
+                    Ok(Some(backup))
+                }
+                Err(e) => Err(e),
+            }
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(e),
@@ -253,16 +310,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn opencode_uses_home_settings_not_workspace_jsonc() {
+    async fn opencode_is_refused_hooks_are_js_plugins_not_a_settings_block() {
         let home = TempDir::new().unwrap();
-        let res = inject_hooks_config(ProviderId::OpencodeGo, home.path())
+        let err = inject_hooks_config(ProviderId::OpencodeGo, home.path())
             .await
-            .unwrap();
-        // Past-incident guard: hooks live in ~/.opencode/settings.json, NOT a
-        // workspace-root opencode.jsonc (that's MCP injection's path).
-        assert_eq!(res.config_path, home.path().join(".opencode/settings.json"));
-        let raw = tokio::fs::read_to_string(&res.config_path).await.unwrap();
-        assert!(raw.contains("apohara-opencode-hook.sh"));
+            .unwrap_err();
+        // opencode has NO settings-file hooks block: its hooks are JS/TS plugin
+        // modules. Refusing here also upholds the past-incident rule that the
+        // old ~/.opencode/settings.json path is read by nothing. Nothing must
+        // be written to disk.
+        assert!(matches!(err, HookInjectionError::OpencodeUnsupported));
+        assert!(!home.path().join(".opencode").exists());
     }
 
     #[tokio::test]
@@ -346,6 +404,42 @@ mod tests {
         let backup = res.backup_path.expect("backup made");
         let backup_raw = tokio::fs::read_to_string(&backup).await.unwrap();
         assert!(backup_raw.contains("\"model\":\"x\""), "backup is the original");
+    }
+
+    #[tokio::test]
+    async fn backup_is_one_shot_and_keeps_the_pristine_original() {
+        let home = TempDir::new().unwrap();
+        let path = home.path().join(".claude/settings.json");
+        tokio::fs::create_dir_all(path.parent().unwrap())
+            .await
+            .unwrap();
+        // Distinctive original content we must be able to recover later.
+        tokio::fs::write(&path, b"{\"model\":\"pristine-original\"}\n")
+            .await
+            .unwrap();
+
+        // First run backs up the original, then injects.
+        let res1 = inject_hooks_config(ProviderId::ClaudeCodeCli, home.path())
+            .await
+            .unwrap();
+        let backup = res1.backup_path.expect("first run makes a backup");
+
+        // Second (idempotent) run must NOT clobber the .bak with the
+        // already-injected file — the .bak must still be the pristine original.
+        let res2 = inject_hooks_config(ProviderId::ClaudeCodeCli, home.path())
+            .await
+            .unwrap();
+        assert_eq!(res2.backup_path.as_deref(), Some(backup.as_path()));
+
+        let backup_raw = tokio::fs::read_to_string(&backup).await.unwrap();
+        assert!(
+            backup_raw.contains("pristine-original"),
+            "backup must remain the pristine original, got: {backup_raw}"
+        );
+        assert!(
+            !backup_raw.contains("apohara-"),
+            "backup must NOT be the already-injected copy"
+        );
     }
 
     #[test]

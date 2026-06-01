@@ -14,7 +14,7 @@ use std::sync::Arc;
 use crate::bootstrap::{
     bootstrap_mcp_servers, BootstrapHandle, BootstrapOpts, EndpointDescriptor,
 };
-use crate::hooks_injection::{inject_hooks_config, resolve_paths as resolve_hook_paths};
+use crate::hooks_injection::{hook_assets, inject_hooks_config, resolve_paths as resolve_hook_paths};
 use crate::injection::{inject_mcp_config, InjectionResult, ProviderId};
 use crate::servers::indexer::StubIndexerClient;
 use crate::servers::ledger::{LedgerBackend, LedgerEvent};
@@ -234,13 +234,6 @@ pub async fn mcp_inject_config_inner(
         .map_err(|e| e.to_string())
 }
 
-/// Hook-script bodies compiled into the binary so provider setup needs no
-/// repo checkout at runtime — `scripts/hooks/*` is the source of truth.
-const CLAUDE_HOOK_SCRIPT: &str =
-    include_str!("../../../scripts/hooks/apohara-claude-hook.sh");
-const OPENCODE_HOOK_SCRIPT: &str =
-    include_str!("../../../scripts/hooks/apohara-opencode-hook.sh");
-
 /// Stage 2.6 — end-to-end agent-hooks setup for a provider, mirroring the
 /// MCP injection surface above. Two steps, both gated by `APOHARA_RUST_MCP`:
 ///   1. install the hook script under `~/.<provider>/hooks/` (idempotent +
@@ -248,9 +241,12 @@ const OPENCODE_HOOK_SCRIPT: &str =
 ///   2. register it in the provider's settings (`inject_hooks_config`,
 ///      idempotent + atomic + .bak).
 ///
-/// Run this at the same point provider MCP config is prepared. `codex-cli`
-/// has no upstream hooks contract — it returns an error from
-/// `inject_hooks_config` and is skipped by the caller.
+/// Run this at the same point provider MCP config is prepared. Only
+/// `claude-code-cli` is supported: `codex-cli` (no upstream contract) and
+/// `opencode-go` (hooks are JS/TS plugins, not a settings block) are refused
+/// before touching disk, symmetric with `inject_hooks_config`. The provider →
+/// (script-name, script-body, paths) mapping lives once in
+/// `hooks_injection::hook_assets` / `resolve_paths`.
 ///
 /// `config_home` defaults to `$HOME`; callers (and tests) may override it to
 /// avoid touching the real `~/.claude`.
@@ -264,18 +260,14 @@ pub async fn hooks_setup_for_provider_inner(
         None => dirs::home_dir().ok_or_else(|| "HOME not set".to_string())?,
     };
 
+    // Refuse unsupported providers before touching disk — single source of
+    // truth on which providers are wirable + their script body.
+    let assets = hook_assets(provider_id)
+        .ok_or_else(|| format!("{} hooks injection unsupported", provider_id.as_str()))?;
+
     // 1. Install the script the settings file will point at.
-    let script_body = match provider_id {
-        ProviderId::ClaudeCodeCli => CLAUDE_HOOK_SCRIPT,
-        ProviderId::OpencodeGo => OPENCODE_HOOK_SCRIPT,
-        ProviderId::CodexCli => {
-            // Refuse before touching disk — keeps the error symmetric with
-            // inject_hooks_config's CodexUnsupported.
-            return Err("codex-cli hooks injection unsupported".to_string());
-        }
-    };
     let (_settings, script_path) = resolve_hook_paths(provider_id, &home);
-    apohara_hooks::install_hook(&script_path, script_body).map_err(|e| e.to_string())?;
+    apohara_hooks::install_hook(&script_path, assets.script_body).map_err(|e| e.to_string())?;
 
     // 2. Register the (now-installed) script in the provider settings.
     inject_hooks_config(provider_id, &home)
