@@ -93,21 +93,37 @@ fn route_event(ev: HookEventPayload) {
         ..
     } = &ev
     {
-        enqueue_permission_request(PermissionRequestEvent {
-            // The hook server has no request_id field, so correlate on
-            // tool+timestamp — unique enough for the per-prompt dedup map.
-            request_id: format!("{tool_name}-{timestamp}"),
-            tool: tool_name.clone(),
-            suggested_pattern: scope_proposed.clone().unwrap_or_default(),
-            // The hook protocol does not negotiate scopes; offer the full set
-            // the dialog supports and let the user pick.
-            available_scopes: vec![
-                PermissionScope::Once,
-                PermissionScope::Session,
-                PermissionScope::Always,
-            ],
-            ts: *timestamp as u64,
-        });
+        enqueue_permission_request(build_permission_request(
+            tool_name,
+            scope_proposed.as_deref(),
+            *timestamp as u64,
+        ));
+    }
+}
+
+/// Build the `PermissionRequestEvent` for one hook `PermissionRequest`.
+///
+/// The hook server has no request_id field. A tool+timestamp id collides when
+/// the same tool fires twice in one tick, and the per-prompt dedup map would
+/// then drop the earlier pending prompt — so mint a fresh UUID per request to
+/// keep every prompt distinct.
+fn build_permission_request(
+    tool: &str,
+    scope_proposed: Option<&str>,
+    ts: u64,
+) -> PermissionRequestEvent {
+    PermissionRequestEvent {
+        request_id: uuid::Uuid::new_v4().to_string(),
+        tool: tool.to_string(),
+        suggested_pattern: scope_proposed.unwrap_or_default().to_string(),
+        // The hook protocol does not negotiate scopes; offer the full set the
+        // dialog supports and let the user pick.
+        available_scopes: vec![
+            PermissionScope::Once,
+            PermissionScope::Session,
+            PermissionScope::Always,
+        ],
+        ts,
     }
 }
 
@@ -228,6 +244,18 @@ mod tests {
         assert_eq!(kind, "hook:permission-request");
         assert!(payload.contains("Bash"));
         assert!(payload.contains("Bash(rm:*)"));
+    }
+
+    #[test]
+    fn two_permission_requests_for_same_tool_get_distinct_ids() {
+        // Same tool, same timestamp (same tick) — the old tool+timestamp id
+        // would collide and the dedup map would drop the earlier prompt.
+        let a = build_permission_request("Bash", Some("Bash(rm:*)"), 3);
+        let b = build_permission_request("Bash", Some("Bash(rm:*)"), 3);
+        assert_ne!(a.request_id, b.request_id);
+        // The rest of the payload still carries the tool faithfully.
+        assert_eq!(a.tool, "Bash");
+        assert_eq!(b.tool, "Bash");
     }
 
     #[test]
