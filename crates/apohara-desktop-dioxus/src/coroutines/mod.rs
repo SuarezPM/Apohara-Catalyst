@@ -10,15 +10,17 @@
 
 pub mod dispatch_loop;
 pub mod git_apply_handler;
+pub mod hooks_bridge;
 pub mod permission_arbitrator;
 pub mod reconciler_tick;
 pub mod toast_reaper;
 
-/// Mount all five effect-owner coroutines. Called unconditionally from `App` so
+/// Mount all effect-owner coroutines. Called unconditionally from `App` so
 /// the hook order stays stable.
 pub fn mount_coroutines() {
     dispatch_loop::mount();
     git_apply_handler::mount();
+    hooks_bridge::mount();
     permission_arbitrator::mount();
     reconciler_tick::mount();
     toast_reaper::mount();

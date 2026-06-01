@@ -93,7 +93,7 @@ async fn run_dispatch(objective: String) {
             Err(_) => repo.to_string_lossy().into_owned(),
         };
 
-        let req = build_request(&p.binary_path, &workspace, &objective);
+        let req = build_request(&p.binary_path, &workspace, &objective, &task_id);
         let pid = p.id.clone();
         let outcome = CliDriver::dispatch_streaming(req, move |line| {
             push_event(SseEvent {
@@ -228,13 +228,26 @@ fn build_episode(
 
 /// Build the `DispatchRequest` for a provider run. `provider_binary` is the
 /// resolved CLI path (`ActiveProvider::binary_path`), spawned with `--print`.
-fn build_request(provider_binary: &str, workspace: &str, objective: &str) -> DispatchRequest {
+/// `task_id` doubles as the pane key (one pane per dispatched task) and the
+/// task identifier exported to the spawned CLI's agent-hooks env, so live
+/// hook events correlate back to this run (Stage 2.6).
+fn build_request(
+    provider_binary: &str,
+    workspace: &str,
+    objective: &str,
+    task_id: &str,
+) -> DispatchRequest {
     DispatchRequest {
         provider_id: provider_binary.to_string(),
         workspace: workspace.to_string(),
         prompt: objective.to_string(),
         role: "coder".to_string(),
         runner_policy: "default".to_string(),
+        pane_key: task_id.to_string(),
+        task_id: Some(task_id.to_string()),
+        // The per-task worktree lives at `workspace`; use its path as the
+        // worktree id so hook events can be traced to the right checkout.
+        worktree_id: Some(workspace.to_string()),
     }
 }
 
@@ -300,12 +313,16 @@ mod tests {
 
     #[test]
     fn build_request_uses_binary_and_print_fields() {
-        let req = build_request("/usr/bin/claude", "/tmp/wt", "build a thing");
+        let req = build_request("/usr/bin/claude", "/tmp/wt", "build a thing", "claude-1");
         assert_eq!(req.provider_id, "/usr/bin/claude");
         assert_eq!(req.workspace, "/tmp/wt");
         assert_eq!(req.prompt, "build a thing");
         assert_eq!(req.role, "coder");
         assert_eq!(req.runner_policy, "default");
+        // Hook correlation: task_id doubles as pane key, worktree id = workspace.
+        assert_eq!(req.pane_key, "claude-1");
+        assert_eq!(req.task_id.as_deref(), Some("claude-1"));
+        assert_eq!(req.worktree_id.as_deref(), Some("/tmp/wt"));
     }
 
     #[test]
