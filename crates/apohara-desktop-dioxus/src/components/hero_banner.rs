@@ -11,11 +11,11 @@
 //!   - `tasks_empty == false`  → hide entirely.
 //!   - else                    → render the wordmark + tagline + CTAs.
 //!
-//! Brand: G9.A.3 rebrand — wordmark uses `.font-display` (Press Start 2P)
-//! in the lime token. The pixel-art mascot slot from the React component
-//! is intentionally deferred to G2.B (Wave A) when PixelCanvas itself is
-//! ported; until then we render a placeholder `[chief]` glyph so the
-//! layout stays representative.
+//! Brand: design-system v2 — the wordmark uses `.font-display`
+//! (Space Grotesk, uppercase + tracked) in the lime token; Press Start 2P is
+//! gone. The pixel-art mascot slot from the React component is intentionally
+//! deferred to G2.B (Wave A) when PixelCanvas itself is ported; until then we
+//! render a placeholder `[chief]` glyph so the layout stays representative.
 
 use dioxus::prelude::*;
 
@@ -42,10 +42,10 @@ pub fn HeroBanner(
                 "data-testid": "hero-banner-compact",
                 role: "region",
                 "aria-label": "Apohara Catalyst — run in progress",
-                style: "display: flex; align-items: center; gap: 12px; padding: 0.4rem 1rem; background: var(--apohara-ink); border-bottom: 2px solid var(--apohara-lime); color: var(--apohara-bone);",
+                style: "display: flex; align-items: center; gap: 12px; padding: 0.4rem 1rem; background: var(--apo-bg-space); border-bottom: 1px solid var(--apo-border); color: var(--apo-text);",
                 span {
                     class: "font-display",
-                    style: "color: var(--apohara-lime); font-size: 0.8rem; letter-spacing: 2px;",
+                    style: "color: var(--apo-text); font-family: var(--apo-font-display); text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.2em; text-shadow: var(--apo-text-glow-lime);",
                     "APOHARA CATALYST"
                 }
             }
@@ -64,25 +64,27 @@ pub fn HeroBanner(
             "data-testid": "hero-banner",
             role: "region",
             "aria-label": "Apohara Catalyst welcome",
-            style: "margin: 1.5rem auto; padding: 1.5rem 2rem; max-width: 720px; background: var(--apohara-ink); border: 2px solid var(--apohara-lime); border-radius: 4px; color: var(--apohara-bone); text-align: center;",
+            style: "margin: 1.5rem auto; padding: 1.5rem 2rem; max-width: 720px; background-color: var(--apo-bg-panel); background-image: var(--apo-grad-topo); border: 1px solid var(--apo-border); border-radius: var(--apo-radius-lg); color: var(--apo-text); text-align: center;",
             div {
                 style: "display: flex; align-items: center; justify-content: center; gap: 16px; margin-bottom: 0.75rem;",
                 div {
                     "data-testid": "hero-banner-mascot",
-                    style: "flex-shrink: 0; width: 48px; height: 48px; display: inline-flex; align-items: center; justify-content: center; color: var(--apohara-lime); font-family: 'Press Start 2P', monospace; font-size: 10px;",
+                    style: "flex-shrink: 0; width: 48px; height: 48px; display: inline-flex; align-items: center; justify-content: center; color: var(--apo-lime); font-family: var(--apo-font-mono); font-size: 10px;",
                     // Mascot slot — real PixelCanvas lands G2.B.
                     "[chief]"
                 }
                 h2 {
                     class: "font-display",
                     "data-testid": "hero-banner-wordmark",
-                    style: "margin: 0; font-size: 1.1rem; color: var(--apohara-lime); letter-spacing: 3px; line-height: 1.4;",
+                    // Crema wordmark, display family, heavy tracking, subtle lime
+                    // glow (design system §4 — crema, NOT pure white/lime).
+                    style: "margin: 0; font-family: var(--apo-font-display); text-transform: uppercase; font-size: 1.6rem; color: var(--apo-text); letter-spacing: 0.2em; line-height: 1.3; text-shadow: var(--apo-text-glow-lime);",
                     "APOHARA CATALYST"
                 }
             }
             p {
                 "data-testid": "hero-banner-tagline",
-                style: "margin: 0 0 1rem 0; color: rgba(237, 239, 240, 0.7); font-family: var(--font-mono); font-size: 0.85rem;",
+                style: "margin: 0 0 1rem 0; color: var(--apo-text-dim); font-family: var(--apo-font-mono); font-size: 0.85rem;",
                 "{tagline}"
             }
             div {
@@ -92,7 +94,7 @@ pub fn HeroBanner(
                         r#type: "button",
                         "data-testid": "hero-banner-seed-cta",
                         onclick: move |evt| handler.call(evt),
-                        style: "padding: 0.5rem 1rem; background: var(--apohara-lime); color: var(--apohara-ink); border: 2px solid var(--apohara-lime); border-radius: 4px; cursor: pointer; font-family: var(--font-mono); font-size: 0.8rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;",
+                        style: "padding: 0.5rem 1rem; background: var(--apo-lime); color: var(--apo-lime-fg); border: 1px solid var(--apo-lime); border-radius: var(--apo-radius-md); cursor: pointer; font-family: var(--apo-font-mono); font-size: 0.8rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;",
                         "Try the demo"
                     }
                 }
@@ -101,7 +103,7 @@ pub fn HeroBanner(
                     href: "https://github.com/SuarezPM/apohara#readme",
                     target: "_blank",
                     rel: "noreferrer noopener",
-                    style: "padding: 0.5rem 1rem; background: transparent; color: var(--apohara-bone); border: 2px solid var(--apohara-bone); border-radius: 4px; text-decoration: none; font-family: var(--font-mono); font-size: 0.8rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;",
+                    style: "padding: 0.5rem 1rem; background: transparent; color: var(--apo-text-dim); border: 1px solid var(--apo-border-strong); border-radius: var(--apo-radius-md); text-decoration: none; font-family: var(--apo-font-mono); font-size: 0.8rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;",
                     "Read the docs"
                 }
             }

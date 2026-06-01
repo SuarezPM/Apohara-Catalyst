@@ -18,22 +18,12 @@
 //!     downstream tests / dom queries).
 //!   - `data-state` for CSS attribute selectors and inspection.
 //!   - `class="agent-dot dot-<state>"` so brand.css can theme each state.
-//!   - inline `style` for size + lime token so the dot is rendered even if
-//!     the stylesheet hasn't loaded (matches React behaviour).
+//!   - inline `style` for size ONLY. Color + shape (round dot, cyan working
+//!     spinner, magenta waiting pulse, lime done, danger error) live in
+//!     `assets/brand.css` per the Apohara design system — the component no
+//!     longer hard-codes a square solid swatch.
 
 use dioxus::prelude::*;
-
-/// Returns the CSS background value for a given state. Mirrors the
-/// `STATE_BG` map in the React source.
-fn state_background(state: &str) -> &'static str {
-    match state {
-        "working" | "done" => "var(--apohara-lime)",
-        "waiting" => "rgba(237, 239, 240, 0.4)",
-        "error" => "var(--apohara-red)",
-        // idle + any unknown state collapse to the muted text token.
-        _ => "var(--text-muted)",
-    }
-}
 
 /// Resolves the pixel size for the `size` prop. Defaults to 12px to match
 /// React's `size = "md"` default.
@@ -57,16 +47,10 @@ pub fn AgentStateDot(
     label: Option<String>,
 ) -> Element {
     let px = size_px(size.as_deref());
-    let bg = state_background(&state);
-    let pulse = if state == "working" {
-        " animation: agent-state-dot-pulse 1.5s ease-in-out infinite;"
-    } else {
-        ""
-    };
-    let style = format!(
-        "display: inline-block; width: {px}px; height: {px}px; \
-         background: {bg}; border-radius: 0;{pulse}"
-    );
+    // Size only — brand.css owns color, radius, and per-state animation so the
+    // design-system vocabulary (round dot / cyan spinner / magenta pulse) is in
+    // one place. The size is inline so the dot still reserves space pre-CSS.
+    let style = format!("width: {px}px; height: {px}px;");
     let aria_label = label.unwrap_or_else(|| format!("agent {state}"));
 
     rsx! {

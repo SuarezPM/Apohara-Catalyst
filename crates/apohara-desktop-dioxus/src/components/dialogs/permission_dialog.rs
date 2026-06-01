@@ -71,7 +71,9 @@ pub fn PermissionDialog(
             class: "dialog-backdrop",
             "data-testid": "permission-dialog-backdrop",
             div {
-                class: "card dialog permission-dialog",
+                // `apo-attention-border` paints the animated magenta edge that
+                // announces "requires your decision" (design system §4).
+                class: "card dialog permission-dialog apo-attention-border",
                 "data-testid": "permission-dialog",
                 role: "dialog",
                 "aria-modal": "true",

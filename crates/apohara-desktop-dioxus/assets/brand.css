@@ -1,35 +1,152 @@
-/* assets/brand.css — Sprint 9 brand tokens (Catalyst palette). */
+/* assets/brand.css — APOHARA DESIGN SYSTEM v2 (see assets/DESIGN_SYSTEM.md).
+   Token source of truth for apohara-desktop-dioxus. Components consume
+   tokens, never literals. Deep-space black, neon-lime hills, cyan/magenta
+   waveforms — premium data-landscape, not raw terminal. */
 
 :root {
-  --apohara-lime: #25B13F;
-  --apohara-ink: #0E1010;
-  --apohara-bone: #EDEFF0;
-  --bg: var(--apohara-ink);
-  --fg: var(--apohara-bone);
-  --font-mono: 'JetBrains Mono', 'Fira Mono', monospace;
+  /* ── Backgrounds — deep space, gradient to night-blue ───────────────── */
+  --apo-bg-space:    #0A0B12;  /* app canvas, deepest */
+  --apo-bg-deep:     #0D1020;  /* top of vertical gradient (night-blue) */
+  --apo-bg-panel:    #111525;  /* panes lifted off canvas (card surface) */
+  --apo-bg-elevated: #161B30;  /* popovers, dialogs, floating cmdk */
+  --apo-bg-input:    #0C0E18;  /* form-field wells, code blocks */
 
-  /* Semantic colors (v1.1) — lifted from literals previously scattered
-     across .dot-error / .btn-destructive / .toast-* / .statusline-level--*.
-     --apohara-red doubled as #d04a3c and #c33 historically; we settle on
-     the brighter #d04a3c (the dot/toast value) as the canonical danger hue. */
-  --apohara-red: #d04a3c;
-  --apohara-warn: #d29922;
-  --apohara-orange: #db6d28;
-  --apohara-critical: #f85149;
+  /* Named vertical gradient used by the app shell + hero. */
+  --apo-grad-canvas: linear-gradient(180deg, var(--apo-bg-deep) 0%, var(--apo-bg-space) 60%);
 
-  /* Spacing scale (v1.1) — a small 4px-based set. Only the NEW rules below
-     consume these; the legacy blocks keep their literal paddings to avoid
-     churn. */
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
+  /* ── PRIMARY — brand lime (success / primary action / brand mark) ───── */
+  --apo-lime:        #A3E635;  /* the logo/hills neon-lime */
+  --apo-lime-hover:  #B6F056;  /* +brightness for hover */
+  --apo-lime-dim:    #7CB22B;  /* lower-emphasis lime (secondary, idle-active) */
+  --apo-lime-fg:     #0A0B12;  /* text/icon ON solid lime — space-black, NEVER lime-on-lime */
+  --apo-lime-glow:   rgba(163, 230, 53, 0.45);
+
+  /* ── ACCENT cyan (info / streaming / working) ───────────────────────── */
+  --apo-cyan:        #38BDF8;  /* left-side waveforms; agent "working" */
+  --apo-cyan-hover:  #5CCDFA;
+  --apo-cyan-dim:    #2A92C2;
+  --apo-cyan-fg:     #04141F;  /* text ON solid cyan */
+  --apo-cyan-glow:   rgba(56, 189, 248, 0.45);
+
+  /* ── ACCENT magenta (warning / conflict / needs-decision) ───────────── */
+  --apo-magenta:     #FB2576;  /* right-side waveforms; permission/conflict */
+  --apo-magenta-hover:#FD4D90;
+  --apo-magenta-dim: #C21A5B;
+  --apo-magenta-fg:  #FFF0F5;  /* text ON solid magenta */
+  --apo-magenta-glow:rgba(251, 37, 118, 0.45);
+
+  /* ── Extra semantic — amber caution (between info & danger) ──────────── */
+  --apo-amber:       #FBBF24;
+  --apo-amber-fg:    #1A1303;
+  --apo-amber-glow:  rgba(251, 191, 36, 0.4);
+
+  /* ── Hard danger (irreversible / critical) — red, distinct from magenta */
+  --apo-danger:      #F85149;
+  --apo-danger-fg:   #FFF1F0;
+  --apo-danger-glow: rgba(248, 81, 73, 0.45);
+
+  /* ── Text ───────────────────────────────────────────────────────────── */
+  --apo-text:        #F5F0E6;  /* crema — titles/wordmark, body on dark (~15:1 on bg-space) */
+  --apo-text-dim:    #A8B0B8;  /* secondary/caption — cool-grey, ~7.6:1 WCAG AA pass */
+  --apo-text-faint:  #6B7280;  /* disabled/placeholder — ~4.6:1, AA for large/UI only */
+  --apo-text-on-lime: var(--apo-lime-fg);
+
+  /* ── Borders / hairlines ────────────────────────────────────────────── */
+  --apo-border:        rgba(245, 240, 230, 0.10);  /* default hairline (crema @10%) */
+  --apo-border-strong: rgba(245, 240, 230, 0.18);  /* emphasized divider */
+  --apo-border-lime:   color-mix(in srgb, var(--apo-lime) 40%, transparent); /* active/focused edge */
+
+  /* ── Git decoration (VS Code convention — DO NOT invent diff colors) ── */
+  --apo-diff-added:    #81B88B;
+  --apo-diff-modified: #E2C08D;
+  --apo-diff-deleted:  #C74E39;
+  --apo-diff-renamed:  #73C991;
+  --apo-diff-ignored:  #6E6E6E;
+
+  /* ── Swarm / DAG lane colors (categorical, accessible — IBM-ish) ─────── */
+  --apo-lane-1: #A3E635;  /* lime  */
+  --apo-lane-2: #38BDF8;  /* cyan  */
+  --apo-lane-3: #FB2576;  /* magenta */
+  --apo-lane-4: #FBBF24;  /* amber */
+  --apo-lane-5: #B66DFF;  /* violet */
+
+  /* ── Named gradients ────────────────────────────────────────────────── */
+  /* THE brand signature: lime → cyan → magenta. Used by the animated
+     border-flash on active agents and the hero underline. */
+  --apo-grad-wave:  linear-gradient(90deg, var(--apo-lime) 0%, var(--apo-cyan) 50%, var(--apo-magenta) 100%);
+  --apo-grad-wave-45: linear-gradient(45deg, transparent, var(--apo-lime), var(--apo-cyan), var(--apo-magenta), transparent);
+  --apo-grad-lime:  linear-gradient(90deg, var(--apo-lime) 0%, var(--apo-lime-hover) 50%, var(--apo-lime) 100%);
+  --apo-grad-topo:  /* faint wireframe wash for empty-states / hero bg */
+    radial-gradient(120% 80% at 50% -10%, color-mix(in srgb, var(--apo-cyan) 8%, transparent), transparent 60%);
+
+  /* ── Typography (two families: display wordmark + mono data) ────────── */
+  /* Display / wordmark / pane titles — geometric, uppercase, tracked. */
+  --apo-font-display: 'Space Grotesk', 'Rajdhani', 'Orbitron',
+                      ui-sans-serif, system-ui, sans-serif;
+  /* Body / UI labels — clean sans (Geist-like). */
+  --apo-font-sans:    'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  /* Data / paths / code / agent output — monospace (keep the tool's character).
+     'JetBrainsMono Nerd Font' is the family fontconfig actually exposes on this
+     system; list it after the canonical name so either resolves. */
+  --apo-font-mono:    'JetBrains Mono', 'JetBrainsMono Nerd Font', 'SF Mono',
+                      ui-monospace, 'Fira Mono', monospace;
+
+  /* ── Spacing (4px base) + radius + z ────────────────────────────────── */
+  --apo-space-1: 4px;  --apo-space-2: 8px;  --apo-space-3: 12px;
+  --apo-space-4: 16px; --apo-space-6: 24px; --apo-space-8: 32px;
+  --apo-radius-sm: 4px;  --apo-radius-md: 6px;  --apo-radius-lg: 10px;  --apo-radius-pill: 999px;
+
+  /* ── Elevation (3 tiers + glow as the 4th "emphasis" tier) ──────────── */
+  --apo-elev-1: 0 0 0 1px var(--apo-border);                 /* inset hairline (default) */
+  --apo-elev-2: 0 1px 2px rgba(0,0,0,0.4), 0 0 0 1px var(--apo-border); /* subtle lift */
+  --apo-elev-3: 0 10px 24px rgba(0,0,0,0.55);                /* floating (popover/dialog) */
+
+  /* ── Glow recipes (signature, but rationed: glow == active/attention) ── */
+  --apo-text-glow-lime:    0 0 8px var(--apo-lime-glow);
+  --apo-text-glow-cyan:    0 0 8px var(--apo-cyan-glow);
+  --apo-text-glow-magenta: 0 0 8px var(--apo-magenta-glow);
+  --apo-box-glow-lime:    0 0 0 1px var(--apo-lime),    0 0 16px var(--apo-lime-glow);
+  --apo-box-glow-cyan:    0 0 0 1px var(--apo-cyan),    0 0 16px var(--apo-cyan-glow);
+  --apo-box-glow-magenta: 0 0 0 1px var(--apo-magenta), 0 0 16px var(--apo-magenta-glow);
+
+  /* ── Focus ring (accessible, lime halo on dark canvas) ──────────────── */
+  --apo-focus-ring: 0 0 0 1px var(--apo-bg-space), 0 0 0 3px color-mix(in srgb, var(--apo-lime) 70%, transparent);
+
+  /* ── Transitions ────────────────────────────────────────────────────── */
+  --apo-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --apo-t-fast: 120ms var(--apo-ease);   /* hover, color */
+  --apo-t-base: 180ms var(--apo-ease);   /* expand/collapse, panel reveal */
+  --apo-t-slow: 300ms cubic-bezier(0.16, 1, 0.3, 1); /* sheet/clip-path reveals */
+
+  /* ── Back-compat aliases (Step 1 migration bridge — DEAD CODE once the
+     component rules are rewritten onto --apo-* directly; do not delete
+     mid-pass). Every legacy `color-mix(... var(--apohara-lime) ...)` rule
+     inherits the real brand hues through these. ─────────────────────────── */
+  --apohara-lime:     var(--apo-lime);       /* was #25B13F → real brand lime */
+  --apohara-ink:      var(--apo-bg-space);
+  --apohara-bone:     var(--apo-text);       /* crema */
+  --apohara-red:      var(--apo-danger);
+  --apohara-warn:     var(--apo-amber);
+  --apohara-orange:   var(--apo-amber);
+  --apohara-critical: var(--apo-danger);
+  --bg:               var(--apo-bg-space);
+  --fg:               var(--apo-text);
+  --font-mono:        var(--apo-font-mono);
+  --space-1:          var(--apo-space-1);
+  --space-2:          var(--apo-space-2);
+  --space-3:          var(--apo-space-3);
+  --space-4:          var(--apo-space-4);
 }
 
 body {
-  background: var(--bg);
-  color: var(--fg);
-  font-family: 'Inter', sans-serif;
+  /* Step 2: night-blue → space vertical gradient canvas (was flat --bg). */
+  background: var(--apo-bg-space);
+  background-image: var(--apo-grad-canvas);
+  color: var(--apo-text);
+  font-family: var(--apo-font-sans);
+  letter-spacing: 0.01em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   margin: 0;
   padding: 0;
 }
@@ -40,10 +157,24 @@ body {
   box-sizing: border-box;
 }
 
+/* Step 6: global accessible focus ring — lime halo, :focus-visible only so
+   there is no persistent decoration. Replaces ad-hoc lime border focus. */
+:where(:focus-visible) {
+  outline: none;
+  box-shadow: var(--apo-focus-ring);
+}
+
+/* Step 2: KILL Press Start 2P. The wordmark / pane titles move to the display
+   family (Space Grotesk), uppercase + tracked. The `.font-display` /
+   `.press-start-2p` class names stay (consumed by RSX + tests) — only the
+   font behind them changes. */
 .press-start-2p,
 .font-display {
-  font-family: 'Press Start 2P', monospace;
-  color: var(--apohara-lime);
+  font-family: var(--apo-font-display);
+  color: var(--apo-lime);
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-weight: 600;
 }
 
 /* HeroBanner (G2.A.4) — Sprint 9 brand showcase, ported from
@@ -52,21 +183,27 @@ body {
    keyframe-driven accents that the upstream component delegated to the
    running-border / pixel-art animations introduced in G9.A. */
 
+/* Step 5: the hero underline is now the brand waveform — a lime→cyan→magenta
+   gradient bar (the only place all three colors appear at rest). The bar
+   sweeps its gradient instead of scaling its width. */
 .hero-banner::after {
   content: "";
   display: block;
   margin-top: 0.75rem;
-  height: 2px;
-  background: var(--apohara-lime);
-  animation: hero-banner-running 3s linear infinite;
-  transform-origin: left;
+  height: 3px;
+  border-radius: var(--apo-radius-pill);
+  background: var(--apo-grad-wave);
+  background-size: 200% 100%;
+  animation: hero-banner-running 4s linear infinite;
 }
 
 @keyframes hero-banner-running {
-  0%   { transform: scaleX(0); transform-origin: left; }
-  50%  { transform: scaleX(1); transform-origin: left; }
-  51%  { transform-origin: right; }
-  100% { transform: scaleX(0); transform-origin: right; }
+  0%   { background-position: 0% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-banner::after { animation: none; }
 }
 
 /* TaskBoard (G2.B.3) — 4-column kanban MVP. Sprint 18 adds DnD + lane
@@ -79,9 +216,9 @@ body {
   padding: 16px;
 }
 .task-column {
-  background: color-mix(in srgb, var(--apohara-ink), white 2%);
-  border: 1px solid color-mix(in srgb, var(--apohara-lime), transparent 90%);
-  border-radius: 4px;
+  background: var(--apo-bg-panel);
+  border: 1px solid var(--apo-border);
+  border-radius: var(--apo-radius-md);
   padding: 12px;
   min-height: 200px;
   display: flex;
@@ -91,10 +228,10 @@ body {
   margin-bottom: 12px;
 }
 .task-column-title {
-  font-size: 12px;
+  font-size: 11px;
   margin: 0;
-  color: color-mix(in srgb, var(--apohara-lime), white 30%);
-  letter-spacing: 1px;
+  color: var(--apo-text-dim);
+  letter-spacing: 0.08em;
 }
 .task-column-body {
   display: flex;
@@ -103,20 +240,24 @@ body {
   overflow-y: auto;
 }
 .task-card {
-  background: color-mix(in srgb, var(--apohara-ink), white 4%);
-  border: 1px solid color-mix(in srgb, var(--apohara-lime), transparent 85%);
-  border-radius: 4px;
+  background: var(--apo-bg-elevated);
+  border: 1px solid var(--apo-border);
+  border-radius: var(--apo-radius-md);
   padding: 8px;
-  font-family: var(--font-mono);
+  font-family: var(--apo-font-mono);
+}
+/* Running task card lights its border with the brand waveform (Step 4). */
+.task-card[data-running="true"] {
+  border-color: transparent;
 }
 .task-title {
   margin: 0;
-  color: var(--apohara-bone);
+  color: var(--apo-text);
   font-size: 13px;
   line-height: 1.3;
 }
 .task-id {
-  color: color-mix(in srgb, var(--apohara-bone), transparent 50%);
+  color: var(--apo-text-dim);
   font-size: 11px;
 }
 
@@ -125,17 +266,18 @@ body {
 
 .provider-roster {
   padding: 12px;
-  border: 1px solid color-mix(in srgb, var(--apohara-lime), transparent 88%);
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--apohara-ink), white 2%);
+  border: 1px solid var(--apo-border);
+  border-radius: var(--apo-radius-md);
+  background: var(--apo-bg-panel);
 }
 .provider-roster-header {
   margin-bottom: 12px;
 }
 .provider-roster-title {
   margin: 0;
-  font-size: 12px;
-  letter-spacing: 1px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--apo-text-dim);
 }
 .provider-roster-list {
   list-style: none;
@@ -149,10 +291,14 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 10px;
-  border-radius: 4px;
-  border: 1px solid color-mix(in srgb, var(--apohara-lime), transparent 88%);
-  background: color-mix(in srgb, var(--apohara-ink), white 4%);
+  padding: 8px 12px;
+  border-radius: var(--apo-radius-md);
+  border: 1px solid transparent;
+  background: transparent;
+  transition: background var(--apo-t-fast);
+}
+.provider-roster-card:hover {
+  background: color-mix(in srgb, var(--apo-lime) 8%, var(--apo-bg-space));
 }
 .provider-roster-card-body {
   display: flex;
@@ -160,40 +306,40 @@ body {
   gap: 2px;
 }
 .provider-roster-card-label {
-  font-family: 'Inter', sans-serif;
+  font-family: var(--apo-font-sans);
   font-size: 13px;
-  color: var(--apohara-bone);
+  color: var(--apo-text);
 }
 .provider-roster-card-id {
-  font-family: var(--font-mono);
+  font-family: var(--apo-font-mono);
   font-size: 11px;
-  color: color-mix(in srgb, var(--apohara-bone), transparent 50%);
+  color: var(--apo-text-dim);
 }
 .provider-roster-card-health {
-  font-family: var(--font-mono);
+  font-family: var(--apo-font-mono);
   font-size: 11px;
-  letter-spacing: 1px;
+  letter-spacing: 0.08em;
   padding: 2px 6px;
-  border-radius: 3px;
+  border-radius: var(--apo-radius-sm);
 }
 .provider-roster-card-health[data-health="healthy"] {
-  color: var(--apohara-lime);
-  border: 1px solid color-mix(in srgb, var(--apohara-lime), transparent 60%);
+  color: var(--apo-lime);
+  border: 1px solid var(--apo-border-lime);
 }
 .provider-roster-card-health[data-health="degraded"] {
-  color: var(--apohara-warn);
-  border: 1px solid color-mix(in srgb, var(--apohara-warn), transparent 60%);
+  color: var(--apo-amber);
+  border: 1px solid color-mix(in srgb, var(--apo-amber) 40%, transparent);
 }
 .provider-roster-card-health[data-health="unknown"] {
-  color: color-mix(in srgb, var(--apohara-bone), transparent 40%);
-  border: 1px solid color-mix(in srgb, var(--apohara-bone), transparent 70%);
+  color: var(--apo-text-faint);
+  border: 1px solid var(--apo-border);
 }
 .provider-roster-empty {
   padding: 12px;
   text-align: center;
-  font-family: var(--font-mono);
+  font-family: var(--apo-font-mono);
   font-size: 12px;
-  color: color-mix(in srgb, var(--apohara-bone), transparent 50%);
+  color: var(--apo-text-dim);
 }
 
 /* AgentStateDot (G2.B.2) — pixel-art status indicator.
@@ -202,22 +348,49 @@ body {
    keyframe the React original injected via document.createElement and a
    handful of per-state classes for downstream theming hooks. */
 
+/* Step 3: AgentStateDot — one state vocabulary everywhere. Round dot (drop the
+   square pixel-art). Color + animation per state from the design system:
+   idle=faint, working=cyan spinner, waiting=magenta pulse, done=lime,
+   error/blocked=danger. The component now emits size-only inline style, so
+   these class rules own everything else. */
+
 @keyframes agent-state-dot-pulse {
   0%, 100% { opacity: 1; }
   50%      { opacity: 0.4; }
+}
+@keyframes agent-state-dot-spin {
+  to { transform: rotate(360deg); }
 }
 
 .agent-dot {
   display: inline-block;
   vertical-align: middle;
-  border-radius: 0; /* pixel-art aesthetic */
+  border-radius: var(--apo-radius-pill); /* round dot */
+  box-sizing: border-box;
 }
 
-.dot-working { background: var(--apohara-lime); }
-.dot-done    { background: var(--apohara-lime); }
-.dot-waiting { background: rgba(237, 239, 240, 0.4); }
-.dot-error   { background: var(--apohara-red); }
-.dot-idle    { background: var(--text-muted, rgba(237, 239, 240, 0.6)); }
+.dot-idle    { background: var(--apo-text-faint); }
+.dot-done    { background: var(--apo-lime); }
+.dot-error   { background: var(--apo-danger); }
+
+/* working → cyan spinner (border ring, transparent top, spinning). */
+.dot-working {
+  background: transparent;
+  border: 2px solid var(--apo-cyan);
+  border-top-color: transparent;
+  animation: agent-state-dot-spin 0.7s linear infinite;
+}
+
+/* waiting/permission → magenta pulse (needs your decision). */
+.dot-waiting {
+  background: var(--apo-magenta);
+  animation: agent-state-dot-pulse 1.5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dot-working { animation: none; }
+  .dot-waiting { animation: none; }
+}
 
 /* PermissionDialog + ToastDialog (G2.B.4) — Wave A dialog primitives.
    PermissionDialog is render-only this sprint; Sprint 18 wires the real
@@ -236,42 +409,54 @@ body {
 .dialog {
   min-width: 400px;
   max-width: 600px;
-  background: color-mix(in srgb, var(--apohara-ink), white 4%);
-  border: 1px solid color-mix(in srgb, var(--apohara-lime), transparent 80%);
-  border-radius: 4px;
+  background: var(--apo-bg-elevated);
+  border: 1px solid var(--apo-border-strong);
+  border-radius: var(--apo-radius-lg);
+  box-shadow: var(--apo-elev-3);
   padding: 20px;
-  color: var(--apohara-bone);
+  color: var(--apo-text);
+}
+/* Step 5: PermissionDialog is the magenta surface — it announces "requires
+   your decision" via the magenta attention border + a magenta-accented
+   header. .apo-attention-border (below) paints the animated magenta edge. */
+.permission-dialog {
+  border-radius: var(--apo-radius-lg);
+}
+.permission-dialog .dialog-title {
+  color: var(--apo-magenta);
+  text-shadow: var(--apo-text-glow-magenta);
 }
 .dialog-title {
   margin: 0 0 12px 0;
   font-size: 12px;
-  letter-spacing: 1px;
+  letter-spacing: 0.08em;
 }
 .dialog-runner {
   margin: 0 0 8px 0;
-  font-family: var(--font-mono);
+  font-family: var(--apo-font-mono);
   font-size: 12px;
-  color: color-mix(in srgb, var(--apohara-bone), transparent 30%);
+  color: var(--apo-text-dim);
 }
 .dialog-runner .badge {
-  font-family: var(--font-mono);
+  font-family: var(--apo-font-mono);
   font-size: 11px;
   padding: 2px 6px;
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--apohara-lime), transparent 80%);
-  color: var(--apohara-lime);
-  letter-spacing: 1px;
+  border-radius: var(--apo-radius-sm);
+  background: color-mix(in srgb, var(--apo-magenta) 16%, var(--apo-bg-space));
+  color: var(--apo-magenta);
+  letter-spacing: 0.08em;
+  text-transform: none;
 }
 .dialog-command {
-  background: var(--apohara-ink);
+  background: var(--apo-bg-input);
   padding: 8px 10px;
   margin: 0;
-  font-family: var(--font-mono);
+  font-family: var(--apo-font-mono);
   font-size: 12px;
-  color: var(--apohara-bone);
+  color: var(--apo-text);
   overflow-x: auto;
-  border-radius: 2px;
-  border: 1px solid color-mix(in srgb, var(--apohara-lime), transparent 90%);
+  border-radius: var(--apo-radius-sm);
+  border: 1px solid var(--apo-border);
   white-space: pre-wrap;
   word-break: break-all;
   max-height: 200px;
@@ -285,33 +470,36 @@ body {
   flex-wrap: wrap;
 }
 .dialog-actions .btn {
-  font-family: var(--font-mono);
+  font-family: var(--apo-font-mono);
   font-size: 12px;
   padding: 6px 12px;
-  border-radius: 3px;
+  border-radius: var(--apo-radius-sm);
   cursor: pointer;
-  letter-spacing: 1px;
-  text-transform: lowercase;
+  letter-spacing: 0.04em;
 }
+/* Approve = lime primary. */
 .dialog-actions .btn-primary {
-  background: var(--apohara-lime);
-  color: var(--apohara-ink);
-  border: 1px solid var(--apohara-lime);
+  background: var(--apo-lime);
+  color: var(--apo-lime-fg);
+  border: 1px solid var(--apo-lime);
 }
+/* Deny of a permission IS a hard "no" → danger is fair here. */
 .dialog-actions .btn-danger {
   background: transparent;
-  color: var(--apohara-red);
-  border: 1px solid var(--apohara-red);
+  color: var(--apo-danger);
+  border: 1px solid var(--apo-danger);
   margin-left: auto;
 }
 
-/* ToastDialog stub — Sprint 18 G2.C replaces the body. The container
-   stays reserved in the bottom-right corner so the layout does not
-   reflow when the real toast feed lights up. */
+/* ToastContainer — bottom-right stack (design system §4). Defect fix (5c):
+   anchored to explicit bottom/right px with a high z-index so it always
+   lands inside the 1280x800 viewport (the FullDocument snapshot anchors
+   fixed elements to the initial containing block; explicit insets keep the
+   stack on-canvas instead of drifting off the document edge). */
 .toast-container {
   position: fixed;
-  bottom: 16px;
-  right: 16px;
+  bottom: 24px;
+  right: 24px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -319,37 +507,63 @@ body {
   pointer-events: none;
   /* width reserved for the first stub render; tweaked when toasts flow */
   min-width: 320px;
+  max-width: 380px;
 }
 
-/* RunningBorder (G2.B.2) — animated lime gradient border for in-flight
-   work. 1:1 port of `.running-border` from packages/desktop/src/index.css.
-   The component only toggles the class; the gradient + keyframe live
-   here so the visual matches the React original byte-for-byte. */
+/* Step 4: active-border — the mask-composite trick paints the
+   lime→cyan→magenta brand waveform ONLY on the border (vibe-kanban steal).
+   `.apo-active-border` = in-flight work (slow tri-color sweep).
+   `.apo-attention-border` = needs-decision (faster single-hue magenta).
+   `.running-border` aliases the active variant so the existing RunningBorder
+   component (and its tests) inherit the new waveform with no RSX change. */
 
-@keyframes apohara-running-border {
-  0%   { background-position: 0% 50%; }
-  100% { background-position: 200% 50%; }
+@keyframes apo-border-flash {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 
-.running-border {
+.apo-active-border,
+.running-border,
+.apo-attention-border {
   position: relative;
-  isolation: isolate;
 }
+.apo-active-border::before,
 .running-border::before {
   content: "";
   position: absolute;
-  inset: -2px;
-  z-index: -1;
-  background: linear-gradient(
-    90deg,
-    var(--apohara-lime) 0%,
-    var(--apohara-lime-bright, color-mix(in srgb, var(--apohara-lime), white 30%)) 25%,
-    var(--apohara-lime) 50%,
-    var(--apohara-lime-bright, color-mix(in srgb, var(--apohara-lime), white 30%)) 75%,
-    var(--apohara-lime) 100%
-  );
-  background-size: 200% 200%;
-  animation: apohara-running-border 2s linear infinite;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  padding: 1px;
+  background: var(--apo-grad-wave-45);
+  background-size: 300% 100%;
+  animation: apo-border-flash 2.4s linear infinite;
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+          mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+}
+/* Attention variant (faster, single-hue magenta) for "needs decision". */
+.apo-attention-border::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(120deg, transparent, var(--apo-magenta), transparent);
+  background-size: 300% 100%;
+  animation: apo-border-flash 1.2s linear infinite;
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+          mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .apo-active-border::before,
+  .running-border::before,
+  .apo-attention-border::before { animation: none; }
 }
 
 /* Brand primitives (G2.B.1) — Button / Input / Card / Badge. Class-driven
@@ -361,83 +575,93 @@ body {
 
 .btn {
   padding: 8px 16px;
-  border: 1px solid var(--apohara-lime);
+  border: 1px solid var(--apo-lime);
   background: transparent;
-  color: var(--apohara-lime);
-  font-family: var(--font-mono);
+  color: var(--apo-lime);
+  font-family: var(--apo-font-mono);
   font-size: 12px;
   cursor: pointer;
-  border-radius: 0;
-  transition: background 150ms ease, border-color 150ms ease;
+  border-radius: var(--apo-radius-md);
+  transition: background var(--apo-t-fast), border-color var(--apo-t-fast);
 }
 .btn:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--apohara-lime), transparent 85%);
+  background: color-mix(in srgb, var(--apo-lime) 14%, var(--apo-bg-space));
 }
 .btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
 .btn-primary {
-  background: var(--apohara-lime);
-  color: var(--apohara-ink);
+  background: var(--apo-lime);
+  color: var(--apo-lime-fg);
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--apo-lime-hover);
 }
 .btn-secondary {
   background: transparent;
-  color: var(--apohara-lime);
+  color: var(--apo-lime);
 }
 .btn-destructive {
-  background: var(--apohara-red);
-  color: var(--apohara-bone);
-  border-color: var(--apohara-red);
+  background: var(--apo-danger);
+  color: var(--apo-danger-fg);
+  border-color: var(--apo-danger);
 }
+/* Cancel/Dismiss/Close are quiet ghosts — never destructive-colored. */
 .btn-ghost {
   background: transparent;
-  color: var(--apohara-bone);
+  color: var(--apo-text-dim);
   border-color: transparent;
+}
+.btn-ghost:hover:not(:disabled) {
+  color: var(--apo-text);
+  background: color-mix(in srgb, var(--apo-text) 6%, var(--apo-bg-space));
 }
 
 .card {
-  background: color-mix(in srgb, var(--apohara-ink), white 4%);
-  border: 1px solid color-mix(in srgb, var(--apohara-lime), transparent 80%);
-  border-radius: 4px;
+  background: var(--apo-bg-panel);
+  border: 1px solid var(--apo-border);
+  border-radius: var(--apo-radius-lg);
   padding: 16px;
 }
 
 .input {
   padding: 8px 12px;
-  background: var(--apohara-ink);
-  color: var(--apohara-bone);
-  border: 1px solid color-mix(in srgb, var(--apohara-lime), transparent 70%);
-  font-family: var(--font-mono);
+  background: var(--apo-bg-input);
+  color: var(--apo-text);
+  border: 1px solid var(--apo-border);
+  font-family: var(--apo-font-mono);
   font-size: 12px;
-  border-radius: 0;
+  border-radius: var(--apo-radius-md);
   outline: none;
+  transition: border-color var(--apo-t-fast);
 }
 .input:focus {
-  border-color: var(--apohara-lime);
+  border-color: var(--apo-lime);
 }
 
 .badge {
   display: inline-block;
   padding: 2px 8px;
-  background: var(--apohara-lime);
-  color: var(--apohara-ink);
-  font-size: 10px;
-  font-family: 'Press Start 2P', monospace;
-  letter-spacing: 1px;
-  border-radius: 0;
+  background: var(--apo-lime);
+  color: var(--apo-lime-fg);
+  font-size: 11px;
+  font-family: var(--apo-font-display);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  border-radius: var(--apo-radius-sm);
 }
 .badge-warn {
-  background: var(--apohara-warn);
-  color: var(--apohara-ink);
+  background: var(--apo-amber);
+  color: var(--apo-amber-fg);
 }
 .badge-danger {
-  background: var(--apohara-red);
-  color: var(--apohara-bone);
+  background: var(--apo-danger);
+  color: var(--apo-danger-fg);
 }
 .badge-muted {
-  background: color-mix(in srgb, var(--apohara-bone), transparent 60%);
-  color: var(--apohara-ink);
+  background: color-mix(in srgb, var(--apo-text) 40%, var(--apo-bg-space));
+  color: var(--apo-bg-space);
 }
 
 /* CommandPalette (G2.C.2.1) — cmd+K palette ported from
@@ -454,6 +678,10 @@ body {
   display: flex;
   flex-direction: column;
   padding: 12px;
+  background: var(--apo-bg-elevated);
+  border: 1px solid var(--apo-border-strong);
+  border-radius: var(--apo-radius-lg);
+  box-shadow: var(--apo-elev-3);
 }
 .cmd-input {
   width: 100%;
@@ -470,19 +698,25 @@ body {
 .cmd-item {
   padding: 8px 12px;
   cursor: pointer;
-  font-family: var(--font-mono);
+  font-family: var(--apo-font-mono);
   font-size: 12px;
-  color: var(--apohara-bone);
-  border-radius: 2px;
+  color: var(--apo-text);
+  border-radius: var(--apo-radius-sm);
 }
-.cmd-item:hover {
-  background: color-mix(in srgb, var(--apohara-lime), transparent 88%);
+/* Step 5: selected/hovered row = lime 8% wash + lime ring (the only recolor
+   vs orca's cmdk). */
+.cmd-item:hover,
+.cmd-item[aria-selected="true"],
+.cmd-item.cmd-item--selected {
+  background: color-mix(in srgb, var(--apo-lime) 8%, var(--apo-bg-space));
+  box-shadow: inset 0 0 0 1px var(--apo-border-lime);
+  color: var(--apo-text);
 }
 .cmd-empty {
   padding: 8px 12px;
-  font-family: var(--font-mono);
+  font-family: var(--apo-font-mono);
   font-size: 12px;
-  color: color-mix(in srgb, var(--apohara-bone), transparent 50%);
+  color: var(--apo-text-dim);
   list-style: none;
 }
 
@@ -493,24 +727,44 @@ body {
 
 .toast {
   padding: 12px 16px;
-  background: color-mix(in srgb, var(--apohara-ink), white 6%);
-  color: var(--apohara-bone);
-  border-left: 4px solid var(--apohara-lime);
-  border-radius: 3px;
-  font-family: var(--font-mono);
+  background: var(--apo-bg-elevated);
+  color: var(--apo-text);
+  border-left: 4px solid var(--apo-lime);
+  border-radius: var(--apo-radius-md);
+  box-shadow: var(--apo-elev-2);
+  font-family: var(--apo-font-mono);
   font-size: 12px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
   pointer-events: auto;
+  /* The toast rests at its on-canvas position with no entrance transform.
+     The earlier `translateX(100%)` slide-in parked the toast off the right
+     edge whenever WebKit's animation never ticked (the snapshot path disables
+     the compositor, which freezes animations at the `from` keyframe), making
+     the toast invisible. Defect 5c fix: an unconditionally-painted resting
+     state. The `.toast-enter` opt-in below carries the slide for runtime use
+     where the compositor is live.
+     TODO(distribution): re-enable the slide on the live runtime once the
+     snapshot harness advances CSS animations before capture. */
+}
+/* Runtime-only slide-in: applied by the queue when the compositor is live.
+   Never affects the deterministic snapshot (the harness does not add it), so
+   it can use a transform without risk of stranding the toast off-canvas. */
+.toast-enter {
   animation: toast-in 200ms ease-out;
 }
-.toast-success { border-left-color: var(--apohara-lime); }
-.toast-error   { border-left-color: var(--apohara-red); }
-.toast-info    { border-left-color: color-mix(in srgb, var(--apohara-bone), transparent 40%); }
-.toast-warn    { border-left-color: var(--apohara-warn); }
+/* Step 5: left bar encodes kind — success=lime, info=cyan, warn=amber,
+   error=danger. */
+.toast-success { border-left-color: var(--apo-lime); }
+.toast-info    { border-left-color: var(--apo-cyan); }
+.toast-warn    { border-left-color: var(--apo-amber); }
+.toast-error   { border-left-color: var(--apo-danger); }
 
 @keyframes toast-in {
   from { transform: translateX(100%); opacity: 0; }
   to   { transform: translateX(0);   opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast-enter { animation: none; }
 }
 
 /* Tooltip (G2.C.2.3) — hover-driven popover wrapper. Pure-CSS
@@ -530,16 +784,17 @@ body {
   transform: translateX(-50%);
   margin-bottom: 4px;
   padding: 4px 8px;
-  background: var(--apohara-ink);
-  color: var(--apohara-bone);
-  border: 1px solid var(--apohara-lime);
-  border-radius: 2px;
+  background: var(--apo-bg-elevated);
+  color: var(--apo-text);
+  border: 1px solid var(--apo-border-strong);
+  border-radius: var(--apo-radius-sm);
+  box-shadow: var(--apo-elev-2);
   white-space: nowrap;
-  font-family: var(--font-mono);
+  font-family: var(--apo-font-mono);
   font-size: 11px;
   pointer-events: none;
   opacity: 0;
-  transition: opacity 120ms ease-out;
+  transition: opacity var(--apo-t-fast);
   z-index: 1500;
 }
 .tooltip-wrapper:hover > .tooltip,
@@ -564,11 +819,11 @@ body {
   bottom: 0;
   width: 4px;
   cursor: col-resize;
-  background: color-mix(in srgb, var(--apohara-lime), transparent 80%);
-  transition: background 120ms ease-out;
+  background: var(--apo-border);
+  transition: background var(--apo-t-fast);
 }
 .resizable-handle:hover {
-  background: color-mix(in srgb, var(--apohara-lime), transparent 40%);
+  background: var(--apo-border-lime);
 }
 
 /* KanbanBoard (G2.C.3.1) — DnD-capable kanban surface. HTML5 native DnD
@@ -583,9 +838,9 @@ body {
   padding: 16px;
 }
 .kanban-column {
-  background: color-mix(in srgb, var(--apohara-ink), white 2%);
-  border: 1px solid color-mix(in srgb, var(--apohara-lime), transparent 90%);
-  border-radius: 4px;
+  background: var(--apo-bg-panel);
+  border: 1px solid var(--apo-border);
+  border-radius: var(--apo-radius-md);
   padding: 12px;
   min-height: 200px;
   display: flex;
@@ -594,12 +849,34 @@ body {
 .kanban-column-header {
   margin-bottom: 8px;
 }
+/* Step 5: column title gets a leading dot + the column's hue. Lanes map to
+   the design-system column dots — Queued/Ready=dim, Running/InProgress=cyan,
+   Review/Verifying=magenta, Done=lime. A faint 3% wash of that hue tints the
+   whole column header. Driven purely off the `data-status` attr the component
+   already emits, so no RSX change. */
 .kanban-column-title {
   margin: 0;
-  font-size: 12px;
-  letter-spacing: 1px;
-  color: color-mix(in srgb, var(--apohara-lime), white 30%);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--apo-text-dim);
 }
+.kanban-column-title::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: var(--apo-radius-pill);
+  background: var(--apo-text-dim);
+}
+.kanban-column[data-status="ready"]    .kanban-column-title::before { background: var(--apo-text-dim); }
+.kanban-column[data-status="in-progress"] .kanban-column-title::before { background: var(--apo-cyan); }
+.kanban-column[data-status="verifying"] .kanban-column-title::before { background: var(--apo-magenta); }
+.kanban-column[data-status="done"]      .kanban-column-title::before { background: var(--apo-lime); }
+.kanban-column[data-status="in-progress"] { background: linear-gradient(180deg, color-mix(in srgb, var(--apo-cyan) 3%, var(--apo-bg-panel)), var(--apo-bg-panel)); }
+.kanban-column[data-status="verifying"]   { background: linear-gradient(180deg, color-mix(in srgb, var(--apo-magenta) 3%, var(--apo-bg-panel)), var(--apo-bg-panel)); }
+.kanban-column[data-status="done"]        { background: linear-gradient(180deg, color-mix(in srgb, var(--apo-lime) 3%, var(--apo-bg-panel)), var(--apo-bg-panel)); }
 .kanban-column-body {
   display: flex;
   flex-direction: column;
@@ -607,11 +884,11 @@ body {
   overflow-y: auto;
 }
 .kanban-task {
-  background: color-mix(in srgb, var(--apohara-ink), white 4%);
-  border: 1px solid color-mix(in srgb, var(--apohara-lime), transparent 85%);
-  border-radius: 4px;
+  background: var(--apo-bg-elevated);
+  border: 1px solid var(--apo-border);
+  border-radius: var(--apo-radius-md);
   padding: 8px;
-  font-family: var(--font-mono);
+  font-family: var(--apo-font-mono);
   cursor: grab;
 }
 .kanban-task:active {
@@ -619,12 +896,12 @@ body {
 }
 .kanban-task-title {
   margin: 0;
-  color: var(--apohara-bone);
+  color: var(--apo-text);
   font-size: 12px;
   line-height: 1.3;
 }
 .kanban-task-id {
-  color: color-mix(in srgb, var(--apohara-bone), transparent 50%);
+  color: var(--apo-text-dim);
   font-size: 11px;
 }
 
@@ -635,9 +912,9 @@ body {
 .view-toggle {
   display: inline-flex;
   gap: 2px;
-  background: color-mix(in srgb, var(--apohara-ink), white 4%);
-  border: 1px solid color-mix(in srgb, var(--apohara-lime), transparent 80%);
-  border-radius: 4px;
+  background: var(--apo-bg-panel);
+  border: 1px solid var(--apo-border);
+  border-radius: var(--apo-radius-md);
   padding: 2px;
 }
 .view-toggle-tab {
@@ -647,19 +924,27 @@ body {
   padding: 4px 10px;
   background: transparent;
   border: none;
-  border-radius: 3px;
+  border-radius: var(--apo-radius-sm);
   cursor: pointer;
-  font-family: var(--font-mono);
+  font-family: var(--apo-font-mono);
   font-size: 12px;
-  color: color-mix(in srgb, var(--apohara-bone), transparent 35%);
-  transition: background 120ms ease, color 120ms ease;
+  /* Defect 5b: secondary text on the WCAG-AA cool-grey instead of a low
+     50%-alpha bone (which read ~3:1 on the new bg). */
+  color: var(--apo-text-dim);
+  transition: background var(--apo-t-fast), color var(--apo-t-fast);
 }
 .view-toggle-tab:hover {
-  color: var(--apohara-bone);
+  color: var(--apo-text);
 }
-.view-toggle-tab--active {
-  background: color-mix(in srgb, var(--apohara-lime), transparent 80%);
-  color: var(--apohara-bone);
+/* Defect 5a: the active chip now reads as active — lime-14% wash + lime text
+   (design system §4). Previously the active rule only swapped a faint bg and
+   kept bone text, so the highlight was invisible. Both `--active` (Rust) and
+   `aria-selected="true"` (ARIA) drive it, so the highlight tracks VIEW_MODE
+   whichever hook the binding exposes. */
+.view-toggle-tab--active,
+.view-toggle-tab[aria-selected="true"] {
+  background: color-mix(in srgb, var(--apo-lime) 14%, var(--apo-bg-space));
+  color: var(--apo-lime);
 }
 .view-toggle-glyph {
   font-size: 13px;
@@ -674,49 +959,51 @@ body {
   align-items: center;
   gap: 0.8rem;
   padding: 0.3rem 0.8rem;
-  background: var(--apohara-ink);
-  border-top: 1px solid color-mix(in srgb, var(--apohara-lime), transparent 90%);
-  color: color-mix(in srgb, var(--apohara-bone), transparent 40%);
+  background: var(--apo-bg-space);
+  border-top: 1px solid var(--apo-border);
+  color: var(--apo-text-dim);
   font-size: 0.75rem;
-  font-family: var(--font-mono);
+  font-family: var(--apo-font-mono);
   min-height: 24px;
 }
 .statusline-cell {
   white-space: nowrap;
 }
 .statusline-cell--muted {
-  color: color-mix(in srgb, var(--apohara-bone), transparent 55%);
+  color: var(--apo-text-faint);
 }
 .statusline-spacer {
   flex: 1;
 }
 .statusline-level {
   padding: 1px 6px;
-  border-radius: 3px;
+  border-radius: var(--apo-radius-sm);
   font-weight: 600;
-  letter-spacing: 1px;
+  letter-spacing: 0.06em;
 }
+/* Step 5: context-level pill — ok=lime, caution=amber, warning=magenta,
+   critical=danger. */
 .statusline-level--ok {
-  color: var(--apohara-lime);
-  background: color-mix(in srgb, var(--apohara-lime), transparent 88%);
+  color: var(--apo-lime);
+  background: color-mix(in srgb, var(--apo-lime) 12%, var(--apo-bg-space));
 }
 .statusline-level--caution {
-  color: var(--apohara-warn);
-  background: color-mix(in srgb, var(--apohara-warn), transparent 88%);
+  color: var(--apo-amber);
+  background: color-mix(in srgb, var(--apo-amber) 12%, var(--apo-bg-space));
 }
 .statusline-level--warning {
-  color: var(--apohara-orange);
-  background: color-mix(in srgb, var(--apohara-orange), transparent 88%);
+  color: var(--apo-magenta);
+  background: color-mix(in srgb, var(--apo-magenta) 12%, var(--apo-bg-space));
 }
 .statusline-level--critical {
-  color: var(--apohara-critical);
-  background: color-mix(in srgb, var(--apohara-critical), transparent 85%);
+  color: var(--apo-danger);
+  background: color-mix(in srgb, var(--apo-danger) 15%, var(--apo-bg-space));
 }
 .statusline-banner {
   padding: 1px 8px;
-  border-radius: 3px;
-  color: var(--apohara-critical);
-  background: color-mix(in srgb, var(--apohara-critical), transparent 85%);
+  border-radius: var(--apo-radius-sm);
+  color: var(--apo-danger);
+  background: color-mix(in srgb, var(--apo-danger) 15%, var(--apo-bg-space));
   font-weight: 600;
 }
 
@@ -729,34 +1016,42 @@ body {
   flex-direction: column;
   gap: 8px;
   padding: 16px;
-  border: 1px solid color-mix(in srgb, var(--apohara-lime), transparent 85%);
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--apohara-ink), white 2%);
+  border: 1px solid var(--apo-border);
+  border-radius: var(--apo-radius-md);
+  background: var(--apo-bg-panel);
   min-width: 260px;
 }
 .objective-pane-title {
   margin: 0 0 4px 0;
-  font-size: 12px;
-  letter-spacing: 1px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--apo-text-dim);
 }
 .objective-pane-input {
   resize: vertical;
   min-height: 120px;
   padding: 10px;
-  background: var(--apohara-ink);
-  color: var(--apohara-bone);
-  border: 1px solid color-mix(in srgb, var(--apohara-lime), transparent 70%);
-  border-radius: 3px;
-  font-family: var(--font-mono);
+  background: var(--apo-bg-input);
+  color: var(--apo-text);
+  border: 1px solid var(--apo-border);
+  border-radius: var(--apo-radius-md);
+  font-family: var(--apo-font-mono);
   font-size: 12px;
   outline: none;
+  transition: border-color var(--apo-t-fast);
 }
 .objective-pane-input:focus {
-  border-color: var(--apohara-lime);
+  border-color: var(--apo-lime);
 }
 .objective-pane-input:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+/* Step 4: while a dispatch is in flight the input wrapper wears the brand
+   waveform (lime→cyan→magenta) — the 1:1 translation of the Apohara wave.
+   The App toggles `.apo-active-border` on the wrapper during dispatch. */
+.objective-pane.apo-active-border {
+  border-color: transparent;
 }
 .objective-pane-actions {
   display: flex;
@@ -809,30 +1104,31 @@ body {
   flex-direction: column;
   height: 100%;
   min-height: 0; /* let the body flex-shrink so it can scroll */
-  border: 1px solid color-mix(in srgb, var(--apohara-lime), transparent 80%);
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--apohara-ink), white 2%);
+  border: 1px solid var(--apo-border);
+  border-radius: var(--apo-radius-md);
+  background: var(--apo-bg-panel);
   overflow: hidden;
 }
 .code-diff-header {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
-  padding: var(--space-3);
-  border-bottom: 1px solid color-mix(in srgb, var(--apohara-lime), transparent 88%);
-  background: color-mix(in srgb, var(--apohara-ink), white 4%);
+  gap: var(--apo-space-1);
+  padding: var(--apo-space-3);
+  border-bottom: 1px solid var(--apo-border);
+  background: var(--apo-bg-elevated);
   flex: 0 0 auto;
 }
+/* Winner badge = lime pill (the chosen provider's diff won). */
 .code-diff-winner {
   align-self: flex-start;
-  font-family: var(--font-mono);
+  font-family: var(--apo-font-mono);
   font-size: 11px;
-  letter-spacing: 1px;
+  letter-spacing: 0.08em;
   padding: 2px 8px;
-  border-radius: 3px;
-  color: var(--apohara-lime);
-  background: color-mix(in srgb, var(--apohara-lime), transparent 85%);
-  border: 1px solid color-mix(in srgb, var(--apohara-lime), transparent 60%);
+  border-radius: var(--apo-radius-sm);
+  color: var(--apo-lime);
+  background: color-mix(in srgb, var(--apo-lime) 14%, var(--apo-bg-space));
+  border: 1px solid var(--apo-border-lime);
 }
 .code-diff-files {
   list-style: none;
@@ -843,9 +1139,9 @@ body {
   gap: 2px;
 }
 .code-diff-file {
-  font-family: var(--font-mono);
+  font-family: var(--apo-font-mono);
   font-size: 11px;
-  color: color-mix(in srgb, var(--apohara-bone), transparent 35%);
+  color: var(--apo-text-dim);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -855,19 +1151,19 @@ body {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
-  padding: var(--space-2) 0;
-  font-family: var(--font-mono);
+  padding: var(--apo-space-2) 0;
+  font-family: var(--apo-font-mono);
   font-size: 12px;
   line-height: 1.5;
-  background: var(--apohara-ink);
+  background: var(--apo-bg-input);
 }
 .code-diff-actions {
   display: flex;
-  gap: var(--space-2);
+  gap: var(--apo-space-2);
   justify-content: flex-end;
-  padding: var(--space-3);
-  border-top: 1px solid color-mix(in srgb, var(--apohara-lime), transparent 88%);
-  background: color-mix(in srgb, var(--apohara-ink), white 4%);
+  padding: var(--apo-space-3);
+  border-top: 1px solid var(--apo-border);
+  background: var(--apo-bg-elevated);
   flex: 0 0 auto;
 }
 .code-diff-empty {
@@ -876,9 +1172,9 @@ body {
   justify-content: center;
   min-height: 120px;
   text-align: center;
-  font-family: var(--font-mono);
+  font-family: var(--apo-font-mono);
   font-size: 12px;
-  color: color-mix(in srgb, var(--apohara-bone), transparent 50%);
+  color: var(--apo-text-dim);
 }
 
 /* One diff line. The marker (+ / - / space) lives in the ::before gutter so
@@ -905,26 +1201,28 @@ body {
   width: 2ch;
   text-align: center;
   user-select: none;
-  color: color-mix(in srgb, var(--apohara-bone), transparent 55%);
+  color: var(--apo-text-faint);
   content: " ";
 }
+/* Step 5: diff lines use the VS Code git-decoration tokens (DO NOT invent
+   diff greens/reds). Backgrounds tint the row by hue at low alpha. */
 .diff-added {
-  background: color-mix(in srgb, var(--apohara-lime), transparent 88%);
+  background: color-mix(in srgb, var(--apo-diff-added) 14%, var(--apo-bg-input));
 }
 .diff-added::before {
   content: "+";
-  color: var(--apohara-lime);
+  color: var(--apo-diff-added);
 }
 .diff-removed {
-  background: color-mix(in srgb, var(--apohara-red), transparent 88%);
+  background: color-mix(in srgb, var(--apo-diff-deleted) 14%, var(--apo-bg-input));
 }
 .diff-removed::before {
   content: "-";
-  color: var(--apohara-red);
+  color: var(--apo-diff-deleted);
 }
 .diff-meta {
-  background: color-mix(in srgb, var(--apohara-ink), white 3%);
-  color: color-mix(in srgb, var(--apohara-bone), transparent 45%);
+  background: var(--apo-bg-panel);
+  color: var(--apo-text-dim);
 }
 .diff-meta::before {
   content: " ";
@@ -941,50 +1239,54 @@ body {
 .terminal-drawer {
   display: flex;
   flex-direction: column;
-  border-top: 1px solid color-mix(in srgb, var(--apohara-lime), transparent 80%);
-  background: color-mix(in srgb, var(--apohara-ink), white 2%);
+  border-top: 1px solid var(--apo-border);
+  background: var(--apo-bg-panel);
   flex: 0 0 auto;
 }
 .terminal-drawer-header {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
+  gap: var(--apo-space-2);
+  padding: var(--apo-space-2) var(--apo-space-3);
   cursor: pointer;
   user-select: none;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  letter-spacing: 1px;
-  color: color-mix(in srgb, var(--apohara-bone), transparent 25%);
-  background: color-mix(in srgb, var(--apohara-ink), white 4%);
+  font-family: var(--apo-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--apo-text-dim);
+  background: var(--apo-bg-elevated);
 }
 .terminal-drawer-header:hover {
-  color: var(--apohara-bone);
+  color: var(--apo-text);
 }
 /* Collapse/expand via max-height so the transition animates and the body
    stays in the DOM (events keep accumulating while closed). */
 .terminal-drawer-body {
   max-height: 0;
   overflow: hidden;
-  transition: max-height 180ms ease-out;
-  font-family: var(--font-mono);
+  transition: max-height var(--apo-t-base);
+  font-family: var(--apo-font-mono);
   font-size: 11px;
 }
 .terminal-drawer--open .terminal-drawer-body {
   max-height: 240px;
   overflow-y: auto;
-  padding: var(--space-2) var(--space-3);
+  padding: var(--apo-space-2) var(--apo-space-3);
 }
 .terminal-event {
   padding: 2px 0;
-  color: color-mix(in srgb, var(--apohara-bone), transparent 25%);
+  color: var(--apo-text-dim);
   white-space: pre-wrap;
   word-break: break-word;
   line-height: 1.4;
-  border-bottom: 1px solid color-mix(in srgb, var(--apohara-bone), transparent 92%);
+  border-bottom: 1px solid var(--apo-border);
 }
 .terminal-event:last-child {
   border-bottom: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .terminal-drawer-body { transition: none; }
 }
 
 /* TerminalPane — the embedded-PTY shell (live wiring deferred to Phase 3). */
@@ -992,19 +1294,19 @@ body {
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  background: var(--apohara-ink);
-  border: 1px solid color-mix(in srgb, var(--apohara-lime), transparent 88%);
-  border-radius: 3px;
+  background: var(--apo-bg-input);
+  border: 1px solid var(--apo-border);
+  border-radius: var(--apo-radius-md);
 }
 .terminal-output {
   margin: 0;
-  padding: var(--space-2);
+  padding: var(--apo-space-2);
   height: 100%;
   overflow: auto;
-  font-family: var(--font-mono);
+  font-family: var(--apo-font-mono);
   font-size: 12px;
   line-height: 1.3;
-  color: var(--apohara-bone);
+  color: var(--apo-text);
   white-space: pre;
 }
 
@@ -1018,69 +1320,75 @@ body {
 .pane {
   display: flex;
   flex-direction: column;
-  border: 1px solid color-mix(in srgb, var(--apohara-lime), transparent 85%);
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--apohara-ink), white 2%);
+  border: 1px solid var(--apo-border);
+  border-radius: var(--apo-radius-md);
+  background: var(--apo-bg-panel);
   overflow: hidden;
 }
 .pane-canvas {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
-  padding: var(--space-3);
+  padding: var(--apo-space-3);
 }
 .swarm-canvas {
   display: block;
 }
+/* Empty-state carries the faint wireframe topography wash (design system §4). */
 .swarm-empty {
   display: flex;
   align-items: center;
   justify-content: center;
   min-height: 160px;
-  padding: var(--space-4);
+  padding: var(--apo-space-4);
   text-align: center;
-  font-family: var(--font-mono);
+  font-family: var(--apo-font-mono);
   font-size: 12px;
-  color: color-mix(in srgb, var(--apohara-bone), transparent 50%);
+  color: var(--apo-text-dim);
+  background: var(--apo-grad-topo);
 }
 
 .dag-edge {
-  stroke: var(--apohara-lime);
-  opacity: 0.5;
+  stroke: var(--apo-border-strong);
+  opacity: 0.6;
 }
 .dag-node {
   cursor: pointer;
 }
 .dag-node > rect {
-  transition: stroke 120ms ease, fill 120ms ease;
+  transition: stroke var(--apo-t-fast), fill var(--apo-t-fast);
 }
 .dag-node:hover > rect {
-  stroke: color-mix(in srgb, var(--apohara-lime), white 30%);
-  fill: color-mix(in srgb, var(--apohara-ink), white 6%);
+  stroke: var(--apo-lime);
+  fill: color-mix(in srgb, var(--apo-lime) 6%, var(--apo-bg-panel));
 }
 
-/* Per-state feedback — reads the data-state attr the component already sets
-   (scheduled / running / completed / failed). Override the inline SVG
-   stroke/fill via !important since presentation attrs otherwise win over CSS
-   on some renderers; keep it scoped to the state hooks only. */
+/* Step 5: per-state node feedback (data-state set by the component) —
+   scheduled stays dim, running=cyan + pulse + faint cyan fill, completed=lime,
+   failed=danger. !important stays: SVG presentation attrs otherwise win over
+   CSS on some renderers. Scoped to the state hooks only. */
 .dag-node[data-state="running"] > rect {
-  stroke: var(--apohara-lime) !important;
-  fill: color-mix(in srgb, var(--apohara-lime), var(--apohara-ink) 80%) !important;
+  stroke: var(--apo-cyan) !important;
+  fill: color-mix(in srgb, var(--apo-cyan) 14%, var(--apo-bg-panel)) !important;
   animation: dag-node-pulse 1.4s ease-in-out infinite;
 }
 .dag-node[data-state="completed"] > rect {
-  stroke: var(--apohara-lime) !important;
-  fill: color-mix(in srgb, var(--apohara-lime), var(--apohara-ink) 88%) !important;
+  stroke: var(--apo-lime) !important;
+  fill: color-mix(in srgb, var(--apo-lime) 10%, var(--apo-bg-panel)) !important;
 }
 .dag-node[data-state="failed"] > rect {
-  stroke: var(--apohara-red) !important;
-  fill: color-mix(in srgb, var(--apohara-red), var(--apohara-ink) 85%) !important;
+  stroke: var(--apo-danger) !important;
+  fill: color-mix(in srgb, var(--apo-danger) 12%, var(--apo-bg-panel)) !important;
 }
 .dag-node[data-state="failed"] > text {
-  fill: color-mix(in srgb, var(--apohara-red), white 40%) !important;
+  fill: color-mix(in srgb, var(--apo-danger) 60%, var(--apo-text)) !important;
 }
 
 @keyframes dag-node-pulse {
   0%, 100% { opacity: 1; }
   50%      { opacity: 0.55; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dag-node[data-state="running"] > rect { animation: none; }
 }

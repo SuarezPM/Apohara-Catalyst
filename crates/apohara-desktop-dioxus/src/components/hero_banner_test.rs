@@ -48,8 +48,12 @@ fn renders_wordmark_with_lime_token_and_brand_class() {
         }
     });
     assert!(html.contains("APOHARA CATALYST"), "wordmark missing: {html}");
-    assert!(html.contains("font-display"), "Press-Start-2P class missing");
-    assert!(html.contains("--apohara-lime"), "lime CSS token missing");
+    assert!(html.contains("font-display"), "display-family brand class missing");
+    // Design-system v2: the wordmark is crema (--apo-text) with a lime glow,
+    // and the mascot keeps the lime accent. Both the crema text token and the
+    // brand lime token must be present.
+    assert!(html.contains("--apo-text"), "crema text token missing: {html}");
+    assert!(html.contains("--apo-lime"), "lime brand token missing: {html}");
     assert!(
         html.contains("hero-banner-tagline"),
         "tagline testid missing"

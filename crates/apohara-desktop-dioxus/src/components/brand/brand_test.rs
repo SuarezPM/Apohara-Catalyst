@@ -10,7 +10,11 @@ use dioxus::prelude::*;
 // ============================================================================
 
 #[test]
-fn agent_state_dot_renders_working_with_lime_and_pulse() {
+fn agent_state_dot_renders_working_state_hooks() {
+    // Design-system v2: color + shape (cyan spinner for `working`) are owned by
+    // brand.css via the `dot-working` class + `data-state` selector. The
+    // component emits only the state hooks + inline size, so we assert on those
+    // rather than an inline color token.
     let html = dioxus_ssr::render_element(rsx! {
         AgentStateDot { state: "working".to_string() }
     });
@@ -23,7 +27,6 @@ fn agent_state_dot_renders_working_with_lime_and_pulse() {
         "working data-state missing: {html}"
     );
     assert!(html.contains("dot-working"), "dot-working class missing: {html}");
-    assert!(html.contains("--apohara-lime"), "lime token missing: {html}");
 }
 
 #[test]
