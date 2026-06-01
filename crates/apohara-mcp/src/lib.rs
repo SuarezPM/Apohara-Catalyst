@@ -12,6 +12,7 @@
 pub mod api;
 pub mod audit_logger;
 pub mod bootstrap;
+pub mod hooks_injection;
 pub mod injection;
 pub mod input_validation;
 pub mod permission_guard;
@@ -24,6 +25,10 @@ pub use bootstrap::{
     bootstrap_mcp_servers, build_canonical_from_handle, default_audit_log_path,
     default_endpoint_file_path, default_settings_storage_path, BootstrapHandle, BootstrapOpts,
     EndpointDescriptor, EndpointPort, EndpointServers,
+};
+pub use hooks_injection::{
+    inject_hooks_config, resolve_paths as resolve_hook_paths, HookInjectionError,
+    HookInjectionResult,
 };
 pub use injection::{
     build_canonical_from_endpoint, inject_mcp_config, EndpointPorts, InjectionError,

@@ -201,6 +201,50 @@ async fn context_warnings_route_accepts() {
 }
 
 #[tokio::test]
+async fn subscriber_attached_before_post_observes_broadcast() {
+    // The desktop bridge's only entry point to live events is the handle's
+    // `subscribe()`. A receiver taken BEFORE a coordination POST must see the
+    // broadcast marker the handler emits — this is the contract the bridge
+    // relies on (wiring.rs header, "second test").
+    let (server, _home, _tmp, bearer, port) = boot().await;
+    let mut rx = server.subscribe();
+
+    // post-compact has the smallest valid shape (session_id + timestamp) and
+    // broadcasts the same Stop marker as every coordination route.
+    let url = format!("http://127.0.0.1:{}/hooks/post-compact", port);
+    let client = reqwest::Client::new();
+    let payload = serde_json::json!({
+        "pane_key": "pane-sub-1",
+        "session_id": "sess-sub",
+        "timestamp": 1737562940_i64
+    });
+    let resp = client
+        .post(&url)
+        .header("Authorization", format!("Bearer {}", bearer))
+        .json(&payload)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    // The marker must arrive on the handle subscriber. Bound the wait so a
+    // missed broadcast fails fast instead of hanging the suite.
+    let received = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+        .await
+        .expect("broadcast marker must arrive before timeout")
+        .expect("broadcast channel must not be closed");
+    assert!(
+        matches!(
+            received,
+            apohara_hooks_server::event::HookEventPayload::Stop { .. }
+        ),
+        "coordination route broadcasts a Stop-shaped marker, got: {received:?}"
+    );
+
+    server.shutdown().await;
+}
+
+#[tokio::test]
 async fn malformed_payload_returns_422() {
     let (server, _home, _tmp, bearer, port) = boot().await;
     let url = format!("http://127.0.0.1:{}/hooks/context-warnings", port);

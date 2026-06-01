@@ -72,6 +72,12 @@ pub struct HooksServer {
     /// `None` when `HOME` was unset or the write failed (server still
     /// runs; hook scripts just can't auto-discover).
     endpoint_file: Option<PathBuf>,
+    /// In-process fan-out shared with the axum handlers. Exposed on the
+    /// handle so the desktop bridge can `subscribe()` without reaching into
+    /// `AppState` (which axum owns). Cloning a `Broadcaster` clones the
+    /// underlying `broadcast::Sender`, so subscribers off this clone receive
+    /// the same events the handlers send.
+    broadcaster: Broadcaster<HookEventPayload>,
     shutdown_tx: Option<oneshot::Sender<()>>,
     handle: tokio::task::JoinHandle<()>,
 }
@@ -79,6 +85,14 @@ pub struct HooksServer {
 impl HooksServer {
     pub fn bound_addr(&self) -> SocketAddr {
         self.bound
+    }
+
+    /// Subscribe to the live hook-event stream. Returns a fresh receiver that
+    /// only sees events sent after this call — the desktop bridge subscribes
+    /// immediately after `start`, before any CLI is spawned, so no event is
+    /// missed in practice.
+    pub fn subscribe(&self) -> tokio::sync::broadcast::Receiver<HookEventPayload> {
+        self.broadcaster.subscribe()
     }
 
     /// Path of the published endpoint file, if any. Useful for tests and
@@ -131,6 +145,9 @@ impl HooksServer {
         // (e.g. tight tool-use loops) can outrun a single slow subscriber
         // before the lagged-receiver semantics kick in.
         let broadcaster: Broadcaster<HookEventPayload> = Broadcaster::new(256);
+        // Keep a clone on the handle so the desktop bridge can subscribe; the
+        // clone shares the same underlying sender as the handlers' copy.
+        let handle_broadcaster = broadcaster.clone();
         let app_state = AppState {
             auth: auth_state.clone(),
             broadcaster,
@@ -203,6 +220,7 @@ impl HooksServer {
             bound,
             current_token: config.bearer_token.clone(),
             endpoint_file,
+            broadcaster: handle_broadcaster,
             shutdown_tx: Some(shutdown_tx),
             handle,
         })

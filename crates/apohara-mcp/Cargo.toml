@@ -26,6 +26,10 @@ apohara-types = { path = "../apohara-types" }
 apohara-mcp-bridge = { path = "../apohara-mcp-bridge" }
 apohara-safety = { path = "../apohara-safety" }
 apohara-episodic = { path = "../apohara-episodic" }
+# Stage 2.6 — the hooks setup entry point installs the hook script via the
+# installer (idempotent + atomic + chmod 0755). No cycle: apohara-hooks does
+# not depend on apohara-mcp.
+apohara-hooks = { path = "../apohara-hooks" }
 
 [dev-dependencies]
 criterion = "0.5"

@@ -14,6 +14,7 @@ use std::sync::Arc;
 use crate::bootstrap::{
     bootstrap_mcp_servers, BootstrapHandle, BootstrapOpts, EndpointDescriptor,
 };
+use crate::hooks_injection::{inject_hooks_config, resolve_paths as resolve_hook_paths};
 use crate::injection::{inject_mcp_config, InjectionResult, ProviderId};
 use crate::servers::indexer::StubIndexerClient;
 use crate::servers::ledger::{LedgerBackend, LedgerEvent};
@@ -233,6 +234,55 @@ pub async fn mcp_inject_config_inner(
         .map_err(|e| e.to_string())
 }
 
+/// Hook-script bodies compiled into the binary so provider setup needs no
+/// repo checkout at runtime — `scripts/hooks/*` is the source of truth.
+const CLAUDE_HOOK_SCRIPT: &str =
+    include_str!("../../../scripts/hooks/apohara-claude-hook.sh");
+const OPENCODE_HOOK_SCRIPT: &str =
+    include_str!("../../../scripts/hooks/apohara-opencode-hook.sh");
+
+/// Stage 2.6 — end-to-end agent-hooks setup for a provider, mirroring the
+/// MCP injection surface above. Two steps, both gated by `APOHARA_RUST_MCP`:
+///   1. install the hook script under `~/.<provider>/hooks/` (idempotent +
+///      atomic + chmod 0755 via `apohara_hooks::install_hook`), then
+///   2. register it in the provider's settings (`inject_hooks_config`,
+///      idempotent + atomic + .bak).
+///
+/// Run this at the same point provider MCP config is prepared. `codex-cli`
+/// has no upstream hooks contract — it returns an error from
+/// `inject_hooks_config` and is skipped by the caller.
+///
+/// `config_home` defaults to `$HOME`; callers (and tests) may override it to
+/// avoid touching the real `~/.claude`.
+pub async fn hooks_setup_for_provider_inner(
+    provider_id: ProviderId,
+    config_home: Option<PathBuf>,
+) -> Result<crate::hooks_injection::HookInjectionResult, String> {
+    check_enabled()?;
+    let home = match config_home {
+        Some(h) => h,
+        None => dirs::home_dir().ok_or_else(|| "HOME not set".to_string())?,
+    };
+
+    // 1. Install the script the settings file will point at.
+    let script_body = match provider_id {
+        ProviderId::ClaudeCodeCli => CLAUDE_HOOK_SCRIPT,
+        ProviderId::OpencodeGo => OPENCODE_HOOK_SCRIPT,
+        ProviderId::CodexCli => {
+            // Refuse before touching disk — keeps the error symmetric with
+            // inject_hooks_config's CodexUnsupported.
+            return Err("codex-cli hooks injection unsupported".to_string());
+        }
+    };
+    let (_settings, script_path) = resolve_hook_paths(provider_id, &home);
+    apohara_hooks::install_hook(&script_path, script_body).map_err(|e| e.to_string())?;
+
+    // 2. Register the (now-installed) script in the provider settings.
+    inject_hooks_config(provider_id, &home)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -265,6 +315,68 @@ mod tests {
         )
         .await
         .unwrap_err();
+        assert!(err.contains("explicitly disabled"), "got: {err}");
+    }
+
+    #[tokio::test]
+    #[serial_test::serial(apohara_rust_mcp_flag)]
+    async fn hooks_setup_installs_script_and_registers_config() {
+        // config_home points at a TempDir — NEVER the real ~/.claude.
+        let home = tempfile::TempDir::new().unwrap();
+        std::env::set_var("APOHARA_RUST_MCP", "1");
+        let res = hooks_setup_for_provider_inner(
+            ProviderId::ClaudeCodeCli,
+            Some(home.path().to_path_buf()),
+        )
+        .await;
+        std::env::remove_var("APOHARA_RUST_MCP");
+        let out = res.unwrap();
+
+        // Script landed on disk + is executable.
+        let script = home.path().join(".claude/hooks/apohara-claude-hook.sh");
+        assert!(script.exists(), "hook script must be installed");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&script).unwrap().permissions().mode();
+            assert_eq!(mode & 0o111, 0o111, "script must be executable");
+        }
+
+        // Settings file registers the script.
+        assert_eq!(out.config_path, home.path().join(".claude/settings.json"));
+        let raw = std::fs::read_to_string(&out.config_path).unwrap();
+        assert!(raw.contains("apohara-claude-hook.sh"));
+    }
+
+    #[tokio::test]
+    #[serial_test::serial(apohara_rust_mcp_flag)]
+    async fn hooks_setup_refuses_codex() {
+        let home = tempfile::TempDir::new().unwrap();
+        std::env::set_var("APOHARA_RUST_MCP", "1");
+        let err = hooks_setup_for_provider_inner(
+            ProviderId::CodexCli,
+            Some(home.path().to_path_buf()),
+        )
+        .await
+        .unwrap_err();
+        std::env::remove_var("APOHARA_RUST_MCP");
+        assert!(err.contains("codex"), "got: {err}");
+        // Nothing should have been written.
+        assert!(!home.path().join(".codex").exists());
+    }
+
+    #[tokio::test]
+    #[serial_test::serial(apohara_rust_mcp_flag)]
+    async fn hooks_setup_errors_when_flag_disabled() {
+        let home = tempfile::TempDir::new().unwrap();
+        std::env::set_var("APOHARA_RUST_MCP", "0");
+        let err = hooks_setup_for_provider_inner(
+            ProviderId::ClaudeCodeCli,
+            Some(home.path().to_path_buf()),
+        )
+        .await
+        .unwrap_err();
+        std::env::remove_var("APOHARA_RUST_MCP");
         assert!(err.contains("explicitly disabled"), "got: {err}");
     }
 
