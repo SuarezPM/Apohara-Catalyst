@@ -92,7 +92,7 @@ fn toast_kind(level: ToastLevel) -> &'static str {
     match level {
         ToastLevel::Info => "info",
         ToastLevel::Success => "success",
-        ToastLevel::Warning => "warning",
+        ToastLevel::Warning => "warn",
         ToastLevel::Error => "error",
     }
 }

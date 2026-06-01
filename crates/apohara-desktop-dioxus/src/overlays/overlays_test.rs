@@ -66,6 +66,38 @@ fn toast_container_renders_one_node_per_toast() {
 }
 
 #[test]
+fn warning_toast_renders_warn_kind_class() {
+    // Guards `toast_kind(Warning) -> "warn"`: the Toast component paints
+    // `toast-{kind}`, and the CSS accent lives on `.toast-warn`. A stale
+    // "warning" string here would silently drop the border accent.
+    use crate::state::toast_queue::{push, Toast, ToastLevel};
+    #[allow(non_snake_case)]
+    fn Harness() -> Element {
+        use_hook(|| {
+            push(Toast {
+                id: "warn-kind".into(),
+                level: ToastLevel::Warning,
+                message: "heads up".into(),
+                created_at: std::time::Instant::now(),
+                ttl_ms: 5000,
+            })
+        });
+        rsx! { super::ToastContainer {} }
+    }
+    let mut vdom = VirtualDom::new(Harness);
+    vdom.rebuild_in_place();
+    let html = dioxus_ssr::render(&vdom);
+    assert!(
+        html.contains("toast-warn") && html.contains("data-kind=\"warn\""),
+        "Warning level must render the `warn` kind (CSS .toast-warn): {html}"
+    );
+    assert!(
+        !html.contains("toast-warning"),
+        "stale `warning` kind string leaked: {html}"
+    );
+}
+
+#[test]
 fn permission_dialog_overlay_shows_when_request_pending() {
     use crate::state::permissions::{
         enqueue_permission_request, PermissionRequestEvent, PermissionScope,
