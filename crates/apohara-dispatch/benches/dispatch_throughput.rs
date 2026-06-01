@@ -12,7 +12,7 @@ use std::collections::HashMap;
 fn bench_build_spawn_env(c: &mut Criterion) {
     let parent: HashMap<String, String> = std::env::vars().collect();
     c.bench_function("build_spawn_env", |b| {
-        b.iter(|| build_spawn_env(black_box(&parent), "/tmp", r#"{"preset":"Balanced"}"#));
+        b.iter(|| build_spawn_env(black_box(&parent), "/tmp", r#"{"preset":"Balanced"}"#, None));
     });
 }
 

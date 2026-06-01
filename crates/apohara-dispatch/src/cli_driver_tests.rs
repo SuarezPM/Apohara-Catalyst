@@ -17,7 +17,7 @@ fn spawn_env_strips_secrets_then_overlays_apohara_markers() {
     let runner_policy = r#"{"preset":"Balanced"}"#;
     let workspace = "/tmp/wt-abc";
 
-    let env = build_spawn_env(&parent, workspace, runner_policy);
+    let env = build_spawn_env(&parent, workspace, runner_policy, None);
 
     assert!(
         !env.contains_key("ANTHROPIC_API_KEY"),
@@ -29,6 +29,30 @@ fn spawn_env_strips_secrets_then_overlays_apohara_markers() {
         env.get("APOHARA_RUNNER_POLICY").map(String::as_str),
         Some(runner_policy)
     );
+    // No hook context supplied → no correlation vars exported.
+    assert!(!env.contains_key("APOHARA_PANE_KEY"));
+}
+
+#[test]
+fn spawn_env_exports_hook_correlation_vars_without_leaking_secrets() {
+    use crate::cli_driver::HookContext;
+
+    let mut parent = HashMap::new();
+    parent.insert("OPENAI_API_KEY".to_string(), "should-not-leak".to_string());
+    parent.insert("PATH".to_string(), "/usr/bin".to_string());
+
+    let hooks = HookContext {
+        pane_key: "pane-7".to_string(),
+        task_id: Some("task-42".to_string()),
+        worktree_id: Some("wt-99".to_string()),
+    };
+    let env = build_spawn_env(&parent, "/tmp/wt", "{}", Some(&hooks));
+
+    // §0.4: the hook vars are exported but the host secret is still stripped.
+    assert!(!env.contains_key("OPENAI_API_KEY"), "secret must be stripped");
+    assert_eq!(env.get("APOHARA_PANE_KEY").map(String::as_str), Some("pane-7"));
+    assert_eq!(env.get("APOHARA_TASK_ID").map(String::as_str), Some("task-42"));
+    assert_eq!(env.get("APOHARA_WORKTREE_ID").map(String::as_str), Some("wt-99"));
 }
 
 #[test]
@@ -43,7 +67,7 @@ fn spawn_env_overlays_worktree_env_but_apohara_markers_win() {
     )
     .unwrap();
 
-    let env = build_spawn_env(&parent, workspace, runner_policy);
+    let env = build_spawn_env(&parent, workspace, runner_policy, None);
 
     assert_eq!(env.get("MY_PROJECT_FLAG").map(String::as_str), Some("ok"));
     assert_eq!(
@@ -64,6 +88,9 @@ fn dispatch_request_constructs_with_plan_shape() {
         prompt: "hello".into(),
         role: "implementer".into(),
         runner_policy: "{}".into(),
+        pane_key: String::new(),
+        task_id: None,
+        worktree_id: None,
     };
     // CliDriver type exists (unit struct from impl)
     let _driver: CliDriver = CliDriver;
@@ -82,6 +109,9 @@ async fn dispatch_streaming_invokes_on_line_per_stdout_line() {
         prompt: "stream-line-test".into(),
         role: "test".into(),
         runner_policy: "{}".into(),
+        pane_key: String::new(),
+        task_id: None,
+        worktree_id: None,
     };
 
     let lines = Arc::new(Mutex::new(Vec::<String>::new()));

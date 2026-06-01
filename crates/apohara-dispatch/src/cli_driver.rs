@@ -73,18 +73,35 @@ fn overlay_worktree_env(
     merged
 }
 
+/// Correlation identifiers the agent-hooks scripts need to build their event
+/// envelope. Exported on the spawned CLI's env as `APOHARA_PANE_KEY` /
+/// `APOHARA_TASK_ID` / `APOHARA_WORKTREE_ID` (the script sets
+/// `APOHARA_HOOK_TYPE` itself per-invocation). All are `APOHARA_*`, so the
+/// §0.4 allowlist below already permits them — no host secret leaks.
+///
+/// `pane_key` is required for correlation; the other two are optional and
+/// simply omitted from the env when `None`.
+#[derive(Debug, Clone, Default)]
+pub struct HookContext {
+    pub pane_key: String,
+    pub task_id: Option<String>,
+    pub worktree_id: Option<String>,
+}
+
 /// Build the env handed to a spawned CLI subprocess.
 ///
 /// Composition order is load-bearing:
 ///   1. `sanitize_env` removes secrets from the parent process env.
 ///   2. `overlay_worktree_env` adds the workspace-local `.env`.
-///   3. `APOHARA_DRIVEN` + `APOHARA_RUNNER_POLICY` + `APOHARA_WORKTREE_PATH`
-///      forced markers win LAST — a malicious worktree `.env` cannot spoof
-///      orchestrator identity.
+///   3. `APOHARA_DRIVEN` + `APOHARA_RUNNER_POLICY` + `APOHARA_WORKTREE_PATH` +
+///      the `APOHARA_PANE_KEY` / `APOHARA_TASK_ID` / `APOHARA_WORKTREE_ID`
+///      hook-correlation markers win LAST — a malicious worktree `.env` cannot
+///      spoof orchestrator identity.
 pub fn build_spawn_env(
     parent: &HashMap<String, String>,
     workspace: &str,
     runner_policy: &str,
+    hooks: Option<&HookContext>,
 ) -> HashMap<String, String> {
     let sanitized = sanitize_env(parent);
     let mut env = overlay_worktree_env(sanitized, Path::new(workspace));
@@ -97,16 +114,55 @@ pub fn build_spawn_env(
         "APOHARA_WORKTREE_PATH".to_string(),
         workspace.to_string(),
     );
+    // Hook correlation identifiers. The hook scripts read these to build the
+    // envelope they POST to the loopback server; without `APOHARA_PANE_KEY`
+    // the server can't correlate the event to a pane, so we always export it.
+    if let Some(h) = hooks {
+        env.insert("APOHARA_PANE_KEY".to_string(), h.pane_key.clone());
+        if let Some(task_id) = &h.task_id {
+            env.insert("APOHARA_TASK_ID".to_string(), task_id.clone());
+        }
+        if let Some(worktree_id) = &h.worktree_id {
+            env.insert("APOHARA_WORKTREE_ID".to_string(), worktree_id.clone());
+        }
+    }
     env
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DispatchRequest {
     pub provider_id: String,
     pub workspace: String,
     pub prompt: String,
     pub role: String,
     pub runner_policy: String,
+    /// Pane key for agent-hooks correlation. Exported to the spawned CLI as
+    /// `APOHARA_PANE_KEY` so its hook scripts can tag events back to this run.
+    /// Defaults to empty when the caller has no pane context (e.g. headless
+    /// dispatch); the hook scripts still POST, just with an empty pane.
+    #[serde(default)]
+    pub pane_key: String,
+    /// Optional task / worktree identifiers, also exported for hook
+    /// correlation when present.
+    #[serde(default)]
+    pub task_id: Option<String>,
+    #[serde(default)]
+    pub worktree_id: Option<String>,
+}
+
+impl DispatchRequest {
+    /// The hook-correlation context derived from this request, or `None` when
+    /// no pane/task/worktree identifiers were supplied (nothing to export).
+    fn hook_context(&self) -> Option<HookContext> {
+        if self.pane_key.is_empty() && self.task_id.is_none() && self.worktree_id.is_none() {
+            return None;
+        }
+        Some(HookContext {
+            pane_key: self.pane_key.clone(),
+            task_id: self.task_id.clone(),
+            worktree_id: self.worktree_id.clone(),
+        })
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -128,7 +184,8 @@ impl CliDriver {
     /// surface so reconciler / executor can wire to it.
     pub async fn dispatch(req: DispatchRequest) -> Result<DispatchOutcome> {
         let parent_env: HashMap<String, String> = std::env::vars().collect();
-        let env = build_spawn_env(&parent_env, &req.workspace, &req.runner_policy);
+        let hooks = req.hook_context();
+        let env = build_spawn_env(&parent_env, &req.workspace, &req.runner_policy, hooks.as_ref());
 
         let start = std::time::Instant::now();
         let mut cmd = tokio::process::Command::new(&req.provider_id);
@@ -172,7 +229,8 @@ impl CliDriver {
         use tokio::sync::mpsc::{self, error::TrySendError};
 
         let parent_env: HashMap<String, String> = std::env::vars().collect();
-        let env = build_spawn_env(&parent_env, &req.workspace, &req.runner_policy);
+        let hooks = req.hook_context();
+        let env = build_spawn_env(&parent_env, &req.workspace, &req.runner_policy, hooks.as_ref());
 
         let start = std::time::Instant::now();
         let mut cmd = tokio::process::Command::new(&req.provider_id);

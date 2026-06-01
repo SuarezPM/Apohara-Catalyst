@@ -137,6 +137,7 @@ mod tests {
             prompt: "test".to_string(),
             role: "test".to_string(),
             runner_policy: r#"{"preset":"Balanced"}"#.to_string(),
+            ..Default::default()
         };
         // Worst case: env is set in the test harness. Unset it first to be safe,
         // but accept that races with parallel tests are minimal here because no
@@ -154,6 +155,7 @@ mod tests {
             prompt: "hi".to_string(),
             role: "implementer".to_string(),
             runner_policy: "{}".to_string(),
+            ..Default::default()
         };
         let json = serde_json::to_string(&req).unwrap();
         let back: DispatchRequest = serde_json::from_str(&json).unwrap();

@@ -164,6 +164,7 @@ async fn run(
         prompt,
         role,
         runner_policy,
+        ..Default::default()
     };
 
     let outcome = apohara_dispatch::api::rust_dispatch_inner(req)
