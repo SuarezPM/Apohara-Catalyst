@@ -53,9 +53,38 @@ dioxus-ssr = "0.7"
 criterion = { version = "0.5", features = ["html_reports"] }
 tokio = { version = "1", features = ["macros", "rt"] }
 tempfile = "3"
+# Visual test harness (tests/ui_visual.rs). Pinned to the versions already
+# resolved in the workspace Cargo.lock so they share the single wry/webkit
+# instance the desktop binary links — bumping these would risk a duplicate
+# native webview in the dependency graph.
+wry = "=0.53.5"
+webkit2gtk = "=2.0.1"
+# webkit2gtk's `snapshot_future` returns a `cairo::Surface`. webkit2gtk does
+# NOT re-export cairo (only ffi/gio/glib), so name the same cairo-rs it links
+# (0.18.5 per Cargo.lock) directly. The `png` feature gates `Surface::write_to_png`;
+# Cargo unifies it onto the shared crate so the snapshot type keeps the method.
+cairo-rs = { version = "=0.18.5", features = ["png"] }
+glib = "=0.18.5"
+# A hidden tao window never assigns a physical size to the WebKit GtkWidget, so
+# its viewport stays 0x0 and the grid's `1fr` track collapses. We force a fixed
+# 1280x800 size_request on the webview widget (and pump the GTK main loop) so
+# WebKit lays out against the real viewport. Needs gtk's WidgetExt. Pinned to
+# the version webkit2gtk 2.0.1 already links.
+gtk = "=0.18.2"
+# Oneshot channel to ferry the snapshot result off glib's MainContext back into
+# the dioxus future. Pinned to the version dioxus already resolves.
+futures-channel = "0.3"
 
 [[bench]]
 name = "render_bench"
+harness = false
+
+# Visual, in-process UI snapshot harness. `harness = false` lets us own `main`
+# (deadman switch + WEBKIT env setup before launch), mirroring the canonical
+# dioxus-desktop headless_tests.
+[[test]]
+name = "ui_visual"
+path = "tests/ui_visual.rs"
 harness = false
 
 [profile.release]
