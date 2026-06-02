@@ -340,8 +340,10 @@ impl ClaimStore {
 
 /// Releases the advisory lock when dropped. `fs2`'s lock is tied to the
 /// fd, so an explicit guard makes the release point unambiguous even
-/// across early returns.
-struct LockGuard<'a>(&'a File);
+/// across early returns. `pub(crate)` so sibling stores (e.g. the F1.2
+/// mailbox) reuse the *same* advisory-lock discipline instead of growing a
+/// second kind of lock.
+pub(crate) struct LockGuard<'a>(pub(crate) &'a File);
 
 impl Drop for LockGuard<'_> {
     fn drop(&mut self) {

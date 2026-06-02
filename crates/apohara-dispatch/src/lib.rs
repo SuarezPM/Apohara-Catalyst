@@ -5,6 +5,7 @@
 
 pub mod claim;
 pub mod cli_driver;
+pub mod mailbox;
 pub mod reconciler;
 pub mod state;
 pub mod executor;
@@ -21,6 +22,7 @@ pub use continuation::ContinuationTracker;
 pub use reconciler::{run_reconciler_passes, ReconcilerCtx, ReconcilerResult};
 pub use retry::{compute_retry_delay, RetryReason};
 pub use claim::{ClaimError, ClaimOutcome, ClaimRecord, ClaimStore, Heartbeat, ReportOutcome};
+pub use mailbox::{Mailbox, MailboxError, Message};
 pub use state::{BlockedReason, RunPhase, RunState, RunTransition, TransitionState};
 pub use task_graph::{default_pid_alive, reap_stale_claims, TaskGraph, TaskNode};
 pub use teammate::TeammateRoster;
