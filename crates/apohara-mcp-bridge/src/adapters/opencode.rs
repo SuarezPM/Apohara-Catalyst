@@ -1,4 +1,9 @@
-//! OpenCode dialect: .opencode/settings.json with { mcp: { name: {...} } }
+//! OpenCode dialect: { mcp: { name: {...} } } written to `opencode.jsonc` at
+//! the WORKSPACE ROOT — NOT `.opencode/settings.json` (opencode 1.15+ discovers
+//! config from `opencode.jsonc` at the root; the `.opencode/settings.json` path
+//! is a documented past-incident, see CLAUDE.md). The injection writer in
+//! `apohara-mcp::injection::inject_opencode` owns the path and already targets
+//! `<ws>/opencode.jsonc`; this adapter only shapes the value.
 use crate::canonical::{McpCanonical, McpServerCanonical, McpServerType};
 use serde_json::{json, Value};
 
