@@ -22,6 +22,8 @@ async-trait = { workspace = true }
 uuid = { workspace = true }
 dirs = { workspace = true }
 tempfile = "3"
+# US-F4.3 — HTTP client for the external Context Forge compression sidecar.
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 apohara-types = { path = "../apohara-types" }
 apohara-mcp-bridge = { path = "../apohara-mcp-bridge" }
 apohara-safety = { path = "../apohara-safety" }
@@ -39,7 +41,6 @@ apohara-dispatch = { path = "../apohara-dispatch" }
 [dev-dependencies]
 criterion = "0.5"
 serial_test = "3"
-reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 tokio = { workspace = true, features = ["test-util", "macros"] }
 
 [[bench]]

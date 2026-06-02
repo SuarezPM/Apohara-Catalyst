@@ -12,6 +12,7 @@
 pub mod api;
 pub mod audit_logger;
 pub mod bootstrap;
+pub mod context_forge;
 pub mod hooks_injection;
 pub mod injection;
 pub mod input_validation;
