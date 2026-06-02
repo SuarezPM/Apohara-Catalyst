@@ -52,6 +52,7 @@ async fn end_to_end_hook_event_with_discovery_and_auth_gate() {
     let config = ServerConfig {
         bearer_token: bearer.to_string(),
         bind_addr: "127.0.0.1:0".parse().unwrap(),
+        mailbox_root: None,
     };
     let server = HooksServer::start(Arc::new(config)).await.unwrap();
 

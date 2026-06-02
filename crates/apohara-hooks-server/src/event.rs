@@ -128,7 +128,7 @@ pub async fn handle_event(
     // future Coordinator loop). `send` returns Err when there are no
     // active subscribers — that's benign, just a startup-window or
     // headless-server condition, never a hard failure.
-    if state.broadcaster.send(payload).is_err() {
+    if state.broadcaster.send(payload.clone()).is_err() {
         tracing::warn!(
             event_type = %envelope.event_type,
             "hooks-server: no active subscribers for event"
@@ -142,5 +142,45 @@ pub async fn handle_event(
         "hook event broadcast"
     );
 
-    Ok(Json(serde_json::json!({ "accepted": true })))
+    // F2.3 push path: on PreToolUse/Stop, peek this blade's mailbox and return
+    // the pending messages as `additionalContext` so the CLI reinjects them on
+    // its next turn — push latency, no poll wait. `peek` is non-destructive
+    // (ack-before-clear): the CLI acks (or the poll fallback drains) so a lost
+    // push never strands a message. Any mailbox error degrades silently to the
+    // bare ack — push is best-effort, poll is the guarantee.
+    let push = match (&state.mailbox, &payload) {
+        (Some(mailbox), HookEventPayload::PreToolUse { .. } | HookEventPayload::Stop { .. }) => {
+            match mailbox.peek_inbox(&envelope.pane_key) {
+                Ok(msgs) if !msgs.is_empty() => Some(compose_push(&msgs)),
+                Ok(_) => None,
+                Err(e) => {
+                    tracing::warn!(pane = %envelope.pane_key, error = %e, "hooks-server: mailbox peek failed; push skipped");
+                    None
+                }
+            }
+        }
+        _ => None,
+    };
+
+    let mut body = serde_json::json!({ "accepted": true });
+    if let Some((additional_context, ids)) = push {
+        body["additionalContext"] = serde_json::Value::String(additional_context);
+        body["pendingMessageIds"] = serde_json::json!(ids);
+    }
+    Ok(Json(body))
+}
+
+/// Compose the `additionalContext` string + the pending message ids from a
+/// peeked mailbox queue. The canonical composer lives in `apohara-hooks`, but
+/// that crate depends on THIS one (`apohara-hooks → apohara-hooks-server`), so
+/// composing here would cycle — we keep a minimal, format-compatible local
+/// version (double-newline join, same as `compose_additional_context_response`).
+fn compose_push(msgs: &[apohara_dispatch::Message]) -> (String, Vec<String>) {
+    let rendered = msgs
+        .iter()
+        .map(|m| format!("[mesh] {}: {}", m.from, m.body))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    let ids = msgs.iter().map(|m| m.id.clone()).collect();
+    (rendered, ids)
 }

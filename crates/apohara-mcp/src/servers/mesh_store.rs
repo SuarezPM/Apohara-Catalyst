@@ -129,10 +129,12 @@ impl MeshBackend for FsMeshBackend {
     }
 
     async fn send_message(&self, msg: MeshMessage) -> Result<(), String> {
-        // `MeshMessage` and `Mailbox`'s `Message` are field-for-field identical
-        // (from/to/body/ts) — convert directly with no remapping.
+        // `MeshMessage` carries the wire fields (from/to/body/ts); the mailbox
+        // `Message` adds a local `id` for ack-before-clear (US-F2.3). Leave it
+        // empty so `Mailbox::send` mints one — the MCP wire format is unchanged.
         self.mailbox
             .send(Message {
+                id: String::new(),
                 from: msg.from,
                 to: msg.to,
                 body: msg.body,

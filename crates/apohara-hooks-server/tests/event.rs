@@ -6,6 +6,7 @@ async fn accepts_pre_tool_use_event() {
     let config = ServerConfig {
         bearer_token: "t".to_string(),
         bind_addr: "127.0.0.1:0".parse().unwrap(),
+        mailbox_root: None,
     };
     let server = HooksServer::start(Arc::new(config)).await.unwrap();
     let url = format!("http://{}/event", server.bound_addr());
@@ -46,6 +47,7 @@ async fn accepts_native_claude_code_handshake_payloads() {
     let config = ServerConfig {
         bearer_token: "t".to_string(),
         bind_addr: "127.0.0.1:0".parse().unwrap(),
+        mailbox_root: None,
     };
     let server = HooksServer::start(Arc::new(config)).await.unwrap();
     let url = format!("http://{}/event", server.bound_addr());
@@ -136,6 +138,7 @@ async fn rejects_unknown_event_type() {
     let config = ServerConfig {
         bearer_token: "t".to_string(),
         bind_addr: "127.0.0.1:0".parse().unwrap(),
+        mailbox_root: None,
     };
     let server = HooksServer::start(Arc::new(config)).await.unwrap();
     let url = format!("http://{}/event", server.bound_addr());
@@ -152,6 +155,58 @@ async fn rejects_unknown_event_type() {
         .json(&body)
         .send().await.unwrap();
     assert_eq!(resp.status(), 422);
+
+    server.shutdown().await;
+}
+
+/// US-F2.3: with a mailbox configured, a PreToolUse event peeks the blade's
+/// inbox and returns the pending messages as `additionalContext` (push path),
+/// WITHOUT draining them (ack-before-clear) — the poll fallback still works.
+#[tokio::test]
+async fn pre_tool_use_returns_mailbox_push_context() {
+    let dir = tempfile::tempdir().unwrap();
+    let mailbox_root = dir.path().join("mailbox");
+
+    // Seed a message addressed to the blade whose pane_key the hook carries.
+    let mailbox = apohara_dispatch::Mailbox::new(&mailbox_root);
+    mailbox
+        .send(apohara_dispatch::Message {
+            id: String::new(),
+            from: "codex".to_string(),
+            to: "claude-blade".to_string(),
+            body: "rebase onto my refactor".to_string(),
+            ts: 1,
+        })
+        .unwrap();
+
+    let config = ServerConfig {
+        bearer_token: "t".to_string(),
+        bind_addr: "127.0.0.1:0".parse().unwrap(),
+        mailbox_root: Some(mailbox_root.clone()),
+    };
+    let server = HooksServer::start(Arc::new(config)).await.unwrap();
+    let url = format!("http://{}/event", server.bound_addr());
+
+    let body = serde_json::json!({
+        "type": "pre_tool_use",
+        "pane_key": "claude-blade",
+        "payload": { "tool_name": "Edit", "tool_input": {} }
+    });
+    let resp = reqwest::Client::new()
+        .post(&url)
+        .header("Authorization", "Bearer t")
+        .json(&body)
+        .send().await.unwrap();
+    assert_eq!(resp.status(), 200);
+    let resp_body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(resp_body["accepted"], true);
+    let ctx = resp_body["additionalContext"].as_str().expect("push additionalContext present");
+    assert!(ctx.contains("rebase onto my refactor"), "push must carry the mesh message");
+    assert!(resp_body["pendingMessageIds"].as_array().unwrap().len() == 1);
+
+    // ack-before-clear: peek did NOT drain — the poll fallback still delivers.
+    let still_there = mailbox.check_inbox("claude-blade").unwrap();
+    assert_eq!(still_there.len(), 1, "push peek must not drain (poll fallback intact)");
 
     server.shutdown().await;
 }

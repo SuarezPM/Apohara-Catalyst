@@ -42,6 +42,15 @@ pub fn mount() {
             bind_addr: "127.0.0.1:0"
                 .parse()
                 .expect("static loopback addr parses"),
+            // F2.3 push path: same mailbox root as the mesh bus + dispatch
+            // loop (`<cwd>/.apohara/mailbox`). Safe-additive — a PreToolUse/Stop
+            // for a pane with no inbox simply peeks empty and returns no
+            // additionalContext (identical to the prior observe-only behavior),
+            // so this never regresses the live path; it activates only once a
+            // blade's recipient inbox holds a message.
+            mailbox_root: std::env::current_dir()
+                .ok()
+                .map(|d| d.join(".apohara").join("mailbox")),
         };
 
         let server = match HooksServer::start(Arc::new(cfg)).await {

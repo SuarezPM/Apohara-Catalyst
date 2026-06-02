@@ -52,6 +52,7 @@ async fn boot() -> (HooksServer, HomeGuard, tempfile::TempDir, String, u16) {
     let server = HooksServer::start(Arc::new(ServerConfig {
         bearer_token: bearer.clone(),
         bind_addr: "127.0.0.1:0".parse().unwrap(),
+        mailbox_root: None,
     }))
     .await
     .unwrap();

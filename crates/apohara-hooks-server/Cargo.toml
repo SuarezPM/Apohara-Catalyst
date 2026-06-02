@@ -19,6 +19,9 @@ tracing.workspace = true
 chrono.workspace = true
 apohara-types = { path = "../apohara-types" }
 apohara-audit = { path = "../apohara-audit" }
+# Mailbox for the F2.3 push path. dispatch does NOT depend on hooks-server,
+# so this edge is acyclic (mirrors the F2.1 trait-direction discipline).
+apohara-dispatch = { path = "../apohara-dispatch" }
 sha2.workspace = true
 hex.workspace = true
 tempfile = "3.10"

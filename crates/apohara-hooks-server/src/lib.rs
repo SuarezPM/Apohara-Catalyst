@@ -44,6 +44,10 @@ use tokio::sync::oneshot;
 pub struct AppState {
     pub auth: AuthState,
     pub broadcaster: Broadcaster<HookEventPayload>,
+    /// F2.3 push path: when set, `PreToolUse`/`Stop` events peek this blade's
+    /// mailbox and return the pending messages as `additionalContext` in the
+    /// hook response. `None` keeps the server observe-only (broadcast-only).
+    pub mailbox: Option<apohara_dispatch::Mailbox>,
 }
 
 impl FromRef<AppState> for AuthState {
@@ -61,6 +65,9 @@ pub enum HooksError {
 pub struct ServerConfig {
     pub bearer_token: String,
     pub bind_addr: SocketAddr,
+    /// F2.3: root of the mesh mailbox (`<workspace>/.apohara/mailbox`). When
+    /// `Some`, the server serves the push path; `None` = observe-only.
+    pub mailbox_root: Option<PathBuf>,
 }
 
 pub struct HooksServer {
@@ -154,6 +161,10 @@ impl HooksServer {
         let app_state = AppState {
             auth: auth_state.clone(),
             broadcaster,
+            mailbox: config
+                .mailbox_root
+                .as_ref()
+                .map(apohara_dispatch::Mailbox::new),
         };
 
         // Cap on the maximum body any handler will receive. axum's

@@ -6,6 +6,7 @@ async fn rejects_unauthorized_request() {
     let config = ServerConfig {
         bearer_token: "secret-token-abc".to_string(),
         bind_addr: "127.0.0.1:0".parse().unwrap(),
+        mailbox_root: None,
     };
     let server = HooksServer::start(Arc::new(config)).await.unwrap();
     let url = format!("http://{}/health", server.bound_addr());
@@ -35,6 +36,7 @@ async fn binds_to_random_port_when_port_0() {
     let config = ServerConfig {
         bearer_token: "t".to_string(),
         bind_addr: "127.0.0.1:0".parse().unwrap(),
+        mailbox_root: None,
     };
     let server = HooksServer::start(Arc::new(config)).await.unwrap();
     assert_ne!(server.bound_addr().port(), 0);

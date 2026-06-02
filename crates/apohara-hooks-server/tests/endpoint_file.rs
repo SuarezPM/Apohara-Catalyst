@@ -106,6 +106,7 @@ async fn hooks_server_writes_endpoint_file_on_start() {
     let config = ServerConfig {
         bearer_token: "secret".to_string(),
         bind_addr: "127.0.0.1:0".parse().unwrap(),
+        mailbox_root: None,
     };
     let server = HooksServer::start(Arc::new(config)).await.unwrap();
     let path = tmp.path().join(".apohara/sockets/hooks-endpoint.json");
