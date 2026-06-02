@@ -143,6 +143,7 @@ async fn run_blade(
     // Communicate: tell the peer which task we claimed (poll-delivery mailbox).
     mailbox
         .send(Message {
+            id: String::new(), // mailbox mints it (US-F2.3)
             from: blade.clone(),
             to: peer,
             body: format!("claimed {task_id}"),
