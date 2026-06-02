@@ -39,6 +39,10 @@ uuid = { workspace = true }
 futures-util = "0.3"
 fuzzy-matcher = "0.3"
 petgraph = "0.6"
+# US-F1.5 — the claim_watcher coroutine watches `<repo>/.apohara/claims` so the
+# TaskBoard reflects the real cross-process ClaimStore state. Same major as
+# apohara-spec's watcher (6.x) so the workspace resolves a single notify build.
+notify = "6"
 # syntect default-features=false skips the `onig` native dep; we only need
 # the pure-Rust `fancy-regex` path + the bundled default syntaxes/themes.
 syntect = { version = "5", default-features = false, features = [

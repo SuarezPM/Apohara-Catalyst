@@ -312,6 +312,43 @@ impl ClaimStore {
         self.persist(&released)
     }
 
+    /// Enumerate every persisted claim record under `root`, sorted by
+    /// `task_id` for a deterministic order.
+    ///
+    /// Lock-free, like [`Self::load`] — this is an observability read (the
+    /// desktop `claim_watcher` rescans the whole dir on every fs event,
+    /// US-F1.5). A never-created store is *empty*, not an error, so a
+    /// `NotFound` on the directory folds to `Ok(vec![])`.
+    ///
+    /// Only `<task_id>.json` records are read; the `.lock` companions and
+    /// any in-flight `NamedTempFile` (the atomic-write tmp, §0.8) are
+    /// skipped — the tmp has a random non-`.json` name, so the suffix
+    /// filter excludes it without racing the rename.
+    pub fn list(&self) -> Result<Vec<ClaimRecord>, ClaimError> {
+        let entries = match std::fs::read_dir(&self.root) {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(e.into()),
+        };
+        let mut records = Vec::new();
+        for entry in entries {
+            let entry = entry?;
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else { continue };
+            // Suffix filter, not filename match: only the JSON records, never
+            // the `.lock` companion or the random-named atomic-write tmp.
+            if !name.ends_with(".json") {
+                continue;
+            }
+            let task_id = &name[..name.len() - ".json".len()];
+            if let Some(record) = self.load(task_id)? {
+                records.push(record);
+            }
+        }
+        records.sort_by(|a, b| a.task_id.cmp(&b.task_id));
+        Ok(records)
+    }
+
     /// Read the current claim record, or `None` if the task was never
     /// claimed. Lock-free reads are fine for observability; the
     /// authoritative read-modify-write paths hold the lock.

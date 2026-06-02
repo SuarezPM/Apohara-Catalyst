@@ -117,6 +117,45 @@ fn released_slot_is_reclaimable() {
     ));
 }
 
+/// `list()` enumerates every persisted record sorted by `task_id`, tolerates
+/// a never-created store (empty, not an error), and keeps a released slot in
+/// the listing (state `Released`). Skips the `.lock` companions implicitly —
+/// claiming a task writes both a `.json` record and a `.lock` file, yet each
+/// task appears exactly once.
+#[test]
+fn list_returns_all_records_sorted_including_released() {
+    let dir = TempDir::new().unwrap();
+    let store = ClaimStore::new(dir.path().join("claims"));
+
+    // A never-created store is empty, not an error.
+    assert!(store.list().unwrap().is_empty(), "fresh store lists nothing");
+
+    // Claim out of lexical order so the sort is actually exercised.
+    let token_b = match store.try_claim("task-b").unwrap() {
+        ClaimOutcome::Acquired { token } => token,
+        other => panic!("expected claim, got {other:?}"),
+    };
+    match store.try_claim("task-a").unwrap() {
+        ClaimOutcome::Acquired { .. } => {}
+        other => panic!("expected claim, got {other:?}"),
+    }
+
+    // Release one task — it must still appear, now in state Released.
+    assert_eq!(
+        store.report_result("task-b", &token_b).unwrap(),
+        ReportOutcome::Accepted
+    );
+
+    let records = store.list().unwrap();
+    let ids: Vec<&str> = records.iter().map(|r| r.task_id.as_str()).collect();
+    assert_eq!(ids, vec!["task-a", "task-b"], "sorted by task_id, both present");
+
+    let a = records.iter().find(|r| r.task_id == "task-a").unwrap();
+    assert_eq!(a.state, RunState::Claimed);
+    let b = records.iter().find(|r| r.task_id == "task-b").unwrap();
+    assert_eq!(b.state, RunState::Released, "released task still lists");
+}
+
 // ---------------------------------------------------------------------
 // Cross-process smoke test.
 //

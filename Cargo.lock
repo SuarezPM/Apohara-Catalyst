@@ -378,6 +378,7 @@ dependencies = [
  "fuzzy-matcher",
  "glib",
  "gtk",
+ "notify",
  "petgraph",
  "serde",
  "serde_json",
