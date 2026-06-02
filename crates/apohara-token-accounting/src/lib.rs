@@ -7,7 +7,9 @@
 //! and replays idempotent.
 
 pub mod api;
+pub mod budget;
 pub mod counter;
+pub use budget::{decide_throttle, parse_usage_snapshot, RunLedger, ThrottleDecision};
 pub use counter::{ThreadKey, TokenCounter, TokenSnapshot};
 
 #[cfg(test)]
