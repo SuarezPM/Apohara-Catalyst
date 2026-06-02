@@ -25,6 +25,11 @@
 
 use std::collections::BTreeMap;
 
+/// US-F4.4 — opt-in guided-mode narration + Vibecoding density skin, layered
+/// over this same humanizer engine.
+pub mod guided_mode;
+pub use guided_mode::{render_density, Density, GuidedNarrator};
+
 /// A minimal projection of a provider event the humanizer needs. We do
 /// not bind to the full provider schema — adapters lift their event
 /// onto this shape and we render from it.
