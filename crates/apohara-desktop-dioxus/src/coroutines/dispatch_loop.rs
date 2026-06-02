@@ -20,6 +20,9 @@ use futures_util::StreamExt;
 use apohara_dispatch::api::{is_enabled, list_active_providers};
 use apohara_dispatch::{ClaimOutcome, ClaimStore, CliDriver, DispatchRequest, ReportOutcome};
 use apohara_episodic::Episode;
+use apohara_mcp::api::mcp_bootstrap_servers_inner;
+use apohara_mcp::bootstrap::{EndpointDescriptor, EndpointServers};
+use apohara_mcp::injection::{build_canonical_from_endpoint, inject_mcp_config, EndpointPorts, ProviderId};
 use apohara_verification::{run_all_gates, AgentRole, GateInput};
 use apohara_worktree::lifecycle::{self, CleanupReason, FailureReason, MergeResult};
 
@@ -87,6 +90,36 @@ async fn run_dispatch(objective: String) {
     // contend on the same directory, so the path must be repo-stable.
     let claims = ClaimStore::new(repo.join(".apohara").join("claims"));
 
+    // US-F2.0b — force blades onto the mesh. Pre-mortem Escenario 1: an opaque
+    // CLI has no native incentive to coordinate, so we (1) inject the live mesh
+    // MCP config into each blade's config location and (2) augment the prompt
+    // with explicit mesh-protocol instructions. Same `APOHARA_RUST_DISPATCH`
+    // gate as the claim path (legacy path = bare prompt, no injection).
+    //
+    // Resolve the live endpoint ONCE per run (idempotent — F0.1 OnceCell returns
+    // the same descriptor). We carry forward the flattened ports + the bearer
+    // token so the per-blade injection needs no further bus calls. Best-effort:
+    // if the bus is disabled (APOHARA_RUST_MCP=0) or bootstrap fails, log and
+    // continue with `None` — the prompt augmentation still applies, only the MCP
+    // config wiring is skipped. The run must NEVER abort over mesh wiring.
+    let mesh_endpoint: Option<(EndpointPorts, String)> = if claim_enabled {
+        match mcp_bootstrap_servers_inner().await {
+            Ok(descriptor) => Some((descriptor_to_ports(&descriptor), descriptor.token)),
+            Err(e) => {
+                tracing::warn!("mesh endpoint unavailable (non-fatal): {e}; blades run without MCP mesh config");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    // The canonical config the blade's CLI consumes carries the apohara binary
+    // it spawns for `apohara mcp serve <name>`. Resolve our own executable so
+    // the blade re-invokes THIS build; fall back to the bare name on the PATH.
+    let apohara_bin = std::env::current_exe()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| "apohara".to_string());
+
     // US-F1.6: incremental integration is gated by the same flag as the claim
     // (default ON; `APOHARA_RUST_DISPATCH=0` keeps the legacy text-diff→Accept
     // path). `base` is HEAD before any merge, so the post-run mesh diff is
@@ -147,7 +180,21 @@ async fn run_dispatch(objective: String) {
             .join(".claude")
             .to_string_lossy()
             .into_owned();
-        let req = build_request(&p.binary_path, &workspace, &objective, &task_id, &blade_config);
+
+        // US-F2.0b — inject the live mesh MCP config into the location THIS
+        // blade's CLI actually reads (claude → its isolated CLAUDE_CONFIG_DIR;
+        // codex/opencode → the worktree), so the mesh tools are present before
+        // the spawn. Best-effort: a missing endpoint or a non-roster provider is
+        // logged and skipped — the run continues with the augmented prompt only.
+        if let Some((ports, token)) = &mesh_endpoint {
+            inject_mesh_config(&p.id, &workspace, &blade_config, &apohara_bin, token, ports).await;
+        }
+
+        // US-F2.0b — augment the objective with the mesh protocol so the blade
+        // is TOLD to claim before touching files, check its inbox, hand off, and
+        // report its result. The blade id is the task id (one blade per task).
+        let prompt = mesh_protocol_prompt(&objective, &task_id, &task_id);
+        let req = build_request(&p.binary_path, &workspace, &prompt, &task_id, &blade_config);
         let pid = p.id.clone();
         // Serialized per-binary spawn (runSerialized): two dispatches of the
         // same CLI never run concurrently (the 120s-SIGKILL contention guard);
@@ -348,22 +395,23 @@ fn build_episode(
 
 /// Build the `DispatchRequest` for a provider run. `provider_binary` is the
 /// resolved CLI path (`ActiveProvider::binary_path`), spawned with `--print`.
-/// `task_id` doubles as the pane key (one pane per dispatched task) and the
-/// task identifier exported to the spawned CLI's agent-hooks env, so live
-/// hook events correlate back to this run (Stage 2.6). `blade_config` is the
-/// per-blade isolated `CLAUDE_CONFIG_DIR` (US-F1.4) so concurrent blades never
-/// share claude auth/session/lock state.
+/// `prompt` is the mesh-protocol-augmented objective (US-F2.0b) when dispatch is
+/// live, the bare objective on the legacy path. `task_id` doubles as the pane
+/// key (one pane per dispatched task) and the task identifier exported to the
+/// spawned CLI's agent-hooks env, so live hook events correlate back to this run
+/// (Stage 2.6). `blade_config` is the per-blade isolated `CLAUDE_CONFIG_DIR`
+/// (US-F1.4) so concurrent blades never share claude auth/session/lock state.
 fn build_request(
     provider_binary: &str,
     workspace: &str,
-    objective: &str,
+    prompt: &str,
     task_id: &str,
     blade_config: &str,
 ) -> DispatchRequest {
     DispatchRequest {
         provider_id: provider_binary.to_string(),
         workspace: workspace.to_string(),
-        prompt: objective.to_string(),
+        prompt: prompt.to_string(),
         role: "coder".to_string(),
         runner_policy: "default".to_string(),
         pane_key: task_id.to_string(),
@@ -374,6 +422,119 @@ fn build_request(
         // Per-blade claude state isolation; injected onto the spawn env as
         // CLAUDE_CONFIG_DIR (NOT HOME — auth/billing zone) by `build_spawn_env`.
         config_isolation: Some(blade_config.to_string()),
+    }
+}
+
+/// US-F2.0b — wrap `objective` with explicit BYOC mesh-protocol instructions so
+/// an opaque blade is TOLD to coordinate (pre-mortem Escenario 1). Pure fn (no
+/// I/O) so it is unit-testable. The blade learns it is one of several
+/// heterogeneous collaborators working a SLICE (not the whole objective), and
+/// the literal mesh tool names it must call: `claim_task` BEFORE touching any
+/// file, `check_inbox` to coordinate, `send_message` to hand off, and
+/// `report_result` (with its claim token) when done.
+fn mesh_protocol_prompt(objective: &str, blade_id: &str, task_id: &str) -> String {
+    format!(
+        "You are blade \"{blade_id}\", one of several heterogeneous AI agents \
+collaborating on a shared objective through the Apohara mesh. You are NOT working \
+alone, and your task is a SLICE of the objective — not the whole thing.\n\
+\n\
+MESH PROTOCOL (mandatory — use the `apohara.mesh` MCP tools):\n\
+1. BEFORE touching any file, call `claim_task` with taskId \"{task_id}\" and \
+blade \"{blade_id}\". If it returns acquired=false, another blade already owns \
+this slice — call `get_tasks`, pick an unclaimed one, and claim that instead.\n\
+2. Keep the claim token from `claim_task`; you need it to report your result.\n\
+3. Every few steps, call `check_inbox` with blade \"{blade_id}\" to coordinate \
+with the other blades and avoid duplicating their work.\n\
+4. Use `send_message` to hand off context or signal a dependency to another \
+blade; use `release_task` if you cannot complete your slice.\n\
+5. When your slice is done, call `report_result` with taskId \"{task_id}\", your \
+claim token, and success=true (or false on failure).\n\
+\n\
+OBJECTIVE:\n{objective}"
+    )
+}
+
+/// US-F2.0b — flatten an [`EndpointDescriptor`]'s present server ports into the
+/// stable-ordered [`EndpointPorts`] that `build_canonical_from_endpoint`
+/// consumes. Pure fn (no I/O) so it is unit-testable. Pushes each present
+/// `(name, port)` in the fixed ledger/runs/indexer/settings/mesh order — only
+/// the keys that exist in the descriptor (e.g. `mesh` after F2.0a).
+fn descriptor_to_ports(descriptor: &EndpointDescriptor) -> EndpointPorts {
+    let mut ports = EndpointPorts::new();
+    let s: &EndpointServers = &descriptor.servers;
+    if let Some(p) = &s.ledger {
+        ports.push("ledger", p.port);
+    }
+    if let Some(p) = &s.runs {
+        ports.push("runs", p.port);
+    }
+    if let Some(p) = &s.indexer {
+        ports.push("indexer", p.port);
+    }
+    if let Some(p) = &s.settings {
+        ports.push("settings", p.port);
+    }
+    if let Some(p) = &s.mesh {
+        ports.push("mesh", p.port);
+    }
+    ports
+}
+
+/// US-F2.0b — compute the directory `inject_mcp_config` must target for a
+/// provider so the config lands where the blade's CLI ACTUALLY reads it. Pure fn
+/// (no I/O) so it is unit-testable — the testable seam for the per-provider path
+/// math. `blade_config` is the F1.4 `CLAUDE_CONFIG_DIR`
+/// (`<repo>/.apohara/blades/<task>/.claude`).
+///
+///   - claude-code-cli reads `$CLAUDE_CONFIG_DIR/mcp.json`, and `inject_claude`
+///     writes `<target>/.claude/mcp.json`. So the target is the PARENT of
+///     `blade_config` (`<repo>/.apohara/blades/<task>`) → the config lands at
+///     exactly `$CLAUDE_CONFIG_DIR/mcp.json`. If `blade_config` somehow has no
+///     parent, fall back to it directly (never the host's real `~/.claude`).
+///   - codex-cli / opencode-go have no CLAUDE_CONFIG_DIR isolation; they read
+///     workspace-local config, so the target is the worktree `workspace`.
+fn inject_target(provider: ProviderId, workspace: &str, blade_config: &str) -> PathBuf {
+    match provider {
+        ProviderId::ClaudeCodeCli => Path::new(blade_config)
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from(blade_config)),
+        ProviderId::CodexCli | ProviderId::OpencodeGo => PathBuf::from(workspace),
+    }
+}
+
+/// US-F2.0b — best-effort injection of the live mesh MCP config for one blade.
+/// Maps the roster id → [`ProviderId`]; a non-roster id is logged and skipped
+/// (no injection). Builds the canonical config from the live endpoint `ports` +
+/// the bearer `token` (both captured once per run), then writes it to the
+/// provider-correct target ([`inject_target`]). Any failure (unknown provider,
+/// write error) is logged and swallowed so the run never aborts over mesh
+/// wiring; the blade still gets the augmented prompt.
+///
+/// Auth/isolation discipline (US-F1.4): the target is ALWAYS the blade's
+/// isolated config dir or the worktree — never the host's real `~/.claude` /
+/// `~/.codex`. No secrets are passed beyond the loopback bus's own bearer token.
+async fn inject_mesh_config(
+    provider_id: &str,
+    workspace: &str,
+    blade_config: &str,
+    apohara_bin: &str,
+    token: &str,
+    ports: &EndpointPorts,
+) {
+    let Some(provider) = ProviderId::try_from_str(provider_id) else {
+        tracing::info!(provider_id, "not a mesh-capable provider; skipping MCP injection");
+        return;
+    };
+    let canonical = build_canonical_from_endpoint(apohara_bin, token, ports);
+    let target = inject_target(provider, workspace, blade_config);
+    match inject_mcp_config(provider, &canonical, &target).await {
+        Ok(res) => {
+            tracing::info!(provider_id, path = %res.config_path.display(), "mesh MCP config injected");
+        }
+        Err(e) => {
+            tracing::warn!(provider_id, "mesh MCP config injection failed (non-fatal): {e}");
+        }
     }
 }
 
@@ -516,16 +677,21 @@ mod tests {
 
     #[test]
     fn build_request_uses_binary_and_print_fields() {
+        // `build_request` now passes its `prompt` arg through verbatim (the
+        // caller does the US-F2.0b augmentation); this test feeds an
+        // already-augmented string and asserts it survives unchanged.
+        let augmented = mesh_protocol_prompt("build a thing", "claude-1", "claude-1");
         let req = build_request(
             "/usr/bin/claude",
             "/tmp/wt",
-            "build a thing",
+            &augmented,
             "claude-1",
             "/repo/.apohara/blades/claude-1/.claude",
         );
         assert_eq!(req.provider_id, "/usr/bin/claude");
         assert_eq!(req.workspace, "/tmp/wt");
-        assert_eq!(req.prompt, "build a thing");
+        assert_eq!(req.prompt, augmented);
+        assert!(req.prompt.contains("build a thing"));
         assert_eq!(req.role, "coder");
         assert_eq!(req.runner_policy, "default");
         // Hook correlation: task_id doubles as pane key, worktree id = workspace.
@@ -777,5 +943,75 @@ mod tests {
         let head = git_rev_parse_head(repo).expect("head");
         // base == HEAD → empty diff → None (caller falls back to winning_diff).
         assert!(mesh_diff(repo, &head).is_none());
+    }
+
+    // ---- US-F2.0b: mesh prompt augmentation + injection target math ----
+
+    #[test]
+    fn mesh_protocol_prompt_embeds_objective_tools_and_ids() {
+        let prompt = mesh_protocol_prompt("ship the feature", "codex-cli-3", "codex-cli-3");
+        // The original objective is preserved verbatim.
+        assert!(prompt.contains("ship the feature"), "objective must survive: {prompt}");
+        // The literal mesh tool names the blade must call are present.
+        assert!(prompt.contains("claim_task"), "must name claim_task");
+        assert!(prompt.contains("check_inbox"), "must name check_inbox");
+        assert!(prompt.contains("report_result"), "must name report_result");
+        // The blade/task ids are threaded in so the blade claims the right slice.
+        assert!(prompt.contains("codex-cli-3"), "must carry the blade/task id");
+        // The "claim before touching files" instruction is explicit.
+        assert!(
+            prompt.to_lowercase().contains("before touching any file"),
+            "must instruct claim-before-edit: {prompt}"
+        );
+        // The blade is told it works a SLICE, not the whole objective.
+        assert!(prompt.contains("SLICE"), "must frame the work as a slice");
+    }
+
+    #[test]
+    fn descriptor_to_ports_includes_mesh_and_present_keys() {
+        use apohara_mcp::bootstrap::{EndpointPort, EndpointServers};
+        let descriptor = EndpointDescriptor {
+            token: "tok".into(),
+            servers: EndpointServers {
+                ledger: Some(EndpointPort { port: 4001 }),
+                runs: None,
+                indexer: None,
+                settings: None,
+                mesh: Some(EndpointPort { port: 4099 }),
+            },
+            started_at: 0,
+        };
+        let ports = descriptor_to_ports(&descriptor);
+        let names: Vec<&str> = ports.iter().map(|(n, _)| n.as_str()).collect();
+        // Only the present keys appear, in the fixed order; `mesh` is included.
+        assert_eq!(names, vec!["ledger", "mesh"]);
+        let mesh_port = ports.iter().find(|(n, _)| n == "mesh").map(|(_, p)| *p);
+        assert_eq!(mesh_port, Some(4099), "mesh port must round-trip");
+    }
+
+    #[test]
+    fn inject_target_claude_is_blade_config_parent() {
+        // claude reads $CLAUDE_CONFIG_DIR/mcp.json and inject_claude writes
+        // <target>/.claude/mcp.json, so the target must be the PARENT of the
+        // CLAUDE_CONFIG_DIR — landing the config at exactly $CLAUDE_CONFIG_DIR.
+        let blade_config = "/repo/.apohara/blades/claude-1/.claude";
+        let target = inject_target(ProviderId::ClaudeCodeCli, "/tmp/wt", blade_config);
+        assert_eq!(target, PathBuf::from("/repo/.apohara/blades/claude-1"));
+        // The resulting write path is exactly $CLAUDE_CONFIG_DIR/mcp.json.
+        assert_eq!(
+            target.join(".claude").join("mcp.json"),
+            PathBuf::from(blade_config).join("mcp.json")
+        );
+    }
+
+    #[test]
+    fn inject_target_codex_and_opencode_are_the_workspace() {
+        // No CLAUDE_CONFIG_DIR isolation: codex/opencode read workspace-local
+        // config, so the target is the worktree — NEVER the host ~/.codex.
+        let blade_config = "/repo/.apohara/blades/x/.claude";
+        let codex = inject_target(ProviderId::CodexCli, "/tmp/wt", blade_config);
+        assert_eq!(codex, PathBuf::from("/tmp/wt"));
+        let opencode = inject_target(ProviderId::OpencodeGo, "/tmp/wt", blade_config);
+        assert_eq!(opencode, PathBuf::from("/tmp/wt"));
     }
 }
