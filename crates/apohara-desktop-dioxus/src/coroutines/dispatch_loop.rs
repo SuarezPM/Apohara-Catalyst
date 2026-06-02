@@ -21,7 +21,7 @@ use apohara_dispatch::api::{is_enabled, list_active_providers};
 use apohara_dispatch::{ClaimOutcome, ClaimStore, CliDriver, DispatchRequest, ReportOutcome};
 use apohara_episodic::Episode;
 use apohara_verification::{run_all_gates, AgentRole, GateInput};
-use apohara_worktree::lifecycle::{self, CleanupReason};
+use apohara_worktree::lifecycle::{self, CleanupReason, FailureReason, MergeResult};
 
 use crate::state::code_diff::{self, Diff};
 use crate::state::running_status::{set_status, RunStatus};
@@ -86,6 +86,15 @@ async fn run_dispatch(objective: String) {
     // convention: `<repo>/.apohara/claims`). Heterogeneous blade processes
     // contend on the same directory, so the path must be repo-stable.
     let claims = ClaimStore::new(repo.join(".apohara").join("claims"));
+
+    // US-F1.6: incremental integration is gated by the same flag as the claim
+    // (default ON; `APOHARA_RUST_DISPATCH=0` keeps the legacy text-diff→Accept
+    // path). `base` is HEAD before any merge, so the post-run mesh diff is
+    // `git diff <base> HEAD` (the integrated result). `any_integrated` flips
+    // once a merge lands so we know to show the mesh instead of `winning_diff`.
+    let integrate_enabled = claim_enabled;
+    let base = if integrate_enabled { git_rev_parse_head(&repo) } else { None };
+    let mut any_integrated = false;
 
     let mut candidates: Vec<Candidate> = Vec::new();
     for p in providers {
@@ -195,13 +204,62 @@ async fn run_dispatch(objective: String) {
             }
         }
 
-        // Best-effort cleanup of the per-task worktree; the diff is already
-        // captured as text and applied to the main tree on Accept (W4.7).
+        // US-F1.6: incremental integration. For a node whose gates passed,
+        // commit its worktree work to the node's branch and merge it into HEAD
+        // through the SINGLE serialized integrator (`lifecycle::merge` holds the
+        // one-HEAD-writer lock). Done BEFORE cleanup — cleanup may remove the
+        // worktree, and we need its committed branch to merge.
+        //
+        // Double-apply guard: on `Success` the change is already in HEAD, so we
+        // do NOT also feed this diff to the Accept `git apply` path — the mesh
+        // diff (computed post-loop) is what the pane shows. On `Conflict` the
+        // merge already aborted (HEAD is clean); `preserve_on_fail` keeps the
+        // node's work as a recovery BRANCH REF (the worktree dir is still cleaned
+        // below) and the node is marked Failed.
+        if integrate_enabled && gates_passed {
+            if commit_worktree(&workspace, &task_id) {
+                match lifecycle::merge(&task_id, &repo).await {
+                    Ok(MergeResult::Success) => {
+                        any_integrated = true;
+                    }
+                    Ok(MergeResult::Conflict { files }) => {
+                        tracing::warn!(task_id, ?files, "merge conflict; preserving branch, node failed");
+                        let _ = lifecycle::preserve_on_fail(&task_id, FailureReason::MergeConflict, &repo).await;
+                        upsert_task(DagTask {
+                            id: task_id.clone(),
+                            title: objective.clone(),
+                            status: TaskStatus::Failed,
+                            provider_id: Some(p.id.clone()),
+                            ..Default::default()
+                        });
+                    }
+                    Err(e) => {
+                        tracing::warn!(task_id, "integrate merge failed (non-fatal): {e}");
+                    }
+                }
+            } else {
+                // Nothing to commit → nothing to integrate; skip the merge.
+                tracing::info!(task_id, "no worktree changes to integrate; skipping merge");
+            }
+        }
+
+        // Best-effort cleanup of the per-task worktree. With integration on, the
+        // work is already in HEAD; with the flag off, the diff is captured as
+        // text and applied to the main tree on Accept (W4.7).
         let _ = lifecycle::cleanup(&task_id, CleanupReason::Completed, &repo).await;
     }
 
     set_status(RunStatus::Verifying);
-    let diff = winning_diff(&candidates);
+    // US-F1.6: if anything integrated, the diff to surface is the MESH —
+    // `git diff <base> HEAD` over the repo root (the combined integrated
+    // result), tagged `provider_winner = "mesh"`. If nothing integrated (no
+    // node passed, base == HEAD, or the flag is off), fall back to the legacy
+    // per-provider `winning_diff` so the Accept→`git apply` path still works.
+    let diff = base
+        .as_deref()
+        .filter(|_| any_integrated)
+        .and_then(|base| mesh_diff(&repo, base))
+        .or_else(|| winning_diff(&candidates));
 
     // End-of-run episodic capture (best-effort: log on error, never block the
     // run). Single-writer per run (one coroutine, after the provider loop);
@@ -347,6 +405,83 @@ fn git_diff(workspace: &Path) -> (String, Vec<String>) {
         })
         .unwrap_or_default();
     (unified, files)
+}
+
+/// `git -C <repo> rev-parse HEAD` → the current commit, or `None` when git is
+/// absent / the repo has no commits. Captured before integration so the mesh
+/// diff can be taken against it (US-F1.6).
+fn git_rev_parse_head(repo: &Path) -> Option<String> {
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())?;
+    let head = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if head.is_empty() {
+        None
+    } else {
+        Some(head)
+    }
+}
+
+/// Commit the worktree's work to its branch so the serialized integrator has a
+/// commit to merge (US-F1.6). Stages everything (`git add -A`) then commits with
+/// an `apohara: <task_id>` message. Returns `false` when there is nothing to
+/// commit (clean tree) — the caller then skips the merge (no work to integrate).
+fn commit_worktree(workspace: &str, task_id: &str) -> bool {
+    let ws = Path::new(workspace);
+    let add = Command::new("git").arg("-C").arg(ws).args(["add", "-A"]).output();
+    if !matches!(&add, Ok(o) if o.status.success()) {
+        tracing::warn!(task_id, "git add -A failed in worktree; integration may be incomplete");
+    }
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(ws)
+        .args(["commit", "-m", &format!("apohara: {task_id}")])
+        .output();
+    // `git commit` exits non-zero on "nothing to commit" — treat that (and any
+    // git error) as "no work to integrate" rather than a hard failure.
+    matches!(out, Ok(o) if o.status.success())
+}
+
+/// The MESH diff: `git -C <repo> diff <base> HEAD` (unified) plus its
+/// `--name-only` file list, tagged `provider_winner = "mesh"` (US-F1.6). `None`
+/// when the diff is empty (e.g. `base == HEAD`) so the caller can fall back to
+/// the per-provider `winning_diff`.
+fn mesh_diff(repo: &Path, base: &str) -> Option<Diff> {
+    let unified = Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(["diff", base, "HEAD"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        .unwrap_or_default();
+    if unified.is_empty() {
+        return None;
+    }
+    let files_changed = Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(["diff", "--name-only", base, "HEAD"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .map(|l| l.to_string())
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(Diff {
+        unified,
+        files_changed,
+        provider_winner: "mesh".to_string(),
+    })
 }
 
 /// Select the diff to surface: prefer a provider whose gates passed with a
@@ -558,5 +693,89 @@ mod tests {
         assert!(unified.contains("-one"), "unified should show the change: {unified}");
         assert!(unified.contains("+two"));
         assert_eq!(files, vec!["f.txt".to_string()]);
+    }
+
+    /// Helper: init a repo with one base commit and return its dir handle.
+    fn init_repo_with_commit() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let repo = dir.path();
+        let run = |args: &[&str]| {
+            Command::new("git").arg("-C").arg(repo).args(args).output().expect("git");
+        };
+        run(&["init", "-q"]);
+        run(&["config", "user.email", "t@t"]);
+        run(&["config", "user.name", "t"]);
+        std::fs::write(repo.join("base.txt"), "base\n").unwrap();
+        run(&["add", "."]);
+        run(&["commit", "-q", "-m", "init"]);
+        dir
+    }
+
+    #[test]
+    fn git_rev_parse_head_returns_commit() {
+        let dir = init_repo_with_commit();
+        let head = git_rev_parse_head(dir.path()).expect("HEAD after a commit");
+        assert_eq!(head.len(), 40, "full sha expected: {head}");
+        assert!(head.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn git_rev_parse_head_none_when_not_a_repo() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        assert!(git_rev_parse_head(dir.path()).is_none());
+    }
+
+    #[test]
+    fn commit_worktree_commits_changes_and_reports_false_when_clean() {
+        let dir = init_repo_with_commit();
+        let ws = dir.path().to_string_lossy().into_owned();
+        // Dirty tree → commits and returns true.
+        std::fs::write(dir.path().join("new.txt"), "work\n").unwrap();
+        assert!(commit_worktree(&ws, "task-x"), "should commit the new file");
+        // The commit message follows the `apohara: <task_id>` convention.
+        let msg = Command::new("git")
+            .arg("-C")
+            .arg(dir.path())
+            .args(["log", "-1", "--pretty=%s"])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .unwrap();
+        assert_eq!(msg, "apohara: task-x");
+        // Clean tree → nothing to commit → false (caller then skips the merge).
+        assert!(!commit_worktree(&ws, "task-x"), "clean tree should report false");
+    }
+
+    #[test]
+    fn mesh_diff_spans_base_to_head_and_tags_mesh() {
+        let dir = init_repo_with_commit();
+        let repo = dir.path();
+        let base = git_rev_parse_head(repo).expect("base");
+        // Two commits on top of base (simulating two integrated nodes).
+        let run = |args: &[&str]| {
+            Command::new("git").arg("-C").arg(repo).args(args).output().expect("git");
+        };
+        std::fs::write(repo.join("a.txt"), "from-a\n").unwrap();
+        run(&["add", "-A"]);
+        run(&["commit", "-q", "-m", "apohara: a"]);
+        std::fs::write(repo.join("b.txt"), "from-b\n").unwrap();
+        run(&["add", "-A"]);
+        run(&["commit", "-q", "-m", "apohara: b"]);
+
+        let diff = mesh_diff(repo, &base).expect("mesh diff base..HEAD");
+        assert_eq!(diff.provider_winner, "mesh");
+        assert!(diff.unified.contains("from-a"), "mesh should include a.txt: {}", diff.unified);
+        assert!(diff.unified.contains("from-b"), "mesh should include b.txt: {}", diff.unified);
+        let mut files = diff.files_changed.clone();
+        files.sort();
+        assert_eq!(files, vec!["a.txt".to_string(), "b.txt".to_string()]);
+    }
+
+    #[test]
+    fn mesh_diff_none_when_base_equals_head() {
+        let dir = init_repo_with_commit();
+        let repo = dir.path();
+        let head = git_rev_parse_head(repo).expect("head");
+        // base == HEAD → empty diff → None (caller falls back to winning_diff).
+        assert!(mesh_diff(repo, &head).is_none());
     }
 }
