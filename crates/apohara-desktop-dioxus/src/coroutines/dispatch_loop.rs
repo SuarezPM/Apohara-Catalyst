@@ -18,6 +18,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use dioxus::prelude::*;
 use futures_util::StreamExt;
 
+use apohara_audit::{AuditEvent, AuditSink, EventKind};
 use apohara_coordinator::{assign, Blade, Coordinator, DistributionPolicy, ReadyTask, TickOutcome};
 use apohara_dispatch::api::{is_enabled, list_active_providers};
 use apohara_dispatch::{
@@ -440,6 +441,21 @@ struct MeshSpawnCtx {
     objective: String,
     apohara_bin: String,
     mesh_endpoint: Option<(EndpointPorts, String)>,
+    /// US-S3 — optional mesh audit sink. The desktop owns `try_claim` and
+    /// `lifecycle::merge` IN-PROCESS, so `ClaimAcquired` / `MergeCompleted` are
+    /// emitted here. `None` degrades to no trail; emission is always best-effort
+    /// (an audit failure NEVER aborts dispatch).
+    audit: Option<AuditSink>,
+}
+
+/// US-S3 — emit a mesh audit record, best-effort. A `None` sink or a full queue
+/// is swallowed: the audit trail is strictly additive and never on the dispatch
+/// critical path. `target` is the node id; the payload carries only routing
+/// metadata, NEVER tokens/keys/diff content (redaction discipline §0.4).
+fn audit_mesh(sink: &Option<AuditSink>, kind: EventKind, actor: &str, target: &str) {
+    if let Some(s) = sink {
+        let _ = s.write(AuditEvent::mesh(kind, actor, target, serde_json::json!({})));
+    }
 }
 
 /// Drive the collaborative mesh for `objective` (US-S1, D4-B on-demand loop).
@@ -498,12 +514,19 @@ async fn run_dispatch_mesh(objective: String) {
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_else(|_| "apohara".to_string());
 
+    // US-S3 — mesh audit sink for the in-process ClaimAcquired / MergeCompleted
+    // records. Best-effort: a sink that can't open degrades to no trail.
+    let audit = AuditSink::new(repo.join(".apohara").join("audit"), "mesh-desktop")
+        .await
+        .ok();
+
     let ctx = MeshSpawnCtx {
         repo: repo.clone(),
         claims: claims.clone(),
         objective: objective.clone(),
         apohara_bin,
         mesh_endpoint,
+        audit,
     };
 
     // `base` is HEAD before any merge so the post-run mesh diff is the
@@ -619,7 +642,12 @@ async fn spawn_blade(
     // Claim the DAG node id (D5: node id == claim key == pane_key == mailbox
     // recipient). On contention skip cleanly; a claim-store error is non-fatal.
     let claim_token = match ctx.claims.try_claim(node_id) {
-        Ok(ClaimOutcome::Acquired { token }) => Some(token),
+        Ok(ClaimOutcome::Acquired { token }) => {
+            // US-S3 — audit the claim acquisition (best-effort; node id as
+            // target, no token in the payload).
+            audit_mesh(&ctx.audit, EventKind::ClaimAcquired, provider_id, node_id);
+            Some(token)
+        }
         Ok(ClaimOutcome::AlreadyClaimed) => {
             tracing::info!(node_id, "node already claimed by another blade; skipping spawn");
             return false;
@@ -716,6 +744,9 @@ async fn spawn_blade(
             match lifecycle::merge(node_id, &ctx.repo).await {
                 Ok(MergeResult::Success) => {
                     integrated = true;
+                    // US-S3 — audit the integration (best-effort; node id as
+                    // target, no diff content in the payload).
+                    audit_mesh(&ctx.audit, EventKind::MergeCompleted, provider_id, node_id);
                     upsert_task(DagTask {
                         id: node_id.to_string(),
                         title: ctx.objective.clone(),
@@ -1646,5 +1677,59 @@ mod tests {
             other => panic!("expected StallDetected (loop re-ticks, never exits with the slot Claimed), got {other:?}"),
         }
         assert!(!claims.has_active_claim("plan").unwrap(), "reaped slot must be free");
+    }
+
+    #[tokio::test]
+    async fn audit_mesh_emits_claim_and_merge_records_0600_no_secrets() {
+        // US-S3 — the desktop-owned claim + merge call sites produce a JSONL
+        // audit file (0600) with ClaimAcquired + MergeCompleted carrying the
+        // node id as target, and NO secrets in the payload.
+        let dir = tempfile::tempdir().unwrap();
+        let audit_dir = dir.path().join("audit");
+        let sink = AuditSink::new(&audit_dir, "mesh-desktop").await.unwrap();
+        let sink = Some(sink);
+
+        audit_mesh(&sink, EventKind::ClaimAcquired, "claude-code-cli", "impl-src-auth-rs");
+        audit_mesh(&sink, EventKind::MergeCompleted, "claude-code-cli", "impl-src-auth-rs");
+        // Let the async writer task drain the queue to disk.
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+        let mut path = None;
+        for entry in std::fs::read_dir(&audit_dir).unwrap() {
+            let p = entry.unwrap().path();
+            if p.extension().and_then(|e| e.to_str()) == Some("jsonl") {
+                path = Some(p);
+            }
+        }
+        let path = path.expect("a mesh audit jsonl file was written");
+
+        // 0600 perms (owner-only) on the audit log.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600, "audit log must be owner-only (0600)");
+        }
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        let kinds: Vec<String> = content
+            .lines()
+            .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+            .map(|v| v["kind"].as_str().unwrap_or("").to_string())
+            .collect();
+        assert!(kinds.iter().any(|k| k == "claim_acquired"), "ClaimAcquired present");
+        assert!(kinds.iter().any(|k| k == "merge_completed"), "MergeCompleted present");
+        // The node id is the target; no token/secret keys in the payload.
+        assert!(content.contains("impl-src-auth-rs"), "node id is the audit target");
+        for needle in ["token", "secret", "api_key", "ANTHROPIC", "OPENAI"] {
+            assert!(!content.contains(needle), "audit payload must not carry `{needle}`");
+        }
+    }
+
+    #[test]
+    fn audit_mesh_with_none_sink_is_a_noop() {
+        // Best-effort: a None sink must not panic and must be a silent no-op
+        // (audit is never on the dispatch critical path).
+        audit_mesh(&None, EventKind::ClaimAcquired, "p", "n");
     }
 }

@@ -218,13 +218,22 @@ pub async fn mcp_bootstrap_servers_inner() -> Result<EndpointDescriptor, String>
             // cwd is unavailable — symmetric with the dispatch loop's own
             // `current_dir().unwrap_or_else(|_| ".".into())`.
             let repo = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+            // US-S3 — attach a mesh audit sink so blade `send_message` calls
+            // (handled in THIS server process) emit a `MessageSent` record into
+            // `<repo>/.apohara/audit`. Best-effort: a sink that can't open
+            // degrades to no MessageSent trail, never blocks the bus.
+            let mut mesh_backend = crate::servers::mesh_store::FsMeshBackend::new(&repo);
+            match apohara_audit::AuditSink::new(repo.join(".apohara").join("audit"), "mesh-mcp").await {
+                Ok(sink) => mesh_backend = mesh_backend.with_audit(sink),
+                Err(e) => tracing::warn!("mesh audit sink unavailable (non-fatal): {e}; MessageSent not recorded"),
+            }
             let opts = BootstrapOpts::new(
                 Arc::new(EpisodicLedger::new(
                     apohara_episodic::default_episode_db_path(),
                 )),
                 Arc::new(EmptyRuns),
                 Arc::new(StubIndexerClient),
-                Arc::new(crate::servers::mesh_store::FsMeshBackend::new(&repo)),
+                Arc::new(mesh_backend),
             );
             let handle = bootstrap_mcp_servers(opts)
                 .await

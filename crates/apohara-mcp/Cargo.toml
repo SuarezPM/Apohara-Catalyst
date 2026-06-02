@@ -37,6 +37,11 @@ apohara-hooks = { path = "../apohara-hooks" }
 # disk. No cycle: apohara-dispatch deps coordinator/secrets/token-accounting/
 # types only — never apohara-mcp.
 apohara-dispatch = { path = "../apohara-dispatch" }
+# US-S3 — MessageSent mesh audit. send_message runs INSIDE this crate's MCP
+# server process (the desktop cannot observe a blade-side MCP send), so the
+# MessageSent record must be emitted HERE. Leaf-ward, acyclic (apohara-audit
+# depends on no apohara crate).
+apohara-audit = { path = "../apohara-audit" }
 
 [dev-dependencies]
 criterion = "0.5"

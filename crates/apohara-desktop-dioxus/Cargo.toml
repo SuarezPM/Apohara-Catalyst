@@ -35,6 +35,10 @@ apohara-decomposer = { path = "../apohara-decomposer" }
 apohara-token-accounting = { path = "../apohara-token-accounting" }
 apohara-worktree = { path = "../apohara-worktree" }
 apohara-verification = { path = "../apohara-verification" }
+# US-S3 — ClaimAcquired / MergeCompleted mesh audit at the in-process claim +
+# merge call sites (the desktop owns try_claim + lifecycle::merge). Leaf-ward,
+# acyclic.
+apohara-audit = { path = "../apohara-audit" }
 apohara-episodic = { path = "../apohara-episodic" }
 # US-F0.1 — the desktop bootstraps the internal MCP bus on mount via
 # `apohara_mcp::api::mcp_bootstrap_servers_inner` (idempotent, process-global).

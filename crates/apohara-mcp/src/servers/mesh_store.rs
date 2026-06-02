@@ -20,6 +20,7 @@
 
 use std::path::{Path, PathBuf};
 
+use apohara_audit::{AuditEvent, AuditSink, EventKind};
 use apohara_dispatch::{
     ClaimOutcome, ClaimStore, Mailbox, Message, ReportOutcome, RunState, TaskGraph, TaskNode,
 };
@@ -37,6 +38,11 @@ pub struct FsMeshBackend {
     claims: ClaimStore,
     tasks: TaskGraph,
     mailbox: Mailbox,
+    /// US-S3 — optional mesh audit sink. `send_message` runs in THIS process
+    /// (the desktop is architecturally blind to a blade-side MCP send), so the
+    /// `MessageSent` record is emitted here when a sink is attached. `None` for
+    /// tests/headless callers that don't want an audit trail.
+    audit: Option<AuditSink>,
 }
 
 impl FsMeshBackend {
@@ -48,7 +54,15 @@ impl FsMeshBackend {
             claims: ClaimStore::new(apohara.join("claims")),
             tasks: TaskGraph::new(apohara.join("tasks")),
             mailbox: Mailbox::new(apohara.join("mailbox")),
+            audit: None,
         }
+    }
+
+    /// Attach a mesh audit sink so `send_message` emits a `MessageSent` record
+    /// (US-S3). The live bootstrap wires this; tests opt in explicitly.
+    pub fn with_audit(mut self, sink: AuditSink) -> Self {
+        self.audit = Some(sink);
+        self
     }
 }
 
@@ -132,6 +146,7 @@ impl MeshBackend for FsMeshBackend {
         // `MeshMessage` carries the wire fields (from/to/body/ts); the mailbox
         // `Message` adds a local `id` for ack-before-clear (US-F2.3). Leave it
         // empty so `Mailbox::send` mints one — the MCP wire format is unchanged.
+        let (from, to, ts) = (msg.from.clone(), msg.to.clone(), msg.ts);
         self.mailbox
             .send(Message {
                 id: String::new(),
@@ -140,7 +155,21 @@ impl MeshBackend for FsMeshBackend {
                 body: msg.body,
                 ts: msg.ts,
             })
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+
+        // US-S3 — emit a MessageSent mesh audit record (best-effort; an audit
+        // failure must NEVER fail a blade-to-blade send). The payload carries
+        // only routing metadata (ts) — NEVER the message body, which is
+        // blade-authored and may contain anything (redaction discipline §0.4).
+        if let Some(sink) = &self.audit {
+            let _ = sink.write(AuditEvent::mesh(
+                EventKind::MessageSent,
+                from,
+                to,
+                serde_json::json!({ "ts": ts }),
+            ));
+        }
+        Ok(())
     }
 
     async fn check_inbox(&self, blade: &str) -> Result<Vec<MeshMessage>, String> {
@@ -276,5 +305,69 @@ mod tests {
         assert_eq!(inbox[0].ts, 7);
         // Drained: a second poll is empty.
         assert!(b.check_inbox("claude").await.unwrap().is_empty());
+    }
+
+    /// US-S3 — a blade `send_message` produces a `MessageSent` audit record from
+    /// WITHIN apohara-mcp (the desktop is architecturally blind to it), and the
+    /// message BODY never leaks into the audit trail (redaction discipline).
+    #[tokio::test]
+    async fn send_message_emits_message_sent_audit_without_body_leak() {
+        let tmp = TempDir::new().unwrap();
+        let audit_dir = tmp.path().join("audit");
+        let sink = AuditSink::new(&audit_dir, "mesh-mcp").await.unwrap();
+        let b = FsMeshBackend::new(tmp.path()).with_audit(sink);
+
+        b.send_message(MeshMessage {
+            from: "codex".into(),
+            to: "claude".into(),
+            body: "SECRET-do-not-log".into(),
+            ts: 42,
+        })
+        .await
+        .unwrap();
+
+        // Let the dedicated async writer task drain the queue to disk.
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+        let mut found = false;
+        for entry in std::fs::read_dir(&audit_dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+                continue;
+            }
+            let content = std::fs::read_to_string(&path).unwrap();
+            assert!(
+                !content.contains("SECRET"),
+                "message body must NOT leak into the audit trail"
+            );
+            for line in content.lines() {
+                let v: serde_json::Value = serde_json::from_str(line).unwrap();
+                if v["kind"] == "message_sent" {
+                    assert_eq!(v["actor"], "codex", "actor is the sender");
+                    assert_eq!(v["target"], "claude", "target is the recipient");
+                    assert_eq!(v["payload"]["ts"], 42, "only routing metadata in the payload");
+                    found = true;
+                }
+            }
+        }
+        assert!(found, "a MessageSent record must be written from within apohara-mcp");
+    }
+
+    /// US-S3 — a send with NO audit sink (default) must still succeed: audit is
+    /// strictly additive and never on the critical path of a blade send.
+    #[tokio::test]
+    async fn send_message_without_audit_sink_still_succeeds() {
+        let tmp = TempDir::new().unwrap();
+        let b = FsMeshBackend::new(tmp.path());
+        b.send_message(MeshMessage {
+            from: "codex".into(),
+            to: "claude".into(),
+            body: "hi".into(),
+            ts: 1,
+        })
+        .await
+        .unwrap();
+        // The message still landed in the mailbox (audit absence changes nothing).
+        assert_eq!(b.check_inbox("claude").await.unwrap().len(), 1);
     }
 }
