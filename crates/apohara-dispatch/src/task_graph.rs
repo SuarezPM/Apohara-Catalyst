@@ -137,6 +137,19 @@ impl TaskGraph {
         Ok(self.load()?.done.iter().any(|d| d == id))
     }
 
+    /// Every node currently in the DAG, in insertion order (the persisted
+    /// order — `add_node` appends, so the first-added node is first).
+    ///
+    /// Read-only view of the node set (id/title/deps), distinct from
+    /// [`Self::claimable`] which returns only the *eligible* ids: callers that
+    /// must render the WHOLE graph (the US-F0.2 `get_tasks` mesh tool) need the
+    /// full nodes, joining the live lifecycle state from the [`ClaimStore`]
+    /// themselves. A never-saved graph yields an empty Vec (`load` maps a
+    /// missing file to the default).
+    pub fn nodes(&self) -> Result<Vec<TaskNode>, GraphError> {
+        Ok(self.load()?.nodes)
+    }
+
     /// Compute the deterministically-ordered (by id) set of claimable node
     /// ids. A node `n` is claimable iff:
     ///   1. `n` is not already done,

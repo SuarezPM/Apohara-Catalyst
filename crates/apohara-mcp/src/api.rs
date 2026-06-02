@@ -211,12 +211,20 @@ pub async fn mcp_bootstrap_servers_inner() -> Result<EndpointDescriptor, String>
     check_enabled()?;
     BOOTSTRAP_ONCE
         .get_or_try_init(|| async {
+            // US-F2.0a — root the concrete mesh backend at the repo (cwd →
+            // `<repo>/.apohara/{claims,tasks,mailbox}`) so the LIVE mesh bus and
+            // the dispatch loop (US-F1.4, same `<repo>/.apohara/claims`
+            // convention) share the SAME on-disk stores. Falls back to "." if
+            // cwd is unavailable — symmetric with the dispatch loop's own
+            // `current_dir().unwrap_or_else(|_| ".".into())`.
+            let repo = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
             let opts = BootstrapOpts::new(
                 Arc::new(EpisodicLedger::new(
                     apohara_episodic::default_episode_db_path(),
                 )),
                 Arc::new(EmptyRuns),
                 Arc::new(StubIndexerClient),
+                Arc::new(crate::servers::mesh_store::FsMeshBackend::new(&repo)),
             );
             let handle = bootstrap_mcp_servers(opts)
                 .await
@@ -359,6 +367,11 @@ mod tests {
             port(&first.servers, |s| &s.settings),
             port(&second.servers, |s| &s.settings),
             "settings port must be identical"
+        );
+        assert_eq!(
+            port(&first.servers, |s| &s.mesh),
+            port(&second.servers, |s| &s.mesh),
+            "mesh port must be identical (not re-bound)"
         );
     }
 
@@ -525,6 +538,7 @@ mod tests {
                 runs: None,
                 indexer: None,
                 settings: None,
+                mesh: Some(crate::bootstrap::EndpointPort { port: 9 }),
             },
             started_at: 42,
         };
@@ -533,5 +547,6 @@ mod tests {
         assert_eq!(back.token, "deadbeef");
         assert_eq!(back.started_at, 42);
         assert_eq!(back.servers.ledger.as_ref().unwrap().port, 1);
+        assert_eq!(back.servers.mesh.as_ref().unwrap().port, 9);
     }
 }

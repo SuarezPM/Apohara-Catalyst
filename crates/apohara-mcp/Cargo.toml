@@ -30,6 +30,11 @@ apohara-episodic = { path = "../apohara-episodic" }
 # installer (idempotent + atomic + chmod 0755). No cycle: apohara-hooks does
 # not depend on apohara-mcp.
 apohara-hooks = { path = "../apohara-hooks" }
+# US-F2.0a — the concrete `MeshBackend` wraps the F0+F1 stores (ClaimStore /
+# TaskGraph / Mailbox) so the `apohara.mesh` server goes live against real
+# disk. No cycle: apohara-dispatch deps coordinator/secrets/token-accounting/
+# types only — never apohara-mcp.
+apohara-dispatch = { path = "../apohara-dispatch" }
 
 [dev-dependencies]
 criterion = "0.5"

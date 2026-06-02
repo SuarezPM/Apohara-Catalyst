@@ -11,5 +11,8 @@ pub mod commit;
 pub mod indexer;
 pub mod ledger;
 pub mod mesh;
+/// US-F2.0a — concrete `MeshBackend` over the F0+F1 filesystem stores, so the
+/// `apohara.mesh` server (above) goes live against real disk at bootstrap.
+pub mod mesh_store;
 pub mod runs;
 pub mod settings;
