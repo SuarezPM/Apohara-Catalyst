@@ -156,6 +156,43 @@ fn list_returns_all_records_sorted_including_released() {
     assert_eq!(b.state, RunState::Released, "released task still lists");
 }
 
+/// `has_active_claim` (US-F2.0c): the read the PreToolUse claim-guard hook
+/// consults. True only while a live claim (`Claimed`/`Running`) exists; a
+/// never-claimed task is false, and a `Released` slot is false again so a
+/// blade that finished can no longer write under the old claim.
+#[test]
+fn has_active_claim_tracks_live_claim() {
+    let dir = TempDir::new().unwrap();
+    let store = ClaimStore::new(dir.path().join("claims"));
+    let task_id = "task-guard";
+
+    // No record yet → no active claim (guard blocks).
+    assert!(
+        !store.has_active_claim(task_id).unwrap(),
+        "a never-claimed task has no active claim"
+    );
+
+    // Claimed → active (guard allows).
+    let token = match store.try_claim(task_id).unwrap() {
+        ClaimOutcome::Acquired { token } => token,
+        other => panic!("expected claim, got {other:?}"),
+    };
+    assert!(
+        store.has_active_claim(task_id).unwrap(),
+        "a claimed task has an active claim"
+    );
+
+    // Released → no longer active (guard blocks again).
+    assert_eq!(
+        store.report_result(task_id, &token).unwrap(),
+        ReportOutcome::Accepted
+    );
+    assert!(
+        !store.has_active_claim(task_id).unwrap(),
+        "a released task has no active claim"
+    );
+}
+
 // ---------------------------------------------------------------------
 // Cross-process smoke test.
 //

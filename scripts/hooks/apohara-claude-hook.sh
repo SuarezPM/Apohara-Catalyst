@@ -69,4 +69,41 @@ curl -s --max-time 2 \
   -H "Content-Type: application/json" \
   -d "$ENVELOPE" >/dev/null 2>&1 || true
 
+# --- PreToolUse claim-guard backstop (US-F2.0c) -----------------------------
+# HARD enforcement behind the F2.0b prompt (which is the PRIMARY mitigation):
+# block a mesh blade's file write when it holds NO active claim for its task.
+# Scope is deliberately narrow so we never disturb normal claude use:
+#   * only on PreToolUse,
+#   * only on a mesh-managed spawn (APOHARA_TASK_ID set), and
+#   * only for write tools (Write/Edit/MultiEdit/NotebookEdit).
+# Everything else falls through to `exit 0` exactly as before. The guard binary
+# itself fails OPEN (missing binary / not-a-repo / IO error → exit 0): a
+# backstop must never strand a blade over its own fault.
+if [ "$HOOK_EVENT_NAME" = "PreToolUse" ] && [ -n "${APOHARA_TASK_ID:-}" ]; then
+  # Read the tool name from the same stdin payload (jq when available, grep
+  # fallback — mirrors the PORT/TOKEN parsing above).
+  TOOL_NAME=""
+  if command -v jq >/dev/null 2>&1; then
+    TOOL_NAME=$(printf '%s' "$PAYLOAD" | jq -r '.tool_name // empty' 2>/dev/null)
+  else
+    TOOL_NAME=$(printf '%s' "$PAYLOAD" \
+      | grep -o '"tool_name"[[:space:]]*:[[:space:]]*"[^"]*"' \
+      | sed 's/.*"\([^"]*\)"$/\1/')
+  fi
+  case "$TOOL_NAME" in
+    Write|Edit|MultiEdit|NotebookEdit)
+      APOHARA_BIN="${APOHARA_BIN:-apohara}"
+      # Missing guard binary → fail-open (do NOT block on an absent backstop).
+      if command -v "$APOHARA_BIN" >/dev/null 2>&1; then
+        # The CLI exits 2 to block (no active claim) or 0 to allow / fail-open.
+        # Block ONLY on the explicit 2; any other code falls through to exit 0
+        # so an unexpected guard fault never strands the blade (fail-open).
+        GUARD_RC=0
+        "$APOHARA_BIN" hooks check-claim || GUARD_RC=$?
+        [ "$GUARD_RC" -eq 2 ] && exit 2
+      fi
+      ;;
+  esac
+fi
+
 exit 0

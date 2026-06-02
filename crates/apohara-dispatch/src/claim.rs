@@ -349,6 +349,25 @@ impl ClaimStore {
         Ok(records)
     }
 
+    /// True iff `task_id` currently holds an active claim — i.e. a record
+    /// exists in state [`RunState::Claimed`] or [`RunState::Running`].
+    ///
+    /// Lock-free, like [`Self::load`] (which it delegates to): this is the
+    /// read side that the PreToolUse claim-guard hook (US-F2.0c) consults
+    /// before allowing a blade's file write. A `Released`/`Unclaimed`/missing
+    /// record is *not* an active claim, so the guard blocks the write. The
+    /// hook treats this as a backstop only — the F2.0b prompt that instructs
+    /// blades to claim first is the primary mitigation.
+    pub fn has_active_claim(&self, task_id: &str) -> Result<bool, ClaimError> {
+        Ok(matches!(
+            self.load(task_id)?,
+            Some(ClaimRecord {
+                state: RunState::Claimed | RunState::Running,
+                ..
+            })
+        ))
+    }
+
     /// Read the current claim record, or `None` if the task was never
     /// claimed. Lock-free reads are fine for observability; the
     /// authoritative read-modify-write paths hold the lock.
