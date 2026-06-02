@@ -14,12 +14,14 @@ pub mod auto_spawn;
 pub mod blast_radius;
 pub mod conflict_matrix;
 pub mod coordinator;
+pub mod distribution;
 pub mod manifest;
 pub mod scheduler_decision;
 pub mod store;
 
 pub use auto_spawn::{decide_auto_spawn, AutoSpawnDecision, AutoSpawnPolicy};
 pub use coordinator::{Coordinator, RetryReason, TickOutcome};
+pub use distribution::{assign, Assignment, Blade, DistributionPolicy, ReadyTask};
 pub use store::{InMemoryStore, SchedulerStore, StoreError};
 
 /// Crate version, for smoke tests and version surfacing.
