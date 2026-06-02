@@ -1,0 +1,271 @@
+//! Atomic task claim with a *real* advisory file lock (US-F0.0).
+//!
+//! This is the de-risking core of the BYOC ("bring your own CLI") model:
+//! blades are **separate OS processes** (heterogeneous CLI wrappers —
+//! claude / codex / opencode), so an in-process mutex cannot prevent two
+//! of them from claiming the same task. We need cross-process mutual
+//! exclusion that survives a process crash.
+//!
+//! Two layers cooperate:
+//!   1. A POSIX advisory lock (`flock(2)` via [`fs2::FileExt`]) on a
+//!      per-task `.lock` file. `try_lock_exclusive` is **non-blocking**:
+//!      exactly one contender acquires it; every other gets a clean
+//!      "already claimed" instead of blocking or panicking. The kernel
+//!      drops the lock automatically if the holder dies, so a crashed
+//!      claimer never deadlocks the task.
+//!   2. A persisted claim record (`<task_id>.json`) holding the current
+//!      [`RunState`] + claim token. The lock guards the read-modify-write
+//!      of this record so the `Unclaimed → Claimed` transition (and its
+//!      [`fresh_claim_token`]) is atomic against concurrent claimers.
+//!
+//! The claim token (RFC 4122 v4, via [`fresh_claim_token`]) closes the
+//! reaper race: a blade reaped for being stalled may wake up later and
+//! try to `report_result`. If the task was re-claimed in the meantime,
+//! the zombie presents a stale token and is rejected — its result never
+//! overwrites the live claimer's work.
+//!
+//! State persistence uses the repo-wide atomic-write discipline (§0.8):
+//! `NamedTempFile::new_in(parent)` + `persist()` (tmp + rename), never an
+//! in-place truncating write that a crash could leave half-written.
+
+use crate::state::{can_transition, fresh_claim_token, RunState};
+use fs2::FileExt;
+use serde::{Deserialize, Serialize};
+use std::fs::{File, OpenOptions};
+use std::io::{self, Write};
+use std::path::PathBuf;
+
+/// Persisted claim record for a single task. Serialized to
+/// `<root>/<task_id>.json`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ClaimRecord {
+    pub task_id: String,
+    pub state: RunState,
+    /// `Some` while the task is actively claimed (`Claimed`/`Running`);
+    /// `None` once released so a stale token can never match a free slot.
+    pub token: Option<String>,
+}
+
+/// Outcome of a [`ClaimStore::try_claim`] attempt.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClaimOutcome {
+    /// This caller won the race; carry the fresh token forward to
+    /// [`ClaimStore::report_result`].
+    Acquired { token: String },
+    /// Another claimer holds the task. Clean signal — not an error.
+    AlreadyClaimed,
+}
+
+/// Outcome of a [`ClaimStore::report_result`] call.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReportOutcome {
+    /// Token matched the live claim; the result is authoritative.
+    Accepted,
+    /// Token did not match (stale/reaped claimer) — result rejected so a
+    /// zombie cannot overwrite the current claimer's outcome.
+    StaleToken,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ClaimError {
+    #[error("io: {0}")]
+    Io(#[from] io::Error),
+    #[error("serde: {0}")]
+    Serde(#[from] serde_json::Error),
+    /// The persisted record exists but its state forbids the requested
+    /// transition (corrupt store or logic bug, not normal contention).
+    #[error("illegal transition for {task_id}: {from:?} -> {to:?}")]
+    IllegalTransition {
+        task_id: String,
+        from: RunState,
+        to: RunState,
+    },
+}
+
+/// Filesystem-backed claim store. One directory holds every task's
+/// `.json` record and `.lock` companion. Cheap to clone (just a path),
+/// so heterogeneous call sites can each construct their own pointing at
+/// the same `root`.
+#[derive(Debug, Clone)]
+pub struct ClaimStore {
+    root: PathBuf,
+}
+
+impl ClaimStore {
+    /// Open (and lazily create) a claim store rooted at `root`.
+    ///
+    /// Convention: pass `<workspace>/.apohara/claims`. The directory is
+    /// created on demand on the first claim, so this never touches disk.
+    pub fn new(root: impl Into<PathBuf>) -> Self {
+        Self { root: root.into() }
+    }
+
+    fn record_path(&self, task_id: &str) -> PathBuf {
+        self.root.join(format!("{task_id}.json"))
+    }
+
+    fn lock_path(&self, task_id: &str) -> PathBuf {
+        self.root.join(format!("{task_id}.lock"))
+    }
+
+    /// Open the per-task lock file, creating it if absent. The returned
+    /// handle owns the advisory lock for as long as it is alive.
+    fn open_lock(&self, task_id: &str) -> io::Result<File> {
+        std::fs::create_dir_all(&self.root)?;
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(self.lock_path(task_id))
+    }
+
+    /// Attempt to claim `task_id`. Cross-process atomic: under a barrier
+    /// of N contenders, exactly one returns [`ClaimOutcome::Acquired`];
+    /// the rest return [`ClaimOutcome::AlreadyClaimed`].
+    ///
+    /// The advisory lock is held only for the read-modify-write window —
+    /// long enough to make the `Unclaimed → Claimed` flip + token mint
+    /// atomic, then dropped. The *claim itself* is protected by the
+    /// persisted state + token, not by holding the flock for the task's
+    /// whole lifetime (which would die with the process and is the wrong
+    /// granularity for long agent runs).
+    pub fn try_claim(&self, task_id: &str) -> Result<ClaimOutcome, ClaimError> {
+        let lock = self.open_lock(task_id)?;
+        // Non-blocking: the loser does NOT wait — it gets WouldBlock and
+        // we translate that into a clean AlreadyClaimed.
+        match lock.try_lock_exclusive() {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                return Ok(ClaimOutcome::AlreadyClaimed);
+            }
+            Err(e) => return Err(e.into()),
+        }
+        // `lock` (and thus the flock) is released when this scope ends,
+        // including every early return below.
+        let _guard = LockGuard(&lock);
+
+        let current = self.load(task_id)?;
+        let from = current.as_ref().map(|r| r.state).unwrap_or(RunState::Unclaimed);
+
+        // Only Unclaimed/Released slots are claimable; anything else is a
+        // live claim held by someone who beat us to the persisted write.
+        if from != RunState::Unclaimed && from != RunState::Released {
+            return Ok(ClaimOutcome::AlreadyClaimed);
+        }
+        // Released must re-enter via Unclaimed per the state DAG; treat a
+        // released slot as freshly claimable.
+        let to = RunState::Claimed;
+        let effective_from = if from == RunState::Released {
+            RunState::Unclaimed
+        } else {
+            from
+        };
+        if !can_transition(effective_from, to) {
+            return Err(ClaimError::IllegalTransition {
+                task_id: task_id.to_string(),
+                from: effective_from,
+                to,
+            });
+        }
+
+        let token = fresh_claim_token();
+        let record = ClaimRecord {
+            task_id: task_id.to_string(),
+            state: RunState::Claimed,
+            token: Some(token.clone()),
+        };
+        self.persist(&record)?;
+        Ok(ClaimOutcome::Acquired { token })
+    }
+
+    /// Report a result against the claim identified by `token`.
+    ///
+    /// Validates `token` against the *current* persisted claim under the
+    /// advisory lock. A stale token (the claimer was reaped and the task
+    /// re-claimed under a new token) is rejected. On acceptance the task
+    /// transitions to `Released` and the token is cleared.
+    pub fn report_result(
+        &self,
+        task_id: &str,
+        token: &str,
+    ) -> Result<ReportOutcome, ClaimError> {
+        let lock = self.open_lock(task_id)?;
+        // Block here on purpose: report is rare and must observe the
+        // committed state, so we serialize against an in-flight claim
+        // rather than racing it. (Distinct from `try_claim`, which must
+        // never block a contender.)
+        lock.lock_exclusive()?;
+        let _guard = LockGuard(&lock);
+
+        let current = self.load(task_id)?;
+        match current {
+            Some(record) if record.token.as_deref() == Some(token) => {
+                let released = ClaimRecord {
+                    task_id: task_id.to_string(),
+                    state: RunState::Released,
+                    token: None,
+                };
+                self.persist(&released)?;
+                Ok(ReportOutcome::Accepted)
+            }
+            // Missing record, no live token, or a mismatched token: the
+            // claim this caller thinks it holds is gone.
+            _ => Ok(ReportOutcome::StaleToken),
+        }
+    }
+
+    /// Release a claim out-of-band (e.g. a reaper freeing a stalled
+    /// blade) so the slot becomes claimable again. Does not validate a
+    /// token — the reaper acts on behalf of the system, not the claimer.
+    pub fn release(&self, task_id: &str) -> Result<(), ClaimError> {
+        let lock = self.open_lock(task_id)?;
+        lock.lock_exclusive()?;
+        let _guard = LockGuard(&lock);
+
+        let released = ClaimRecord {
+            task_id: task_id.to_string(),
+            state: RunState::Released,
+            token: None,
+        };
+        self.persist(&released)
+    }
+
+    /// Read the current claim record, or `None` if the task was never
+    /// claimed. Lock-free reads are fine for observability; the
+    /// authoritative read-modify-write paths hold the lock.
+    pub fn load(&self, task_id: &str) -> Result<Option<ClaimRecord>, ClaimError> {
+        match std::fs::read(self.record_path(task_id)) {
+            Ok(bytes) => Ok(Some(serde_json::from_slice(&bytes)?)),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Atomic persist (§0.8): write to a temp file in the same directory,
+    /// then `persist()` (rename) over the target. A crash mid-write
+    /// leaves the old record intact instead of a truncated file.
+    fn persist(&self, record: &ClaimRecord) -> Result<(), ClaimError> {
+        std::fs::create_dir_all(&self.root)?;
+        let body = serde_json::to_vec_pretty(record)?;
+        let mut tmp = tempfile::NamedTempFile::new_in(&self.root)?;
+        tmp.write_all(&body)?;
+        tmp.flush()?;
+        tmp.persist(self.record_path(&record.task_id))
+            .map_err(|e| ClaimError::Io(e.error))?;
+        Ok(())
+    }
+}
+
+/// Releases the advisory lock when dropped. `fs2`'s lock is tied to the
+/// fd, so an explicit guard makes the release point unambiguous even
+/// across early returns.
+struct LockGuard<'a>(&'a File);
+
+impl Drop for LockGuard<'_> {
+    fn drop(&mut self) {
+        // Best-effort: if unlock fails the fd close on `File` drop still
+        // releases the flock, so there is nothing actionable to do here.
+        let _ = fs2::FileExt::unlock(self.0);
+    }
+}
