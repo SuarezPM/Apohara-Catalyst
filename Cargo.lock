@@ -465,6 +465,7 @@ name = "apohara-hooks-server"
 version = "1.0.0-rc.5"
 dependencies = [
  "apohara-audit",
+ "apohara-dispatch",
  "apohara-types",
  "axum",
  "chrono",
@@ -736,6 +737,7 @@ name = "apohara-token-accounting"
 version = "1.0.0-rc.5"
 dependencies = [
  "serde",
+ "serde_json",
  "thiserror 2.0.18",
  "tracing",
  "ts-rs",
