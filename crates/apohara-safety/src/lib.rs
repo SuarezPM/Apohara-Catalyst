@@ -23,6 +23,7 @@ pub mod patterns;
 pub mod permission_cache;
 pub mod permission_grid;
 pub mod permission_service;
+pub mod phase_permissions;
 pub mod pure_profiles;
 pub mod runner_policy;
 pub mod api;
@@ -42,6 +43,7 @@ pub use permission_grid::{PermissionGrid, PermissionRow, PermissionScope, Permis
 pub use permission_service::{
     check as check_permission, AllowReason, DenyReason, PermissionDecision, PermissionServiceOpts,
 };
+pub use phase_permissions::{decide_phase, is_mutating, Phase, PhasePermission};
 pub use pure_profiles::{
     apply_pure_profile, get_pure_profile, is_allowed, PureAction, PureProfile, PureProfileName,
     SafetyDecision,
