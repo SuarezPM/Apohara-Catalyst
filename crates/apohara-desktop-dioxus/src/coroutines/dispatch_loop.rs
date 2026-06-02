@@ -368,7 +368,10 @@ async fn run_dispatch(objective: String) {
 /// (`APOHARA_RUST_DISPATCH`, opt-out). The mesh path is experimental, so it is
 /// off unless explicitly `=1`. `Some("true")`/`Some("yes")` are NOT enabled —
 /// only the literal `"1"`, mirroring the operator convention in the plan.
-fn mesh_enabled(env_value: Option<&str>) -> bool {
+///
+/// `pub(crate)` so the `utilization_watcher` (US-S2) reuses the EXACT predicate
+/// — the mesh ready_count + background reaping must gate on the same flag.
+pub(crate) fn mesh_enabled(env_value: Option<&str>) -> bool {
     env_value == Some("1")
 }
 
