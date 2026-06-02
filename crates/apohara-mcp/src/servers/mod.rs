@@ -10,5 +10,6 @@
 pub mod commit;
 pub mod indexer;
 pub mod ledger;
+pub mod mesh;
 pub mod runs;
 pub mod settings;
