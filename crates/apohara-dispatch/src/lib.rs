@@ -17,6 +17,7 @@ pub mod api;
 pub mod task_graph;
 pub mod scheduler_store;
 pub mod planner;
+pub mod consensus;
 
 pub use careful::CarefulMode;
 pub use cli_driver::{CliDriver, DispatchOutcome, DispatchRequest};
@@ -29,6 +30,7 @@ pub use state::{BlockedReason, RunPhase, RunState, RunTransition, TransitionStat
 pub use task_graph::{default_pid_alive, reap_stale_claims, TaskGraph, TaskNode};
 pub use scheduler_store::DispatchSchedulerStore;
 pub use planner::{build_master_plan, derive_areas, plan_master, PlannedNode};
+pub use consensus::{consensus_refine, ConsensusPolicy, PlanRefiner};
 pub use teammate::TeammateRoster;
 
 #[cfg(test)]
