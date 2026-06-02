@@ -34,6 +34,17 @@ use serde::{Deserialize, Serialize};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
 use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+/// Liveness proof a claimer periodically renews so the reaper can tell a
+/// slow-but-alive blade from a dead one. `pid` lets the reaper cross-check
+/// against the OS process table; `last_beat_ms` extends the staleness
+/// deadline past the original claim time.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Heartbeat {
+    pub pid: u32,
+    pub last_beat_ms: i64,
+}
 
 /// Persisted claim record for a single task. Serialized to
 /// `<root>/<task_id>.json`.
@@ -44,6 +55,27 @@ pub struct ClaimRecord {
     /// `Some` while the task is actively claimed (`Claimed`/`Running`);
     /// `None` once released so a stale token can never match a free slot.
     pub token: Option<String>,
+    /// Epoch ms when the live claim was minted. Seeds the reaper's TTL
+    /// deadline so a claimer that never beats still ages out. Additive +
+    /// `serde(default)` so pre-existing records (and F0.0 tests) that omit
+    /// it still deserialize as `None`.
+    #[serde(default)]
+    pub claimed_at_ms: Option<i64>,
+    /// Latest renewed liveness proof, or `None` if the claimer has not
+    /// beaten yet. Additive + `serde(default)` for backward-compatible
+    /// deserialization.
+    #[serde(default)]
+    pub heartbeat: Option<Heartbeat>,
+}
+
+/// Wall-clock epoch millis. `std::time` only — no extra dependency. A
+/// pre-epoch clock (impossible in practice) folds to 0 rather than
+/// panicking.
+fn now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 /// Outcome of a [`ClaimStore::try_claim`] attempt.
@@ -174,9 +206,51 @@ impl ClaimStore {
             task_id: task_id.to_string(),
             state: RunState::Claimed,
             token: Some(token.clone()),
+            // Stamp the mint time so the reaper can TTL-expire a claimer
+            // that dies before ever sending a heartbeat.
+            claimed_at_ms: Some(now_ms()),
+            heartbeat: None,
         };
         self.persist(&record)?;
         Ok(ClaimOutcome::Acquired { token })
+    }
+
+    /// Renew the liveness proof for an active claim. Validates `token`
+    /// against the *current* persisted claim under the advisory lock (same
+    /// read-modify-write discipline as [`Self::report_result`]). On a token
+    /// match the heartbeat is refreshed and the claim state is preserved;
+    /// a stale token (the claimer was reaped and re-claimed) is rejected so
+    /// a zombie cannot resurrect a slot it no longer owns.
+    pub fn heartbeat(
+        &self,
+        task_id: &str,
+        token: &str,
+        pid: u32,
+        now_ms: i64,
+    ) -> Result<ReportOutcome, ClaimError> {
+        let lock = self.open_lock(task_id)?;
+        // Block on purpose, mirroring report_result: the heartbeat must
+        // observe the committed claim, not race an in-flight one.
+        lock.lock_exclusive()?;
+        let _guard = LockGuard(&lock);
+
+        let current = self.load(task_id)?;
+        match current {
+            Some(record) if record.token.as_deref() == Some(token) => {
+                let beaten = ClaimRecord {
+                    heartbeat: Some(Heartbeat {
+                        pid,
+                        last_beat_ms: now_ms,
+                    }),
+                    ..record
+                };
+                self.persist(&beaten)?;
+                Ok(ReportOutcome::Accepted)
+            }
+            // Missing record, no live token, or a mismatched token: the
+            // claim this caller thinks it holds is gone.
+            _ => Ok(ReportOutcome::StaleToken),
+        }
     }
 
     /// Report a result against the claim identified by `token`.
@@ -205,6 +279,10 @@ impl ClaimStore {
                     task_id: task_id.to_string(),
                     state: RunState::Released,
                     token: None,
+                    // Released slots carry no liveness metadata — a freed
+                    // slot must never look like a live claim to the reaper.
+                    claimed_at_ms: None,
+                    heartbeat: None,
                 };
                 self.persist(&released)?;
                 Ok(ReportOutcome::Accepted)
@@ -227,6 +305,9 @@ impl ClaimStore {
             task_id: task_id.to_string(),
             state: RunState::Released,
             token: None,
+            // See report_result: a freed slot drops all liveness metadata.
+            claimed_at_ms: None,
+            heartbeat: None,
         };
         self.persist(&released)
     }
