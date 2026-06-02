@@ -10,9 +10,13 @@
 //! the new-per-run `orchestration.db`). See `path` for the resolution and
 //! `store` for the schema + insert/query/recall surface.
 
+pub mod mesh_memory;
 pub mod path;
 pub mod store;
 
+pub use mesh_memory::{
+    open_mesh_memory_db, record_mesh_entry, recover_mesh_context, MeshEntry, MeshEntryKind,
+};
 pub use path::default_episode_db_path;
 pub use store::{
     insert_episode, list_episodes, open_episode_db, query_episodes, search_episodes, Episode,
