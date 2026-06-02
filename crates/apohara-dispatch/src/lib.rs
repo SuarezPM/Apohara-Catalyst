@@ -15,6 +15,7 @@ pub mod teammate;
 pub mod careful;
 pub mod api;
 pub mod task_graph;
+pub mod scheduler_store;
 
 pub use careful::CarefulMode;
 pub use cli_driver::{CliDriver, DispatchOutcome, DispatchRequest};
@@ -25,6 +26,7 @@ pub use claim::{ClaimError, ClaimOutcome, ClaimRecord, ClaimStore, Heartbeat, Re
 pub use mailbox::{Mailbox, MailboxError, Message};
 pub use state::{BlockedReason, RunPhase, RunState, RunTransition, TransitionState};
 pub use task_graph::{default_pid_alive, reap_stale_claims, TaskGraph, TaskNode};
+pub use scheduler_store::DispatchSchedulerStore;
 pub use teammate::TeammateRoster;
 
 #[cfg(test)]

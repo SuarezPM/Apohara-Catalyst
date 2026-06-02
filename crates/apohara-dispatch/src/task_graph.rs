@@ -236,61 +236,59 @@ fn has_cycle(nodes: &[TaskNode]) -> bool {
 }
 
 /// Release stale claims with the reaper's OWN liveness detection, fully
-/// independent of the Coordinator.
+/// independent of the Coordinator's clock.
 ///
-/// For each `task_id` whose claim state is `Claimed` or `Running`, the
-/// staleness deadline is `max(claimed_at_ms, heartbeat.last_beat_ms) +
-/// ttl_ms` (absent timestamps fold to 0). The claim is reaped — via
-/// [`ClaimStore::release`], which frees the slot without consuming a token
-/// — when **either**:
-///   * `now_ms > deadline` (TTL expiry: no fresh enough liveness), OR
-///   * a heartbeat is present AND its `pid` is not alive (`!is_alive`).
+/// Staleness is decided by [`crate::claim::claim_is_stale`] (TTL expiry OR a
+/// dead/recycled PID) — the *same* predicate the lock-held release path uses.
+/// Two US-F2.1 hardenings over the original standalone reaper:
+///   * **No TOCTOU** — instead of deciding from a lock-free read and then
+///     releasing unconditionally, each candidate is released via
+///     [`ClaimStore::release_if_still_stale`], which re-checks staleness
+///     *under the lock*. A heartbeat that lands mid-sweep spares the claim.
+///     The lock-free `load` here is only a cheap pre-filter to skip slots
+///     that obviously hold no live claim.
+///   * **Batch resilience** — a single corrupt/unreadable record (or a
+///     failed release) is logged and skipped, never aborting the whole sweep
+///     and stranding later stale claims.
 ///
-/// `is_alive` is injected so tests are deterministic; production passes
-/// [`default_pid_alive`]. Returns the released ids, sorted.
-pub fn reap_stale_claims(
+/// `is_alive(pid, pid_start_time)` is injected so tests are deterministic;
+/// production passes [`default_pid_alive`]. Returns the released ids, sorted.
+pub fn reap_stale_claims<F>(
     claim_store: &ClaimStore,
     task_ids: &[String],
     now_ms: i64,
     ttl_ms: i64,
-    is_alive: impl Fn(u32) -> bool,
-) -> Result<Vec<String>, ClaimError> {
+    is_alive: F,
+) -> Result<Vec<String>, ClaimError>
+where
+    F: Fn(u32, Option<u64>) -> bool,
+{
     use crate::state::RunState;
 
     let mut reaped = Vec::new();
     for task_id in task_ids {
-        let Some(record) = claim_store.load(task_id)? else {
-            continue;
-        };
-        // Only live claims are reapable; Unclaimed/Released/RetryQueued
-        // slots are not held by a blade.
-        if !matches!(record.state, RunState::Claimed | RunState::Running) {
-            continue;
+        // Cheap lock-free pre-filter: skip slots with no live claim. Batch
+        // resilience — an unreadable record is logged and skipped so the
+        // sweep still reaches later stale claims.
+        match claim_store.load(task_id) {
+            Ok(Some(record))
+                if matches!(record.state, RunState::Claimed | RunState::Running) => {}
+            Ok(_) => continue,
+            Err(e) => {
+                tracing::warn!(task_id = %task_id, error = %e, "reaper: skipping unreadable claim record");
+                continue;
+            }
         }
 
-        let last_seen = record
-            .claimed_at_ms
-            .into_iter()
-            .chain(record.heartbeat.as_ref().map(|h| h.last_beat_ms))
-            .max()
-            .unwrap_or(0);
-        // saturating_add: a corrupt/hostile on-disk claimed_at_ms near i64::MAX
-        // must not panic (debug) or wrap (release) — saturate so a far-future
-        // mint time is simply never TTL-reaped (it stays PID-reapable).
-        let deadline = last_seen.saturating_add(ttl_ms);
-
-        // strict >: a claim is stale only *after* its deadline, not at it
-        // (reaper_releases_on_ttl_expiry probes exactly deadline + 1).
-        let ttl_expired = now_ms > deadline;
-        let pid_dead = record
-            .heartbeat
-            .as_ref()
-            .map(|h| !is_alive(h.pid))
-            .unwrap_or(false);
-
-        if ttl_expired || pid_dead {
-            claim_store.release(task_id)?;
-            reaped.push(task_id.clone());
+        // Authoritative re-check + release under the lock (closes the TOCTOU
+        // window the lock-free pre-filter would otherwise open).
+        match claim_store.release_if_still_stale(task_id, now_ms, ttl_ms, &is_alive) {
+            Ok(true) => reaped.push(task_id.clone()),
+            Ok(false) => {}
+            Err(e) => {
+                tracing::warn!(task_id = %task_id, error = %e, "reaper: release_if_still_stale failed");
+                continue;
+            }
         }
     }
     reaped.sort();
@@ -299,20 +297,60 @@ pub fn reap_stale_claims(
 
 /// Default PID liveness probe, dependency-free.
 ///
-/// On Linux a live process has a `/proc/<pid>` directory; its absence means
-/// the process is gone. On other platforms we have no cheap dep-free probe,
-/// so we conservatively report `true` (never reap on the PID signal alone,
-/// leaving TTL expiry as the safety net).
-pub fn default_pid_alive(pid: u32) -> bool {
+/// On Linux a live process has a `/proc/<pid>` directory. Mere existence is
+/// not enough: the kernel recycles PIDs, so after a blade dies the OS may
+/// hand its number to an unrelated process — `/proc/<pid>` would exist but
+/// point at a *different* process. When `expected_start` is recorded we cross
+/// the gate with the process's start-time (`/proc/<pid>/stat` field 22): a
+/// mismatch means the original holder is gone (US-F2.1 PID-reuse hardening).
+///
+/// Returns `false` (dead) when `/proc/<pid>` is absent or its start-time no
+/// longer matches; `true` when the pid exists and either matches or no
+/// start-time was recorded. On non-Linux there is no cheap dep-free probe, so
+/// we conservatively report `true` (TTL expiry stays the only safety net).
+pub fn default_pid_alive(pid: u32, expected_start: Option<u64>) -> bool {
     #[cfg(target_os = "linux")]
     {
-        std::path::Path::new(&format!("/proc/{pid}")).exists()
+        match read_pid_start_time(pid) {
+            // No /proc/<pid>/stat -> the process is gone.
+            None => false,
+            Some(actual) => match expected_start {
+                // Start-time mismatch -> the PID was recycled; the holder died.
+                Some(expected) => actual == expected,
+                // No recorded start-time (older heartbeat) -> trust existence.
+                None => true,
+            },
+        }
     }
     #[cfg(not(target_os = "linux"))]
     {
-        let _ = pid;
+        let _ = (pid, expected_start);
         true
     }
+}
+
+/// Read a process's start-time (`/proc/<pid>/stat` field 22, clock-ticks
+/// since boot) on Linux, or `None` if the process is gone / unparseable.
+#[cfg(target_os = "linux")]
+fn read_pid_start_time(pid: u32) -> Option<u64> {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    parse_starttime(&stat)
+}
+
+/// Parse field 22 (`starttime`) out of a `/proc/<pid>/stat` line.
+///
+/// Field 2 (`comm`) is wrapped in parentheses and may itself contain spaces
+/// and parentheses (`(my (weird) proc)`), so naive whitespace splitting is
+/// wrong. The robust convention: anchor on the **last** `)`; everything after
+/// it starts at field 3 (`state`). `starttime` is field 22 overall, i.e. the
+/// 20th whitespace token after the `)` (0-based index 19). Not `cfg`-gated so
+/// it is unit-testable on any platform.
+fn parse_starttime(stat: &str) -> Option<u64> {
+    let after_comm = &stat[stat.rfind(')')? + 1..];
+    after_comm
+        .split_whitespace()
+        .nth(19)
+        .and_then(|tok| tok.parse::<u64>().ok())
 }
 
 #[cfg(test)]
@@ -410,13 +448,13 @@ mod tests {
         let now = 1_000_000_i64;
         // The blade beats once, then "dies" — pid 999999 reported dead.
         assert_eq!(
-            store.heartbeat("A", &token, 999_999, now).unwrap(),
+            store.heartbeat("A", &token, 999_999, now, None).unwrap(),
             crate::claim::ReportOutcome::Accepted
         );
 
         // Well within TTL, so only the dead-PID signal can free it.
         let released =
-            reap_stale_claims(&store, &["A".to_string()], now + 1, 60_000, |_| false).unwrap();
+            reap_stale_claims(&store, &["A".to_string()], now + 1, 60_000, |_, _| false).unwrap();
         assert_eq!(released, vec!["A".to_string()]);
 
         // Slot is freed, not blocked: it can be claimed again.
@@ -446,7 +484,7 @@ mod tests {
             &["A".to_string()],
             claimed_at + ttl + 1,
             ttl,
-            |_| true,
+            |_, _| true,
         )
         .unwrap();
         assert_eq!(released, vec!["A".to_string()]);
@@ -461,11 +499,111 @@ mod tests {
             other => panic!("expected claim, got {other:?}"),
         };
         let now = 2_000_000_i64;
-        store.heartbeat("A", &token, 4242, now).unwrap();
+        store.heartbeat("A", &token, 4242, now, None).unwrap();
 
         // Within TTL and the process is alive: must NOT be reaped.
         let released =
-            reap_stale_claims(&store, &["A".to_string()], now + 1, 60_000, |_| true).unwrap();
+            reap_stale_claims(&store, &["A".to_string()], now + 1, 60_000, |_, _| true).unwrap();
         assert!(released.is_empty(), "a live, fresh claim must survive");
+    }
+
+    /// TOCTOU guard: a heartbeat that lands between the reaper's lock-free
+    /// decision and the release must spare the claim. We exercise the
+    /// lock-held primitive directly — a claim that *looks* stale to a stale
+    /// snapshot but is fresh on disk is NOT released.
+    #[test]
+    fn release_if_still_stale_spares_refreshed_claim() {
+        let dir = TempDir::new().unwrap();
+        let store = ClaimStore::new(dir.path().join("claims"));
+        let token = match store.try_claim("A").unwrap() {
+            ClaimOutcome::Acquired { token } => token,
+            other => panic!("expected claim, got {other:?}"),
+        };
+        // Anchor on the REAL minted claim time (try_claim stamps wall-clock
+        // `claimed_at_ms`); `last_seen` is max(claimed_at, heartbeat), so the
+        // heartbeat must beat AT/after it to dominate the deadline.
+        let claimed_at = store.load("A").unwrap().unwrap().claimed_at_ms.unwrap();
+        let beat = claimed_at + 1_000; // the blade just beat — fresh on disk
+        store.heartbeat("A", &token, 4242, beat, None).unwrap();
+        let ttl = 60_000_i64;
+
+        // Re-check under the lock with `now` still inside the fresh deadline
+        // (beat + ttl): not stale -> not released.
+        let released = store
+            .release_if_still_stale("A", beat + 1, ttl, &|_, _| true)
+            .unwrap();
+        assert!(!released, "a freshly-beaten claim must survive the re-check");
+        assert!(store.has_active_claim("A").unwrap(), "claim must remain held");
+
+        // And when `now` is past the deadline, it IS stale -> released.
+        let released = store
+            .release_if_still_stale("A", beat + ttl + 1, ttl, &|_, _| true)
+            .unwrap();
+        assert!(released, "a genuinely stale claim must be released");
+    }
+
+    /// Batch resilience: a corrupt record mid-list must not abort the sweep —
+    /// the later, genuinely-stale claim still gets reaped.
+    #[test]
+    fn reaper_skips_corrupt_record_and_continues() {
+        let dir = TempDir::new().unwrap();
+        let claims_root = dir.path().join("claims");
+        let store = ClaimStore::new(&claims_root);
+
+        // A genuinely stale claim that should be reaped.
+        store.try_claim("zzz-stale").unwrap();
+        let claimed_at = store
+            .load("zzz-stale")
+            .unwrap()
+            .unwrap()
+            .claimed_at_ms
+            .unwrap();
+
+        // A corrupt record file that sorts BEFORE the stale one, so the sweep
+        // hits it first. `load` will surface a serde error for it.
+        std::fs::create_dir_all(&claims_root).unwrap();
+        std::fs::write(claims_root.join("aaa-corrupt.json"), b"{ not valid json").unwrap();
+
+        let ttl = 60_000_i64;
+        let reaped = reap_stale_claims(
+            &store,
+            &["aaa-corrupt".to_string(), "zzz-stale".to_string()],
+            claimed_at + ttl + 1,
+            ttl,
+            |_, _| true,
+        )
+        .unwrap();
+        assert_eq!(
+            reaped,
+            vec!["zzz-stale".to_string()],
+            "corrupt record skipped, stale claim still reaped"
+        );
+    }
+
+    #[test]
+    fn parse_starttime_handles_comm_with_spaces_and_parens() {
+        // comm = "(my (weird) proc)" — embedded spaces AND parens; the parser
+        // must anchor on the LAST ')'. starttime is field 22 = 9876543.
+        let stat = "1234 (my (weird) proc) S 1 1234 1234 0 -1 4194304 \
+                    100 0 0 0 1 2 0 0 20 0 1 0 9876543 12345 678";
+        assert_eq!(parse_starttime(stat), Some(9_876_543));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pid_reuse_detected_via_start_time() {
+        // Our own (live) pid with its real start-time reads as alive.
+        let me = std::process::id();
+        let real = read_pid_start_time(me).expect("self has a /proc stat");
+        assert!(default_pid_alive(me, Some(real)), "matching start-time = alive");
+        // A mismatched start-time models the PID having been recycled: dead.
+        assert!(
+            !default_pid_alive(me, Some(real.wrapping_add(1))),
+            "start-time mismatch = recycled PID = dead"
+        );
+        // No recorded start-time falls back to mere existence (alive).
+        assert!(default_pid_alive(me, None), "no recorded start-time trusts existence");
+        // A pid that cannot exist is dead.
+        assert!(!default_pid_alive(u32::MAX, None), "absent pid = dead");
     }
 }

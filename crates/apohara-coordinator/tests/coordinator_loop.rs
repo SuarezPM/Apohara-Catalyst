@@ -34,3 +34,29 @@ async fn coordinator_detects_stalled_task_after_timeout() {
         _ => panic!("expected StallDetected, got {:?}", outcome),
     }
 }
+
+#[tokio::test]
+async fn coordinator_unblocks_task_when_deps_resolve() {
+    // The deps-gated half of the F2.1 acceptance, exercised through the
+    // generic tick: B is gated on A, so the first tick dispatches only A;
+    // once A is marked done, the next tick unblocks B.
+    let mut coord = Coordinator::new_with_mocks();
+    coord.enqueue_test_task("a");
+    coord.enqueue_test_task_with_deps("b", &["a"]);
+
+    match coord.tick().await {
+        TickOutcome::Dispatched { task_ids, .. } => {
+            assert_eq!(task_ids, vec!["a".to_string()], "only A is ungated");
+        }
+        other => panic!("expected Dispatched [a], got {:?}", other),
+    }
+
+    coord.mark_test_task_done("a");
+
+    match coord.tick().await {
+        TickOutcome::Dispatched { task_ids, .. } => {
+            assert_eq!(task_ids, vec!["b".to_string()], "B unblocks once A is done");
+        }
+        other => panic!("expected Dispatched [b], got {:?}", other),
+    }
+}

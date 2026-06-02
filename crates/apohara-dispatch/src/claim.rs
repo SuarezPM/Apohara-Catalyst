@@ -44,6 +44,17 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub struct Heartbeat {
     pub pid: u32,
     pub last_beat_ms: i64,
+    /// The holder process's start-time (Linux: `/proc/<pid>/stat` field 22,
+    /// clock-ticks since boot), captured when the heartbeat was minted. The
+    /// reaper compares it against the *current* start-time of `pid` so a
+    /// **recycled PID** — a new, unrelated process the OS handed the same
+    /// number after the blade died — is not mistaken for the live blade
+    /// (US-F2.1 PID-reuse hardening). `None` for heartbeats minted without a
+    /// start-time (older records, non-Linux); the reaper then trusts mere
+    /// PID existence. Additive + `serde(default)` for backward-compatible
+    /// deserialization.
+    #[serde(default)]
+    pub pid_start_time: Option<u64>,
 }
 
 /// Persisted claim record for a single task. Serialized to
@@ -227,6 +238,7 @@ impl ClaimStore {
         token: &str,
         pid: u32,
         now_ms: i64,
+        pid_start_time: Option<u64>,
     ) -> Result<ReportOutcome, ClaimError> {
         let lock = self.open_lock(task_id)?;
         // Block on purpose, mirroring report_result: the heartbeat must
@@ -241,6 +253,7 @@ impl ClaimStore {
                     heartbeat: Some(Heartbeat {
                         pid,
                         last_beat_ms: now_ms,
+                        pid_start_time,
                     }),
                     ..record
                 };
@@ -310,6 +323,55 @@ impl ClaimStore {
             heartbeat: None,
         };
         self.persist(&released)
+    }
+
+    /// Release `task_id` **only if it is still stale when re-checked under
+    /// the advisory lock** — the TOCTOU-safe reaper primitive (US-F2.1).
+    ///
+    /// The standalone reaper used to decide staleness from a lock-free read
+    /// and then call [`Self::release`] unconditionally. A heartbeat that
+    /// landed in that window (a slow-but-alive blade) was reaped anyway,
+    /// throwing away live work. This method closes that window: it takes the
+    /// same lock the claimer's [`Self::heartbeat`] takes, **re-reads** the
+    /// committed record, re-evaluates staleness against it, and releases only
+    /// if it is *still* stale. Returns `true` iff it released.
+    ///
+    /// `is_alive(pid, pid_start_time)` is the injected liveness probe (the
+    /// production one is [`crate::task_graph::default_pid_alive`]); passing
+    /// the recorded start-time lets it reject a recycled PID.
+    pub fn release_if_still_stale<F>(
+        &self,
+        task_id: &str,
+        now_ms: i64,
+        ttl_ms: i64,
+        is_alive: &F,
+    ) -> Result<bool, ClaimError>
+    where
+        F: Fn(u32, Option<u64>) -> bool,
+    {
+        let lock = self.open_lock(task_id)?;
+        lock.lock_exclusive()?;
+        let _guard = LockGuard(&lock);
+
+        // Re-read the COMMITTED record under the lock. A heartbeat that
+        // raced the caller's lock-free decision is visible here, so the
+        // staleness verdict is authoritative.
+        let Some(record) = self.load(task_id)? else {
+            return Ok(false);
+        };
+        if !claim_is_stale(&record, now_ms, ttl_ms, is_alive) {
+            return Ok(false);
+        }
+
+        let released = ClaimRecord {
+            task_id: task_id.to_string(),
+            state: RunState::Released,
+            token: None,
+            claimed_at_ms: None,
+            heartbeat: None,
+        };
+        self.persist(&released)?;
+        Ok(true)
     }
 
     /// Enumerate every persisted claim record under `root`, sorted by
@@ -392,6 +454,55 @@ impl ClaimStore {
             .map_err(|e| ClaimError::Io(e.error))?;
         Ok(())
     }
+}
+
+/// The single source of truth for "is this claim stale?", shared by the
+/// reaper ([`crate::task_graph::reap_stale_claims`]) and the TOCTOU-safe
+/// [`ClaimStore::release_if_still_stale`] so both decide identically.
+///
+/// A record is stale iff it is a *live* claim (`Claimed`/`Running`) whose
+/// liveness has lapsed by **either** signal:
+///   * **TTL expiry** — `now_ms` is past `max(claimed_at_ms,
+///     heartbeat.last_beat_ms) + ttl_ms`. `saturating_add` keeps a
+///     corrupt/hostile far-future timestamp from wrapping (it simply never
+///     TTL-expires, staying PID-reapable).
+///   * **dead PID** — a heartbeat is present and `is_alive(pid,
+///     pid_start_time)` is false (gone, or the PID was recycled).
+///
+/// Edge case — a live (`Claimed`/`Running`) record with NEITHER
+/// `claimed_at_ms` NOR a heartbeat: `last_seen` folds to 0, so the deadline
+/// is just `ttl_ms` and any real wall-clock `now_ms` is past it → reaped on
+/// sight. This only arises for a hand-written/legacy record predating the
+/// `claimed_at_ms` field, since [`ClaimStore::try_claim`] always stamps it.
+/// The direction is intentional and safe: a provenance-less claim is freed
+/// rather than left stranding the slot forever.
+pub(crate) fn claim_is_stale<F>(
+    record: &ClaimRecord,
+    now_ms: i64,
+    ttl_ms: i64,
+    is_alive: &F,
+) -> bool
+where
+    F: Fn(u32, Option<u64>) -> bool,
+{
+    if !matches!(record.state, RunState::Claimed | RunState::Running) {
+        return false;
+    }
+    let last_seen = record
+        .claimed_at_ms
+        .into_iter()
+        .chain(record.heartbeat.as_ref().map(|h| h.last_beat_ms))
+        .max()
+        .unwrap_or(0);
+    let deadline = last_seen.saturating_add(ttl_ms);
+    // strict >: stale only *after* the deadline, not at it.
+    let ttl_expired = now_ms > deadline;
+    let pid_dead = record
+        .heartbeat
+        .as_ref()
+        .map(|h| !is_alive(h.pid, h.pid_start_time))
+        .unwrap_or(false);
+    ttl_expired || pid_dead
 }
 
 /// Releases the advisory lock when dropped. `fs2`'s lock is tied to the

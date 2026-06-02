@@ -16,9 +16,11 @@ pub mod conflict_matrix;
 pub mod coordinator;
 pub mod manifest;
 pub mod scheduler_decision;
+pub mod store;
 
 pub use auto_spawn::{decide_auto_spawn, AutoSpawnDecision, AutoSpawnPolicy};
 pub use coordinator::{Coordinator, RetryReason, TickOutcome};
+pub use store::{InMemoryStore, SchedulerStore, StoreError};
 
 /// Crate version, for smoke tests and version surfacing.
 pub fn version() -> &'static str {

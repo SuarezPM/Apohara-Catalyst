@@ -9,12 +9,23 @@
 //! `Coordinator::tick()` is the unit of progress: read pending state, decide
 //! what to dispatch, mark in-progress, detect stalls. Designed to be called
 //! N×/second by a sidecar tokio task in `apohara-daemon` (Sprint 6) or by
-//! the bun process directly via ts-rs bridge (today).
+//! the desktop dispatch loop.
+//!
+//! ## US-F2.1 — real storage behind a trait
+//!
+//! The coordinator no longer owns a `MockTask` HashMap. It is generic over a
+//! [`SchedulerStore`] (`crate::store`): the live path binds the
+//! `apohara-dispatch` impl over the F1.1 `TaskGraph` + `ClaimStore`, while
+//! tests bind the [`InMemoryStore`] double. Two storage operations map onto
+//! the two scheduling passes:
+//!   * dispatch = [`SchedulerStore::ready_tasks`] (deps-gated, slot-open), and
+//!   * stall    = [`SchedulerStore::reap_stale`] — the formerly-standalone
+//!     F1.1 reaper, now driven from the tick (unifies the reaper with the
+//!     coordinator's `StallDetected`, per the plan).
 //!
 //! G7.5.A.6 wires the 4 G5.B dispatch modules (originally landed as
 //! TypeScript value modules under `src/core/dispatch/`) into the
-//! Rust-side tick so the same decision logic is observable across the
-//! ts-rs bridge:
+//! Rust-side tick so the same decision logic is observable:
 //!
 //!   continuation        — per-task flag tells the runner to REUSE the
 //!                         provider's prior context (no system prompt
@@ -32,7 +43,8 @@
 //!                         `BlockedByCareful` so the UI prompts the
 //!                         operator before any new work goes out.
 
-use std::collections::{HashMap, HashSet};
+use crate::store::{InMemoryStore, SchedulerStore};
+use std::collections::HashSet;
 
 /// Retry-semantics reasons (mirrors `RetryReason` in
 /// `src/core/dispatch/retry-semantics.ts`). The semantics are:
@@ -51,6 +63,16 @@ pub enum RetryReason {
 
 /// 5-minute hard cap on exponential backoff for failure retries.
 const RETRY_CAP_MS: u64 = 5 * 60 * 1000;
+
+/// Wall-clock epoch millis. Mirrors the `apohara-dispatch` claim clock so
+/// the coordinator's TTL math lines up with the on-disk `claimed_at_ms`. A
+/// pre-epoch clock (impossible in practice) folds to 0 rather than panicking.
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
 
 #[derive(Debug, PartialEq)]
 pub enum TickOutcome {
@@ -80,7 +102,7 @@ pub enum TickOutcome {
 #[derive(Default)]
 struct TeammateRoster {
     /// agent_id → in_flight_task_id (None = idle).
-    agents: HashMap<String, Option<String>>,
+    agents: std::collections::HashMap<String, Option<String>>,
 }
 
 impl TeammateRoster {
@@ -118,9 +140,13 @@ impl TeammateRoster {
     }
 }
 
-pub struct Coordinator {
-    // Mock storage for now — Sprint 5 wires real bun:sqlite via ts-rs bridge.
-    tasks: HashMap<String, MockTask>,
+/// The DAG scheduler. Generic over its [`SchedulerStore`] so the live path
+/// (F1.1 `TaskGraph` + `ClaimStore` via `apohara-dispatch`) and tests (the
+/// [`InMemoryStore`] double) share one tick implementation.
+pub struct Coordinator<S: SchedulerStore = InMemoryStore> {
+    store: S,
+    /// TTL handed to the reaper each tick: a claim un-renewed for this long
+    /// is treated as stalled and released.
     stall_timeout_ms: u64,
     /// G5.B.9 careful-mode session flag. When true, tick refuses to
     /// dispatch new work.
@@ -133,24 +159,18 @@ pub struct Coordinator {
     roster: TeammateRoster,
 }
 
-#[derive(Clone)]
-struct MockTask {
-    id: String,
-    #[allow(dead_code)] // surfaced via ts-rs bridge in Sprint 5
-    enqueued_at_ms: u64,
-    dispatched_at_ms: Option<u64>,
-}
-
-impl Default for Coordinator {
+impl Default for Coordinator<InMemoryStore> {
     fn default() -> Self {
         Self::new_with_mocks()
     }
 }
 
-impl Coordinator {
-    pub fn new_with_mocks() -> Self {
+impl<S: SchedulerStore> Coordinator<S> {
+    /// Live constructor: schedule over any real [`SchedulerStore`] (the
+    /// `apohara-dispatch` impl in production).
+    pub fn new(store: S) -> Self {
         Self {
-            tasks: HashMap::new(),
+            store,
             stall_timeout_ms: 5 * 60 * 1000, // 5 minutes default
             careful_mode: false,
             continuation_tasks: HashSet::new(),
@@ -158,30 +178,9 @@ impl Coordinator {
         }
     }
 
-    pub fn enqueue_test_task(&mut self, id: &str) {
-        self.tasks.insert(
-            id.to_string(),
-            MockTask {
-                id: id.to_string(),
-                enqueued_at_ms: 0,
-                dispatched_at_ms: None,
-            },
-        );
-    }
-
-    pub fn enqueue_test_task_with_age(&mut self, id: &str, age_ms: u64) {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64;
-        self.tasks.insert(
-            id.to_string(),
-            MockTask {
-                id: id.to_string(),
-                enqueued_at_ms: now.saturating_sub(age_ms),
-                dispatched_at_ms: Some(now.saturating_sub(age_ms)),
-            },
-        );
+    /// Override the reaper TTL / stall window (default 5 min).
+    pub fn set_stall_timeout_ms(&mut self, ms: u64) {
+        self.stall_timeout_ms = ms;
     }
 
     /// G5.B.9 careful-mode toggle. When `true`, subsequent ticks
@@ -223,53 +222,46 @@ impl Coordinator {
     }
 
     pub async fn tick(&mut self) -> TickOutcome {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64;
+        let now = now_ms();
 
         // Pass 0 (G5.B.9 careful-mode): if careful mode is active,
-        // refuse to dispatch and surface pending ids so the UI can
-        // prompt the operator. Stalls still get detected below — the
-        // operator can still see a stalled task even while careful.
+        // refuse to dispatch and surface the ready ids so the UI can
+        // prompt the operator. Stalls still get detected on later ticks
+        // once careful is cleared.
         if self.careful_mode {
-            let mut pending: Vec<String> = self
-                .tasks
-                .values()
-                .filter(|t| t.dispatched_at_ms.is_none())
-                .map(|t| t.id.clone())
-                .collect();
-            pending.sort();
+            let pending = self.ready_or_log();
             return TickOutcome::BlockedByCareful { pending };
         }
 
-        // Pass 1: stall detection on dispatched tasks.
-        let mut stalled: Vec<String> = self
-            .tasks
-            .values()
-            .filter(|t| {
-                t.dispatched_at_ms
-                    .map(|d| now.saturating_sub(d) > self.stall_timeout_ms)
-                    .unwrap_or(false)
-            })
-            .map(|t| t.id.clone())
-            .collect();
-        if !stalled.is_empty() {
-            stalled.sort();
-            return TickOutcome::StallDetected { task_ids: stalled };
+        // Pass 1: stall detection — the unified reaper path. A claim aged
+        // past `stall_timeout_ms` (or whose holder PID is dead) is released
+        // by the store and surfaced as StallDetected. This is the F1.1
+        // reaper, now driven from the coordinator instead of standalone.
+        //
+        // Clamp the u64→i64 casts: a `stall_timeout_ms > i64::MAX` would wrap
+        // negative and make the reaper free every claim every tick. `now`
+        // won't overflow for ~292M years, but clamp it the same way for
+        // uniformity.
+        let now_i64 = now.min(i64::MAX as u64) as i64;
+        let ttl_i64 = self.stall_timeout_ms.min(i64::MAX as u64) as i64;
+        let reaped = match self.store.reap_stale(now_i64, ttl_i64) {
+            Ok(reaped) => reaped,
+            Err(e) => {
+                // A failing reaper must not wedge the loop; log and treat as
+                // "nothing reaped this tick" — the next tick retries.
+                tracing::warn!(error = %e, "reap_stale failed during tick");
+                Vec::new()
+            }
+        };
+        if !reaped.is_empty() {
+            return TickOutcome::StallDetected { task_ids: reaped };
         }
 
-        // Pass 2: dispatch pending tasks.
-        let mut pending: Vec<String> = self
-            .tasks
-            .values()
-            .filter(|t| t.dispatched_at_ms.is_none())
-            .map(|t| t.id.clone())
-            .collect();
+        // Pass 2: dispatch the deps-gated, slot-open set.
+        let pending = self.ready_or_log();
         if pending.is_empty() {
             return TickOutcome::NoOp;
         }
-        pending.sort();
 
         // G5.B.4 continuation: if ANY pending task is flagged as a
         // continuation, the dispatch carries `reuse_context: true`.
@@ -289,15 +281,57 @@ impl Coordinator {
             None
         };
 
-        for id in &pending {
-            if let Some(t) = self.tasks.get_mut(id) {
-                t.dispatched_at_ms = Some(now);
-            }
-        }
         TickOutcome::Dispatched {
             task_ids: pending,
             reuse_context,
             assigned_agent,
         }
+    }
+
+    /// Read the ready set, logging (not propagating) a store error — a
+    /// transient read failure degrades to "nothing ready this tick".
+    fn ready_or_log(&self) -> Vec<String> {
+        match self.store.ready_tasks() {
+            Ok(ready) => ready,
+            Err(e) => {
+                tracing::warn!(error = %e, "ready_tasks failed during tick");
+                Vec::new()
+            }
+        }
+    }
+
+    /// Borrow the backing store (e.g. to seed real tasks before ticking).
+    pub fn store_mut(&mut self) -> &mut S {
+        &mut self.store
+    }
+}
+
+impl Coordinator<InMemoryStore> {
+    /// Test/dev constructor backed by the [`InMemoryStore`] double. The name
+    /// is kept for backward compatibility; the double is no longer the live
+    /// path's storage (US-F2.1).
+    pub fn new_with_mocks() -> Self {
+        Self::new(InMemoryStore::new())
+    }
+
+    /// Enqueue a ready (no-dep, unclaimed) task into the in-memory double.
+    pub fn enqueue_test_task(&mut self, id: &str) {
+        self.store.enqueue(id);
+    }
+
+    /// Enqueue a node claimed `age_ms` ago and never heartbeaten — it goes
+    /// stale (reaper-releasable) once `age_ms` exceeds `stall_timeout_ms`.
+    pub fn enqueue_test_task_with_age(&mut self, id: &str, age_ms: u64) {
+        self.store.enqueue_claimed_with_age(id, age_ms, now_ms() as i64);
+    }
+
+    /// Enqueue a dep-gated node into the in-memory double.
+    pub fn enqueue_test_task_with_deps(&mut self, id: &str, deps: &[&str]) {
+        self.store.enqueue_with_deps(id, deps);
+    }
+
+    /// Mark a node done in the in-memory double (unblocks its dependents).
+    pub fn mark_test_task_done(&mut self, id: &str) {
+        self.store.mark_done(id);
     }
 }
