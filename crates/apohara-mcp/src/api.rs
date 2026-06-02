@@ -11,6 +11,8 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use tokio::sync::OnceCell;
+
 use crate::bootstrap::{
     bootstrap_mcp_servers, BootstrapHandle, BootstrapOpts, EndpointDescriptor,
 };
@@ -189,28 +191,48 @@ impl RunsBackend for EmptyRuns {
     }
 }
 
+/// Process-global memo of the bootstrap result. The first successful
+/// bootstrap binds the loopback servers and leaks the handle (process =
+/// lifetime); every subsequent call returns the SAME descriptor without
+/// re-binding ports or leaking a second handle. `OnceCell` only stores on
+/// `Ok`, so a failed bootstrap (or the gate being disabled) leaves the cell
+/// empty and a later call may retry.
+static BOOTSTRAP_ONCE: OnceCell<EndpointDescriptor> = OnceCell::const_new();
+
 /// Inner async bootstrap reused by the desktop API surface and the
 /// CLI binary (Phase 1 G1.D). Uses default paths under `~/.apohara/`.
+///
+/// Idempotent: a second call returns the cached `EndpointDescriptor`
+/// (same token / ports / `started_at`) instead of spinning up a second
+/// set of servers. The desktop may call this on every mount safely.
 pub async fn mcp_bootstrap_servers_inner() -> Result<EndpointDescriptor, String> {
+    // Gate stays the first thing checked so the disabled flag still errors
+    // before we ever touch the memo (and before binding any ports).
     check_enabled()?;
-    let opts = BootstrapOpts::new(
-        Arc::new(EpisodicLedger::new(
-            apohara_episodic::default_episode_db_path(),
-        )),
-        Arc::new(EmptyRuns),
-        Arc::new(StubIndexerClient),
-    );
-    let handle = bootstrap_mcp_servers(opts)
+    BOOTSTRAP_ONCE
+        .get_or_try_init(|| async {
+            let opts = BootstrapOpts::new(
+                Arc::new(EpisodicLedger::new(
+                    apohara_episodic::default_episode_db_path(),
+                )),
+                Arc::new(EmptyRuns),
+                Arc::new(StubIndexerClient),
+            );
+            let handle = bootstrap_mcp_servers(opts)
+                .await
+                .map_err(|e| e.to_string())?;
+            let descriptor = handle.endpoint.clone();
+            // Persist handle reference is not required for the bridge —
+            // the cli/desktop binary keeps a long-lived `BootstrapHandle`
+            // when it wires its own backends. From the IPC's vantage point
+            // we just return the descriptor (port + token) and let the
+            // shell hold its own reference. Runs exactly once, inside the
+            // init closure, so no second handle ever leaks.
+            leak_handle(handle);
+            Ok::<EndpointDescriptor, String>(descriptor)
+        })
         .await
-        .map_err(|e| e.to_string())?;
-    let descriptor = handle.endpoint.clone();
-    // Persist handle reference is not required for the bridge —
-    // the cli/desktop binary keeps a long-lived `BootstrapHandle`
-    // when it wires its own backends. From the IPC's vantage point
-    // we just return the descriptor (port + token) and let the
-    // shell hold its own reference.
-    leak_handle(handle);
-    Ok(descriptor)
+        .cloned()
 }
 
 /// Keep the bootstrap handle alive for the lifetime of the desktop
@@ -294,6 +316,50 @@ mod tests {
         std::env::set_var("APOHARA_RUST_MCP", "0");
         let err = mcp_bootstrap_servers_inner().await.unwrap_err();
         assert!(err.contains("explicitly disabled"), "got: {err}");
+    }
+
+    /// A second bootstrap must reuse the first descriptor — same token, same
+    /// server ports, same `started_at`. A real 2nd bootstrap would bind fresh
+    /// ephemeral ports (port 0 → kernel-assigned), so equal ports prove the
+    /// memo short-circuited instead of re-binding. `EndpointDescriptor` has no
+    /// `PartialEq`, so compare the load-bearing fields field-by-field.
+    #[tokio::test]
+    #[serial_test::serial(apohara_rust_mcp_flag)]
+    async fn bootstrap_is_idempotent_same_descriptor() {
+        std::env::set_var("APOHARA_RUST_MCP", "1");
+        let first = mcp_bootstrap_servers_inner().await.unwrap();
+        let second = mcp_bootstrap_servers_inner().await.unwrap();
+        std::env::remove_var("APOHARA_RUST_MCP");
+
+        assert_eq!(first.token, second.token, "token must be stable");
+        assert_eq!(
+            first.started_at, second.started_at,
+            "started_at must be stable (no re-bootstrap)"
+        );
+        type Servers = crate::bootstrap::EndpointServers;
+        let port = |s: &Servers, pick: fn(&Servers) -> &Option<crate::bootstrap::EndpointPort>| {
+            pick(s).as_ref().map(|p| p.port)
+        };
+        assert_eq!(
+            port(&first.servers, |s| &s.ledger),
+            port(&second.servers, |s| &s.ledger),
+            "ledger port must be identical (not re-bound)"
+        );
+        assert_eq!(
+            port(&first.servers, |s| &s.runs),
+            port(&second.servers, |s| &s.runs),
+            "runs port must be identical"
+        );
+        assert_eq!(
+            port(&first.servers, |s| &s.indexer),
+            port(&second.servers, |s| &s.indexer),
+            "indexer port must be identical"
+        );
+        assert_eq!(
+            port(&first.servers, |s| &s.settings),
+            port(&second.servers, |s| &s.settings),
+            "settings port must be identical"
+        );
     }
 
     #[tokio::test]

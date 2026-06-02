@@ -28,6 +28,9 @@ apohara-token-accounting = { path = "../apohara-token-accounting" }
 apohara-worktree = { path = "../apohara-worktree" }
 apohara-verification = { path = "../apohara-verification" }
 apohara-episodic = { path = "../apohara-episodic" }
+# US-F0.1 — the desktop bootstraps the internal MCP bus on mount via
+# `apohara_mcp::api::mcp_bootstrap_servers_inner` (idempotent, process-global).
+apohara-mcp = { path = "../apohara-mcp" }
 # Stage 2.6 — live agent-hooks bridge. The desktop starts the loopback
 # hooks-server and subscribes to its broadcast channel; events are mapped
 # straight from HookEventPayload (no apohara-hooks parser needed).

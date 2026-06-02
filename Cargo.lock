@@ -365,6 +365,7 @@ dependencies = [
  "apohara-dispatch",
  "apohara-episodic",
  "apohara-hooks-server",
+ "apohara-mcp",
  "apohara-token-accounting",
  "apohara-verification",
  "apohara-worktree",
