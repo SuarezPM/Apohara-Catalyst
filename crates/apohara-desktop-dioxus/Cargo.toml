@@ -23,6 +23,14 @@ tracing-subscriber = "0.3"
 anyhow = "1.0"
 thiserror = "2.0"
 apohara-dispatch = { path = "../apohara-dispatch" }
+# US-S1 (bake-off -> mesh) — the mesh dispatch body drives the F2.1 Coordinator
+# (tick) + F2.2 distribution (assign) over the per-run DAG. One-way edge:
+# desktop -> apohara-coordinator (the SchedulerStore trait lives in coordinator,
+# the DispatchSchedulerStore impl in apohara-dispatch, already a desktop dep) —
+# acyclic, coordinator never depends back on the desktop.
+apohara-coordinator = { path = "../apohara-coordinator" }
+# US-S1 — Intent for ReadyTask (distribution affinity). Leaf SSoT types crate.
+apohara-types = { path = "../apohara-types" }
 apohara-decomposer = { path = "../apohara-decomposer" }
 apohara-token-accounting = { path = "../apohara-token-accounting" }
 apohara-worktree = { path = "../apohara-worktree" }

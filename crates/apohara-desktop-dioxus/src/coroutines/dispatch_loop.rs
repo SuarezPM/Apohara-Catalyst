@@ -9,6 +9,7 @@
 //! `on_line` runs on this coroutine's task (the `rx.recv().await` loop inside
 //! `dispatch_streaming`), so writing `SSE_EVENTS` from it is runtime-safe.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -17,8 +18,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use dioxus::prelude::*;
 use futures_util::StreamExt;
 
+use apohara_coordinator::{assign, Blade, Coordinator, DistributionPolicy, ReadyTask, TickOutcome};
 use apohara_dispatch::api::{is_enabled, list_active_providers};
-use apohara_dispatch::{ClaimOutcome, ClaimStore, CliDriver, DispatchRequest, ReportOutcome};
+use apohara_dispatch::{
+    build_master_plan, ClaimOutcome, ClaimRecord, ClaimStore, CliDriver, DispatchRequest,
+    DispatchSchedulerStore, ReportOutcome, RunState, TaskGraph,
+};
+use apohara_types::intent::Intent;
 use apohara_episodic::Episode;
 use apohara_mcp::api::mcp_bootstrap_servers_inner;
 use apohara_mcp::bootstrap::{EndpointDescriptor, EndpointServers};
@@ -64,6 +70,18 @@ struct Candidate {
 }
 
 async fn run_dispatch(objective: String) {
+    // US-S1 (bake-off -> collaborative mesh): fork at the very top. The mesh
+    // body is OPT-IN (`APOHARA_MESH=1`) and presupposes the Rust claim/integrate
+    // path (`APOHARA_RUST_DISPATCH != 0`). When either is off the bake-off body
+    // below runs byte-for-byte unchanged — a mesh regression cannot affect a
+    // session that didn't opt in (pre-mortem Escenario 1, M1.1).
+    if mesh_enabled(std::env::var("APOHARA_MESH").ok().as_deref())
+        && is_enabled(std::env::var("APOHARA_RUST_DISPATCH").ok().as_deref())
+    {
+        run_dispatch_mesh(objective).await;
+        return;
+    }
+
     set_status(RunStatus::Dispatching);
 
     // Feature-similarity recall (NOT semantic): surface up to top-k past
@@ -330,6 +348,401 @@ async fn run_dispatch(objective: String) {
         code_diff::set(diff);
     }
     set_status(RunStatus::Idle);
+}
+
+// ===================================================================
+// US-S1 — Collaborative-mesh dispatch body (bake-off -> mesh transition)
+// ===================================================================
+//
+// Plan: docs/superpowers/plans/2026-06-02-apohara-bakeoff-to-mesh-transition.md
+//
+// The mesh body PLANs a per-run file-disjoint DAG, then DRIVES it to completion
+// via the F2.1 `Coordinator::tick` (deps-gated ready set + unified reaper) and
+// the F2.2 `assign` (no-same-binary-parallel + anti-idle distribution), reusing
+// the bake-off's spawn/gate/integrate primitives verbatim. D4-B on-demand loop:
+// a self-contained `while not-drained { tick -> assign -> spawn -> integrate }`,
+// structurally parallel to the bake-off's `for p in providers`, with ONE spawn
+// site (`spawn_blade`). Default OFF (`mesh_enabled`).
+
+/// Opt-IN mesh gate (US-S1) — the OPPOSITE default of [`is_enabled`]
+/// (`APOHARA_RUST_DISPATCH`, opt-out). The mesh path is experimental, so it is
+/// off unless explicitly `=1`. `Some("true")`/`Some("yes")` are NOT enabled —
+/// only the literal `"1"`, mirroring the operator convention in the plan.
+fn mesh_enabled(env_value: Option<&str>) -> bool {
+    env_value == Some("1")
+}
+
+/// Hard iteration cap for the on-demand drive loop (US-S1, M1.2). Default 600
+/// (~10 min at ~1s/tick, >=2x the coordinator's 5-min reaper TTL), tunable via
+/// `APOHARA_MESH_MAX_TICKS`. Anything unparseable or 0 folds to the default —
+/// the bound is the backstop, the reaper is the normal exit.
+fn mesh_max_ticks(env_value: Option<&str>) -> u64 {
+    const DEFAULT_MAX_TICKS: u64 = 600;
+    env_value
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(DEFAULT_MAX_TICKS)
+}
+
+/// A unique per-run id for DAG namespacing (US-S1, Change 2). Each run's
+/// `TaskGraph` (and its `done` set) lives under `<repo>/.apohara/tasks/<run-id>`
+/// so a 2nd run on the same repo starts from a fresh, fully-claimable DAG (no
+/// `done`-poisoning — pre-mortem Escenario 4). `now_ms` + a process-global
+/// sequence guarantees uniqueness even for two runs in the same millisecond.
+fn run_id() -> String {
+    format!("run-{}-{}", now_ms(), next_seq())
+}
+
+/// Binary basename used as the serialization key, matching
+/// `apohara_dispatch::cli_driver::binary_key` (`/usr/bin/claude` -> `claude`)
+/// so the distribution budget here lines up with the runtime per-binary lock.
+fn binary_key_of(binary_path: &str) -> String {
+    Path::new(binary_path)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or(binary_path)
+        .to_string()
+}
+
+/// Count in-flight (`Claimed`/`Running`) claims per binary_key for the `assign`
+/// seed (US-S1, M2.1). Only nodes THIS run has dispatched are mapped (via
+/// `node_binary`), so a claim from another run/blade is ignored. Pure — takes a
+/// claim snapshot + the node->binary map, so it is unit-testable without a
+/// store.
+fn count_in_flight(
+    records: &[ClaimRecord],
+    node_binary: &HashMap<String, String>,
+) -> HashMap<String, u32> {
+    let mut out: HashMap<String, u32> = HashMap::new();
+    for r in records {
+        if !matches!(r.state, RunState::Claimed | RunState::Running) {
+            continue;
+        }
+        if let Some(bin) = node_binary.get(&r.task_id) {
+            *out.entry(bin.clone()).or_insert(0) += 1;
+        }
+    }
+    out
+}
+
+/// Immutable per-run context shared by every [`spawn_blade`] call. Holds owned
+/// clones (the stores are cheap path handles) so the drive loop can `.await`
+/// each spawn inline without lifetime gymnastics.
+struct MeshSpawnCtx {
+    repo: PathBuf,
+    /// Shared claim store at `<repo>/.apohara/claims` (NOT per-run — claims are
+    /// keyed by node id and reaped by PID-liveness, so one root lets the
+    /// claim_watcher / utilization_watcher see every run's claims).
+    claims: ClaimStore,
+    objective: String,
+    apohara_bin: String,
+    mesh_endpoint: Option<(EndpointPorts, String)>,
+}
+
+/// Drive the collaborative mesh for `objective` (US-S1, D4-B on-demand loop).
+async fn run_dispatch_mesh(objective: String) {
+    set_status(RunStatus::Dispatching);
+    emit_recall_event(&objective);
+
+    let repo = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+
+    // Per-run DAG namespace (Change 2): isolate this run's `done` set so a 2nd
+    // run on the same repo is never poisoned by a prior run's completions.
+    let rid = run_id();
+    let graph = TaskGraph::new(repo.join(".apohara").join("tasks").join(&rid));
+    // Claims stay at the SHARED root (keyed by node id, PID-reaped).
+    let claims = ClaimStore::new(repo.join(".apohara").join("claims"));
+
+    // PLAN: own-logic, zero-token decomposition into a file-disjoint DAG
+    // (F3.1). `build_master_plan` persists nodes + deps and re-checks acyclicity
+    // on each `add_node`. A planning failure ends the run cleanly (never a
+    // half-driven loop).
+    if let Err(e) = build_master_plan(&graph, &objective, &[]) {
+        tracing::warn!("mesh planning failed (non-fatal): {e}; ending run");
+        set_status(RunStatus::Idle);
+        return;
+    }
+
+    // Roster: the available active providers become blades. `binary_key` keys
+    // the no-same-binary-parallel budget (matches the runtime per-binary lock).
+    let providers: Vec<_> = list_active_providers()
+        .into_iter()
+        .filter(|p| p.available)
+        .collect();
+    let roster: Vec<Blade> = providers
+        .iter()
+        .map(|p| Blade::new(p.id.clone(), binary_key_of(&p.binary_path)))
+        .collect();
+    let provider_bin: HashMap<String, String> = providers
+        .iter()
+        .map(|p| (p.id.clone(), p.binary_path.clone()))
+        .collect();
+
+    let env: HashMap<String, String> = std::env::vars().collect();
+    let policy = DistributionPolicy::from_env(&env);
+    let max_ticks = mesh_max_ticks(std::env::var("APOHARA_MESH_MAX_TICKS").ok().as_deref());
+
+    // Resolve the live mesh endpoint ONCE (idempotent F0.1 OnceCell). Best-effort
+    // (bus down -> blades still get the augmented prompt, only MCP wiring skips).
+    let mesh_endpoint: Option<(EndpointPorts, String)> = match mcp_bootstrap_servers_inner().await {
+        Ok(descriptor) => Some((descriptor_to_ports(&descriptor), descriptor.token)),
+        Err(e) => {
+            tracing::warn!("mesh endpoint unavailable (non-fatal): {e}; blades run without MCP mesh config");
+            None
+        }
+    };
+    let apohara_bin = std::env::current_exe()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| "apohara".to_string());
+
+    let ctx = MeshSpawnCtx {
+        repo: repo.clone(),
+        claims: claims.clone(),
+        objective: objective.clone(),
+        apohara_bin,
+        mesh_endpoint,
+    };
+
+    // `base` is HEAD before any merge so the post-run mesh diff is the
+    // integrated `git diff <base> HEAD` (US-F1.6, reused).
+    let base = git_rev_parse_head(&repo);
+    let mut any_integrated = false;
+
+    let mut coordinator =
+        Coordinator::new(DispatchSchedulerStore::from_parts(graph.clone(), claims.clone()));
+    // node id -> binary_key for the in-flight seed (M2.1).
+    let mut node_binary: HashMap<String, String> = HashMap::new();
+    let mut ticks: u64 = 0;
+
+    loop {
+        if ticks >= max_ticks {
+            tracing::warn!(max_ticks, "mesh drive loop hit MAX_TICKS; ending run (no infinite hang)");
+            break;
+        }
+        ticks += 1;
+
+        match coordinator.tick().await {
+            TickOutcome::Dispatched { task_ids, .. } => {
+                let ready: Vec<ReadyTask> = task_ids
+                    .iter()
+                    .map(|id| ReadyTask::new(id.clone(), Intent::Implement))
+                    .collect();
+                // Seed the per-binary in-flight load from the LIVE claim store
+                // (M2.1) so a claim that landed last iteration is counted.
+                let records = claims.list().unwrap_or_default();
+                let in_flight = count_in_flight(&records, &node_binary);
+                let assignments = assign(&ready, &roster, &policy, &in_flight);
+                if assignments.is_empty() {
+                    // No blade capacity for the ready work (e.g. no available
+                    // providers). Don't spin to MAX_TICKS — end the run.
+                    tracing::warn!(ready = ready.len(), "no blade capacity for ready mesh work; ending run");
+                    break;
+                }
+                for a in assignments {
+                    let Some(binary_path) = provider_bin.get(&a.provider_id).cloned() else {
+                        tracing::warn!(provider = %a.provider_id, "assigned provider has no binary path; marking node done");
+                        let _ = graph.mark_done(&a.task_id);
+                        continue;
+                    };
+                    node_binary.insert(a.task_id.clone(), binary_key_of(&binary_path));
+                    let integrated = spawn_blade(&ctx, &a.task_id, &a.provider_id, &binary_path).await;
+                    if integrated {
+                        any_integrated = true;
+                    }
+                    // v1: mark the node done once ATTEMPTED (pass OR fail) so the
+                    // DAG drains and the node is never re-dispatched. No
+                    // auto-retry (RetryReason exists but is unwired); a failed
+                    // slice drains the DAG without contributing a diff. The mark
+                    // is serialized HERE (single drive task), so concurrent
+                    // graph.json writes are structurally impossible.
+                    if let Err(e) = graph.mark_done(&a.task_id) {
+                        tracing::warn!(task_id = %a.task_id, "mark_done failed (non-fatal): {e}");
+                    }
+                }
+            }
+            TickOutcome::StallDetected { task_ids } => {
+                // The reaper just released a dead/stale claim. Loop so the freed
+                // node is re-dispatched. Reap-on-exit (Change 1): we NEVER exit
+                // while a dead-PID claim lingers — it surfaces HERE, not as NoOp.
+                tracing::info!(?task_ids, "mesh: reaper released stale claim(s); re-ticking");
+            }
+            TickOutcome::NoOp => {
+                // No ready work AND nothing stale to reap -> the DAG has drained.
+                // A dead-PID claim would surface as StallDetected above (never
+                // NoOp), so exiting here cannot strand a reapable claim.
+                break;
+            }
+            TickOutcome::BlockedByCareful { .. } => {
+                // Careful mode is unused on the mesh v1 path; treat as a stop.
+                tracing::info!("mesh: careful mode blocked dispatch; ending run");
+                break;
+            }
+        }
+    }
+
+    set_status(RunStatus::Verifying);
+    // The mesh diff is the integrated `git diff <base> HEAD`, tagged "mesh".
+    let diff = base
+        .as_deref()
+        .filter(|_| any_integrated)
+        .and_then(|base| mesh_diff(&repo, base));
+
+    // End-of-run episodic capture (best-effort). The mesh has no per-provider
+    // `Candidate` list, so pass an empty slice — `build_episode` derives the
+    // outcome from the selected diff (winner-selected / no-change).
+    let episode = build_episode(&objective, &[], diff.as_ref(), now_ms() as i64);
+    if let Err(e) = apohara_episodic::capture_episode(&episode) {
+        tracing::warn!("episodic capture failed (non-fatal): {e}");
+    }
+
+    if let Some(diff) = diff {
+        code_diff::set(diff);
+    }
+    set_status(RunStatus::Idle);
+}
+
+/// Run ONE mesh blade for `node_id` on `provider_id`/`binary_path` (US-S1). The
+/// single spawn site: claim the DAG node id (D5 single identity) -> upsert the
+/// `DagTask` -> worktree -> inject mesh MCP config -> augment the prompt ->
+/// serialized dispatch -> gates -> report_result -> commit -> serialized merge.
+/// Reuses the bake-off primitives verbatim; HEAD safety + conflict handling are
+/// the existing `INTEGRATOR_LOCK` path. Returns whether the slice integrated.
+async fn spawn_blade(
+    ctx: &MeshSpawnCtx,
+    node_id: &str,
+    provider_id: &str,
+    binary_path: &str,
+) -> bool {
+    // Claim the DAG node id (D5: node id == claim key == pane_key == mailbox
+    // recipient). On contention skip cleanly; a claim-store error is non-fatal.
+    let claim_token = match ctx.claims.try_claim(node_id) {
+        Ok(ClaimOutcome::Acquired { token }) => Some(token),
+        Ok(ClaimOutcome::AlreadyClaimed) => {
+            tracing::info!(node_id, "node already claimed by another blade; skipping spawn");
+            return false;
+        }
+        Err(e) => {
+            tracing::warn!(node_id, "claim failed (non-fatal): {e}");
+            None
+        }
+    };
+
+    upsert_task(DagTask {
+        id: node_id.to_string(),
+        title: ctx.objective.clone(),
+        status: TaskStatus::Dispatched,
+        provider_id: Some(provider_id.to_string()),
+        ..Default::default()
+    });
+
+    // R3: per-node git worktree before spawning; fall back to the repo root.
+    let workspace = match lifecycle::create(node_id, &ctx.repo).await {
+        Ok(path) => path.to_string_lossy().into_owned(),
+        Err(_) => ctx.repo.to_string_lossy().into_owned(),
+    };
+
+    // Per-blade CLAUDE_CONFIG_DIR isolation (US-F1.4) keyed by the node id.
+    let blade_config = ctx
+        .repo
+        .join(".apohara")
+        .join("blades")
+        .join(node_id)
+        .join(".claude")
+        .to_string_lossy()
+        .into_owned();
+
+    if let Some((ports, token)) = &ctx.mesh_endpoint {
+        inject_mesh_config(provider_id, &workspace, &blade_config, &ctx.apohara_bin, token, ports).await;
+    }
+
+    let prompt = mesh_protocol_prompt(&ctx.objective, node_id, node_id);
+    let req = build_request(binary_path, &workspace, &prompt, node_id, &blade_config);
+    let pid = provider_id.to_string();
+    let token_thread = node_id.to_string();
+    let outcome = CliDriver::dispatch_streaming_serialized(req, move |line| {
+        if let Some(snap) = apohara_token_accounting::parse_usage_snapshot(&line) {
+            apohara_token_accounting::api::record_absolute(&pid, &token_thread, snap);
+        }
+        push_event(SseEvent {
+            kind: format!("stream:{pid}"),
+            payload: line,
+            ts: now_ms(),
+        });
+    })
+    .await;
+
+    let (unified, _files) = git_diff(Path::new(&workspace));
+    let output = outcome.as_ref().map(|o| o.output.clone()).unwrap_or_default();
+    let gate = run_all_gates(&GateInput {
+        task_role: AgentRole::Coder,
+        persona: None,
+        diff: unified.clone(),
+        output,
+    });
+    let gates_passed = gate.blocks.is_empty() && outcome.as_ref().map(|o| o.success).unwrap_or(false);
+
+    upsert_task(DagTask {
+        id: node_id.to_string(),
+        title: ctx.objective.clone(),
+        status: if gates_passed {
+            TaskStatus::InVerification
+        } else {
+            TaskStatus::Failed
+        },
+        provider_id: Some(provider_id.to_string()),
+        ..Default::default()
+    });
+
+    // Release the claim now the result is in hand (StaleToken => a reaper
+    // re-claimed the slot; our result is no longer authoritative).
+    if let Some(token) = claim_token {
+        match ctx.claims.report_result(node_id, &token) {
+            Ok(ReportOutcome::Accepted) => {}
+            Ok(ReportOutcome::StaleToken) => {
+                tracing::warn!(node_id, "claim token stale at report; result not recorded");
+            }
+            Err(e) => tracing::warn!(node_id, "report_result failed (non-fatal): {e}"),
+        }
+    }
+
+    // Incremental integration through the SINGLE serialized integrator
+    // (`INTEGRATOR_LOCK`). Mirrors the bake-off block verbatim; no new merge path.
+    let mut integrated = false;
+    if gates_passed {
+        if commit_worktree(&workspace, node_id) {
+            match lifecycle::merge(node_id, &ctx.repo).await {
+                Ok(MergeResult::Success) => {
+                    integrated = true;
+                    upsert_task(DagTask {
+                        id: node_id.to_string(),
+                        title: ctx.objective.clone(),
+                        status: TaskStatus::Done,
+                        provider_id: Some(provider_id.to_string()),
+                        ..Default::default()
+                    });
+                }
+                Ok(MergeResult::Conflict { files }) => {
+                    tracing::warn!(node_id, ?files, "merge conflict; preserving branch, node failed");
+                    let _ = lifecycle::preserve_on_fail(node_id, FailureReason::MergeConflict, &ctx.repo).await;
+                    upsert_task(DagTask {
+                        id: node_id.to_string(),
+                        title: ctx.objective.clone(),
+                        status: TaskStatus::Failed,
+                        provider_id: Some(provider_id.to_string()),
+                        ..Default::default()
+                    });
+                }
+                Err(e) => {
+                    tracing::warn!(node_id, "integrate merge failed (non-fatal): {e}");
+                }
+            }
+        } else {
+            tracing::info!(node_id, "no worktree changes to integrate; skipping merge");
+        }
+    }
+
+    let _ = lifecycle::cleanup(node_id, CleanupReason::Completed, &ctx.repo).await;
+    integrated
 }
 
 /// Recall past episodes for `objective` and push a `memory:recall` SSE event so
@@ -1021,5 +1434,214 @@ mod tests {
         assert_eq!(codex, PathBuf::from("/tmp/wt"));
         let opencode = inject_target(ProviderId::OpencodeGo, "/tmp/wt", blade_config);
         assert_eq!(opencode, PathBuf::from("/tmp/wt"));
+    }
+
+    // ---- US-S1: collaborative-mesh dispatch body ----
+
+    #[test]
+    fn mesh_enabled_is_opt_in() {
+        // OPT-IN: only the literal "1" enables the mesh (opposite default of
+        // `is_enabled`, which is opt-OUT). Anything else stays on the bake-off.
+        assert!(mesh_enabled(Some("1")));
+        assert!(!mesh_enabled(None));
+        assert!(!mesh_enabled(Some("0")));
+        assert!(!mesh_enabled(Some("true")));
+        assert!(!mesh_enabled(Some("")));
+    }
+
+    #[test]
+    fn mesh_max_ticks_defaults_and_parses() {
+        assert_eq!(mesh_max_ticks(None), 600, "default backstop");
+        assert_eq!(mesh_max_ticks(Some("5")), 5, "explicit override");
+        assert_eq!(mesh_max_ticks(Some("0")), 600, "0 folds to default (never a 0-tick loop)");
+        assert_eq!(mesh_max_ticks(Some("garbage")), 600, "unparseable folds to default");
+    }
+
+    #[test]
+    fn binary_key_of_takes_basename() {
+        // Must match `cli_driver::binary_key` so the distribution budget lines
+        // up with the runtime per-binary serialization lock.
+        assert_eq!(binary_key_of("/usr/bin/claude"), "claude");
+        assert_eq!(binary_key_of("codex"), "codex");
+    }
+
+    #[test]
+    fn count_in_flight_counts_live_tracked_claims_only() {
+        let mut node_binary = HashMap::new();
+        node_binary.insert("impl-a".to_string(), "claude".to_string());
+        node_binary.insert("impl-b".to_string(), "codex".to_string());
+        let records = vec![
+            ClaimRecord {
+                task_id: "impl-a".into(),
+                state: RunState::Claimed,
+                token: Some("t".into()),
+                claimed_at_ms: None,
+                heartbeat: None,
+            },
+            // Released -> not in-flight, must NOT be counted.
+            ClaimRecord {
+                task_id: "impl-b".into(),
+                state: RunState::Released,
+                token: None,
+                claimed_at_ms: None,
+                heartbeat: None,
+            },
+            // Not in our node->binary map (another run/blade) -> ignored.
+            ClaimRecord {
+                task_id: "foreign".into(),
+                state: RunState::Running,
+                token: Some("t".into()),
+                claimed_at_ms: None,
+                heartbeat: None,
+            },
+        ];
+        let m = count_in_flight(&records, &node_binary);
+        assert_eq!(m.get("claude"), Some(&1));
+        assert_eq!(m.get("codex"), None, "released claim is not in-flight");
+        assert_eq!(m.values().sum::<u32>(), 1, "foreign claim is ignored");
+    }
+
+    #[test]
+    fn mesh_assign_no_same_binary_parallel_at_capacity_one() {
+        // The mesh roster + assign must never place two impl-* slices on the
+        // same binary at capacity 1 (the runSerialized invariant, asserted via
+        // the Assignment records).
+        let roster = vec![
+            Blade::new("claude-code-cli", "claude"),
+            Blade::new("codex-cli", "codex"),
+        ];
+        let ready = vec![
+            ReadyTask::new("impl-a", Intent::Implement),
+            ReadyTask::new("impl-b", Intent::Implement),
+        ];
+        let out = assign(&ready, &roster, &DistributionPolicy::default(), &HashMap::new());
+        assert_eq!(out.len(), 2);
+        let bins: std::collections::HashSet<&str> = out
+            .iter()
+            .map(|a| match a.provider_id.as_str() {
+                "claude-code-cli" => "claude",
+                "codex-cli" => "codex",
+                other => other,
+            })
+            .collect();
+        assert_eq!(bins.len(), 2, "two impl-* must not share a binary at capacity 1");
+    }
+
+    /// Drive ONE tick the way `run_dispatch_mesh` does — claim each dispatched
+    /// node, report its result, and mark it done (the store-side effect of
+    /// `spawn_blade`) — returning the dispatched ids. Lets the integration tests
+    /// assert the deps-gated DISPATCH ORDER over the real on-disk stores without
+    /// spawning CLIs (the impure spawn is covered by the Story #7 e2e).
+    async fn drive_once(
+        coord: &mut Coordinator<DispatchSchedulerStore>,
+        graph: &TaskGraph,
+        claims: &ClaimStore,
+    ) -> Vec<String> {
+        match coord.tick().await {
+            TickOutcome::Dispatched { task_ids, .. } => {
+                for id in &task_ids {
+                    if let ClaimOutcome::Acquired { token } = claims.try_claim(id).unwrap() {
+                        claims.report_result(id, &token).unwrap();
+                    }
+                    graph.mark_done(id).unwrap();
+                }
+                task_ids
+            }
+            other => panic!("expected Dispatched, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn mesh_plan_drives_deps_gated_order_over_real_storage() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        let graph = TaskGraph::new(repo.join(".apohara").join("tasks").join("run-test-1"));
+        let claims = ClaimStore::new(repo.join(".apohara").join("claims"));
+        // 2 path tokens -> plan + 2 impl-* + integrate.
+        let ids = build_master_plan(&graph, "update src/auth.rs and src/db.rs", &[]).unwrap();
+        assert_eq!(ids.len(), 4, "plan + 2 impl-* + integrate");
+        assert_eq!(ids[0], "plan");
+
+        let mut coord =
+            Coordinator::new(DispatchSchedulerStore::from_parts(graph.clone(), claims.clone()));
+
+        // Tick 1: only `plan` (impl-* gated on plan; integrate gated on impls).
+        assert_eq!(drive_once(&mut coord, &graph, &claims).await, vec!["plan".to_string()]);
+        // Tick 2: both impl-* now ready (plan done).
+        let t2 = drive_once(&mut coord, &graph, &claims).await;
+        assert_eq!(t2.len(), 2, "both disjoint impl slices dispatch in parallel");
+        assert!(t2.iter().all(|id| id.starts_with("impl-")));
+        // Tick 3: integrate (all impls done).
+        assert_eq!(
+            drive_once(&mut coord, &graph, &claims).await,
+            vec!["integrate".to_string()]
+        );
+        // Tick 4: drained.
+        assert!(matches!(coord.tick().await, TickOutcome::NoOp), "DAG drained");
+    }
+
+    #[tokio::test]
+    async fn second_mesh_run_is_not_done_poisoned() {
+        // Change 2 / Escenario 4: per-run DAG subdirs + shared claims mean a 2nd
+        // run on the same repo starts fresh — NOT a silent empty-diff no-op.
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        let claims = ClaimStore::new(repo.join(".apohara").join("claims"));
+
+        // Run 1 under its own subdir; drive it fully done.
+        let g1 = TaskGraph::new(repo.join(".apohara").join("tasks").join("run-1"));
+        let ids1 = build_master_plan(&g1, "improve the thing", &[]).unwrap();
+        for id in &ids1 {
+            if let ClaimOutcome::Acquired { token } = claims.try_claim(id).unwrap() {
+                claims.report_result(id, &token).unwrap();
+            }
+            g1.mark_done(id).unwrap();
+        }
+        assert!(ids1.iter().all(|id| g1.is_done(id).unwrap()), "run-1 fully done");
+
+        // Run 2 on the SAME repo, fresh subdir -> fresh DAG, nothing done.
+        let g2 = TaskGraph::new(repo.join(".apohara").join("tasks").join("run-2"));
+        build_master_plan(&g2, "improve the thing", &[]).unwrap();
+        let mut coord =
+            Coordinator::new(DispatchSchedulerStore::from_parts(g2.clone(), claims.clone()));
+        match coord.tick().await {
+            TickOutcome::Dispatched { task_ids, .. } => {
+                assert_eq!(task_ids, vec!["plan".to_string()], "2nd run dispatches plan, not empty");
+            }
+            other => panic!("2nd run must dispatch plan (no done-poisoning), got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn mesh_reap_on_exit_releases_dead_pid_claim() {
+        // Reap-on-exit (Change 1): a node whose blade died mid-claim (dead PID)
+        // surfaces as StallDetected (the drive loop re-ticks on it), so the loop
+        // can never exit with the slot still Claimed. We assert the component
+        // property the loop relies on: tick reaps the dead-PID claim + frees it.
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        let graph = TaskGraph::new(repo.join(".apohara").join("tasks").join("run-x"));
+        let claims = ClaimStore::new(repo.join(".apohara").join("claims"));
+        build_master_plan(&graph, "do a thing", &[]).unwrap();
+
+        // A blade claims `plan` then "dies": an impossible pid reads as dead.
+        let token = match claims.try_claim("plan").unwrap() {
+            ClaimOutcome::Acquired { token } => token,
+            other => panic!("expected to claim plan, got {other:?}"),
+        };
+        claims.heartbeat("plan", &token, u32::MAX, 1_000, None).unwrap();
+
+        let mut coord =
+            Coordinator::new(DispatchSchedulerStore::from_parts(graph.clone(), claims.clone()));
+        // Huge TTL so ONLY the dead-PID signal can reap (isolates the probe).
+        coord.set_stall_timeout_ms(u64::MAX / 2);
+
+        match coord.tick().await {
+            TickOutcome::StallDetected { task_ids } => {
+                assert!(task_ids.contains(&"plan".to_string()), "dead-PID claim reaped");
+            }
+            other => panic!("expected StallDetected (loop re-ticks, never exits with the slot Claimed), got {other:?}"),
+        }
+        assert!(!claims.has_active_claim("plan").unwrap(), "reaped slot must be free");
     }
 }
