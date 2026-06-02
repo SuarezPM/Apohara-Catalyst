@@ -17,6 +17,7 @@ pub mod selected_task;
 pub mod sse_events;
 pub mod tasks;
 pub mod toast_queue;
+pub mod utilization;
 pub mod view_mode;
 
 #[cfg(test)]

@@ -196,10 +196,18 @@ async fn run_dispatch(objective: String) {
         let prompt = mesh_protocol_prompt(&objective, &task_id, &task_id);
         let req = build_request(&p.binary_path, &workspace, &prompt, &task_id, &blade_config);
         let pid = p.id.clone();
+        let token_thread = task_id.clone();
         // Serialized per-binary spawn (runSerialized): two dispatches of the
         // same CLI never run concurrently (the 120s-SIGKILL contention guard);
         // different binaries still parallelize.
         let outcome = CliDriver::dispatch_streaming_serialized(req, move |line| {
+            // US-F2.4: capture cumulative token usage off the stream into the
+            // process-global counter (absolute-not-delta, §0.14). A non-usage
+            // line yields None — a cheap inline check, so the totals surfaced
+            // by the dashboard/Statusline stop reading zero.
+            if let Some(snap) = apohara_token_accounting::parse_usage_snapshot(&line) {
+                apohara_token_accounting::api::record_absolute(&pid, &token_thread, snap);
+            }
             push_event(SseEvent {
                 kind: format!("stream:{pid}"),
                 payload: line,

@@ -13,9 +13,11 @@
 
 pub mod provider_roster;
 pub mod task_board;
+pub mod utilization_panel;
 
 pub use provider_roster::{ProviderHealth, ProviderRoster, ProviderStatus};
 pub use task_board::{DagTask, TaskBoard, TaskStatus};
+pub use utilization_panel::UtilizationPanel;
 
 #[cfg(test)]
 mod layout_test;

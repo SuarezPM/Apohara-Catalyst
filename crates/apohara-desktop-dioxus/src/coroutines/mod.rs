@@ -15,6 +15,7 @@ pub mod hooks_bridge;
 pub mod permission_arbitrator;
 pub mod reconciler_tick;
 pub mod toast_reaper;
+pub mod utilization_watcher;
 
 /// Mount all effect-owner coroutines. Called unconditionally from `App` so
 /// the hook order stays stable.
@@ -26,6 +27,7 @@ pub fn mount_coroutines() {
     permission_arbitrator::mount();
     reconciler_tick::mount();
     toast_reaper::mount();
+    utilization_watcher::mount();
 }
 
 #[cfg(test)]

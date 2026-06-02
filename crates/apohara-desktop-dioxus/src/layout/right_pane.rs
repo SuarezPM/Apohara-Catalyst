@@ -8,6 +8,7 @@
 
 use dioxus::prelude::*;
 
+use crate::components::layout::UtilizationPanel;
 use crate::state::code_diff::{self, CODE_DIFF};
 
 /// Accept the current diff: hand it to the `git_apply_handler` coroutine, which
@@ -99,6 +100,8 @@ pub fn RightPane() -> Element {
                     },
                 }
             }
+            // F2.4 utilization dashboard — always visible below the diff.
+            UtilizationPanel {}
         }
     }
 }

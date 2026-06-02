@@ -41,6 +41,12 @@ pub enum EventKind {
     GuardrailsBypassed,
     HookEvent,
     ManifestDrift,
+    /// US-F2.4 — a blade acquired a task claim (mesh activity audit).
+    ClaimAcquired,
+    /// US-F2.4 — a blade sent a mesh mailbox message.
+    MessageSent,
+    /// US-F2.4 — the integrator merged a slice into HEAD.
+    MergeCompleted,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -51,6 +57,27 @@ pub struct AuditEvent {
     pub actor: Option<String>,
     pub target: Option<String>,
     pub payload: serde_json::Value,
+}
+
+impl AuditEvent {
+    /// Convenience constructor for a mesh audit record (US-F2.4): stamps
+    /// `ts` now, with the `actor` blade and `target` (task/recipient/branch).
+    /// Pair with [`AuditSink::write`] to land a claims/messages/merges record.
+    pub fn mesh(
+        kind: EventKind,
+        actor: impl Into<String>,
+        target: impl Into<String>,
+        payload: serde_json::Value,
+    ) -> Self {
+        Self {
+            ts: SystemTime::now(),
+            server: "apohara.mesh".to_string(),
+            kind,
+            actor: Some(actor.into()),
+            target: Some(target.into()),
+            payload,
+        }
+    }
 }
 
 const MAX_FILE_BYTES: u64 = 64 * 1024 * 1024; // 64 MiB
