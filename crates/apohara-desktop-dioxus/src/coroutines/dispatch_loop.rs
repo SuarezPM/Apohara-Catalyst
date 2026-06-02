@@ -17,8 +17,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use dioxus::prelude::*;
 use futures_util::StreamExt;
 
-use apohara_dispatch::api::list_active_providers;
-use apohara_dispatch::{CliDriver, DispatchRequest};
+use apohara_dispatch::api::{is_enabled, list_active_providers};
+use apohara_dispatch::{ClaimOutcome, ClaimStore, CliDriver, DispatchRequest, ReportOutcome};
 use apohara_episodic::Episode;
 use apohara_verification::{run_all_gates, AgentRole, GateInput};
 use apohara_worktree::lifecycle::{self, CleanupReason};
@@ -75,9 +75,42 @@ async fn run_dispatch(objective: String) {
         .filter(|p| p.available)
         .collect();
 
+    // US-F1.4: the dispatch loop now claims each task through the cross-process
+    // file-lock (F0.0) before spawning. Only the CLAIM is gated by the same
+    // `APOHARA_RUST_DISPATCH` flag as `api::rust_dispatch_inner` (default ON;
+    // export =0 to skip claiming, the pre-F1.4 behavior). Per-binary spawn
+    // serialization is NOT gated — `dispatch_streaming_serialized` always runs
+    // (the 120s-hang guard is never opt-out).
+    let claim_enabled = is_enabled(std::env::var("APOHARA_RUST_DISPATCH").ok().as_deref());
+    // One store for the whole run, rooted at the repo's claims dir (F0.0
+    // convention: `<repo>/.apohara/claims`). Heterogeneous blade processes
+    // contend on the same directory, so the path must be repo-stable.
+    let claims = ClaimStore::new(repo.join(".apohara").join("claims"));
+
     let mut candidates: Vec<Candidate> = Vec::new();
     for p in providers {
         let task_id = format!("{}-{}", p.id, next_seq());
+
+        // Claim the task before doing any work. On contention (another blade
+        // already holds it) skip this task cleanly — `AlreadyClaimed` is a
+        // normal signal, not an error. A claim-store error is non-fatal: log
+        // and proceed without a token (best-effort, never strand the run).
+        let claim_token = if claim_enabled {
+            match claims.try_claim(&task_id) {
+                Ok(ClaimOutcome::Acquired { token }) => Some(token),
+                Ok(ClaimOutcome::AlreadyClaimed) => {
+                    tracing::info!(task_id, "task already claimed by another blade; skipping");
+                    continue;
+                }
+                Err(e) => {
+                    tracing::warn!(task_id, "claim failed (non-fatal): {e}");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         upsert_task(DagTask {
             id: task_id.clone(),
             title: objective.clone(),
@@ -93,9 +126,24 @@ async fn run_dispatch(objective: String) {
             Err(_) => repo.to_string_lossy().into_owned(),
         };
 
-        let req = build_request(&p.binary_path, &workspace, &objective, &task_id);
+        // Per-blade CLAUDE_CONFIG_DIR isolation (US-F1.4): each blade gets its
+        // own claude state under `<repo>/.apohara/blades/<blade_id>/.claude` so
+        // concurrent blades never share auth/session/locks. NOT a HOME override
+        // (auth/billing danger zone) — see `build_spawn_env`. The blade id is
+        // the task id (one blade per dispatched task this run).
+        let blade_config = repo
+            .join(".apohara")
+            .join("blades")
+            .join(&task_id)
+            .join(".claude")
+            .to_string_lossy()
+            .into_owned();
+        let req = build_request(&p.binary_path, &workspace, &objective, &task_id, &blade_config);
         let pid = p.id.clone();
-        let outcome = CliDriver::dispatch_streaming(req, move |line| {
+        // Serialized per-binary spawn (runSerialized): two dispatches of the
+        // same CLI never run concurrently (the 120s-SIGKILL contention guard);
+        // different binaries still parallelize.
+        let outcome = CliDriver::dispatch_streaming_serialized(req, move |line| {
             push_event(SseEvent {
                 kind: format!("stream:{pid}"),
                 payload: line,
@@ -132,6 +180,20 @@ async fn run_dispatch(objective: String) {
             files,
             gates_passed,
         });
+
+        // Release the claim now that the result is in hand. Best-effort: a
+        // `StaleToken` means a reaper already re-claimed this slot (the blade
+        // was deemed stalled), so our result is no longer authoritative — log
+        // and move on rather than overwriting the live claimer's outcome.
+        if let Some(token) = claim_token {
+            match claims.report_result(&task_id, &token) {
+                Ok(ReportOutcome::Accepted) => {}
+                Ok(ReportOutcome::StaleToken) => {
+                    tracing::warn!(task_id, "claim token stale at report; result not recorded");
+                }
+                Err(e) => tracing::warn!(task_id, "report_result failed (non-fatal): {e}"),
+            }
+        }
 
         // Best-effort cleanup of the per-task worktree; the diff is already
         // captured as text and applied to the main tree on Accept (W4.7).
@@ -230,12 +292,15 @@ fn build_episode(
 /// resolved CLI path (`ActiveProvider::binary_path`), spawned with `--print`.
 /// `task_id` doubles as the pane key (one pane per dispatched task) and the
 /// task identifier exported to the spawned CLI's agent-hooks env, so live
-/// hook events correlate back to this run (Stage 2.6).
+/// hook events correlate back to this run (Stage 2.6). `blade_config` is the
+/// per-blade isolated `CLAUDE_CONFIG_DIR` (US-F1.4) so concurrent blades never
+/// share claude auth/session/lock state.
 fn build_request(
     provider_binary: &str,
     workspace: &str,
     objective: &str,
     task_id: &str,
+    blade_config: &str,
 ) -> DispatchRequest {
     DispatchRequest {
         provider_id: provider_binary.to_string(),
@@ -248,6 +313,9 @@ fn build_request(
         // The per-task worktree lives at `workspace`; use its path as the
         // worktree id so hook events can be traced to the right checkout.
         worktree_id: Some(workspace.to_string()),
+        // Per-blade claude state isolation; injected onto the spawn env as
+        // CLAUDE_CONFIG_DIR (NOT HOME — auth/billing zone) by `build_spawn_env`.
+        config_isolation: Some(blade_config.to_string()),
     }
 }
 
@@ -313,7 +381,13 @@ mod tests {
 
     #[test]
     fn build_request_uses_binary_and_print_fields() {
-        let req = build_request("/usr/bin/claude", "/tmp/wt", "build a thing", "claude-1");
+        let req = build_request(
+            "/usr/bin/claude",
+            "/tmp/wt",
+            "build a thing",
+            "claude-1",
+            "/repo/.apohara/blades/claude-1/.claude",
+        );
         assert_eq!(req.provider_id, "/usr/bin/claude");
         assert_eq!(req.workspace, "/tmp/wt");
         assert_eq!(req.prompt, "build a thing");
@@ -323,6 +397,12 @@ mod tests {
         assert_eq!(req.pane_key, "claude-1");
         assert_eq!(req.task_id.as_deref(), Some("claude-1"));
         assert_eq!(req.worktree_id.as_deref(), Some("/tmp/wt"));
+        // US-F1.4: per-blade CLAUDE_CONFIG_DIR isolation is carried on the
+        // request (injected post-sanitization, never as a HOME override).
+        assert_eq!(
+            req.config_isolation.as_deref(),
+            Some("/repo/.apohara/blades/claude-1/.claude")
+        );
     }
 
     #[test]

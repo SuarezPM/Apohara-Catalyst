@@ -16,6 +16,49 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::{Arc, LazyLock, Mutex};
+
+/// Process-global registry of per-binary FIFO locks (`runSerialized`).
+///
+/// Past incident: two concurrent `claude` children spawned from the SAME
+/// process contend on the CLI's internal `~/.claude/` session locks; the second
+/// blocks until our timeout SIGKILLs it (~120s hang) and may bill the wrong
+/// account. The TS `cli-driver.ts::runSerialized(binary, task)` queued calls
+/// FIFO per binary name to avoid this; the Rust port reinstates that invariant
+/// here.
+///
+/// Keyed by binary BASENAME so `/usr/bin/claude` and a bare `claude` share one
+/// lock (same on-disk CLI ⇒ same internal-lock contention). Each value is an
+/// async `tokio::sync::Mutex` whose guard is held for the whole dispatch, so
+/// two dispatches of the same binary serialize while DIFFERENT binaries (e.g.
+/// `claude` vs `codex`) still run in parallel. The outer `std::sync::Mutex`
+/// only guards the brief get-or-insert of the map and is never held across an
+/// `.await`.
+static BINARY_LOCKS: LazyLock<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>> =
+    LazyLock::new(Default::default);
+
+/// Reduce a provider id / path to the key used in [`BINARY_LOCKS`]: its file
+/// name (`/usr/bin/claude` → `claude`), falling back to the whole string when
+/// there is no file-name component (so it is never silently dropped).
+fn binary_key(provider_id: &str) -> String {
+    Path::new(provider_id)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or(provider_id)
+        .to_string()
+}
+
+/// Get-or-insert the per-binary FIFO lock for `provider_id`, keyed by basename.
+/// Cloning the `Arc` lets the caller hold the async guard across the dispatch
+/// without keeping the registry `Mutex` locked. `pub(crate)` so the driver
+/// tests can prove the per-binary keying (same basename ⇒ same `Arc`).
+pub(crate) fn binary_lock(provider_id: &str) -> Arc<tokio::sync::Mutex<()>> {
+    let key = binary_key(provider_id);
+    let mut map = BINARY_LOCKS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    Arc::clone(map.entry(key).or_default())
+}
 
 /// Allowlist for parent process env vars. Anything else is stripped.
 ///
@@ -99,11 +142,15 @@ pub struct HookContext {
 ///      the `APOHARA_PANE_KEY` / `APOHARA_TASK_ID` / `APOHARA_WORKTREE_ID`
 ///      hook-correlation markers win LAST — a malicious worktree `.env` cannot
 ///      spoof orchestrator identity.
+///   4. `CLAUDE_CONFIG_DIR` (per-blade isolation) is injected absolutely last,
+///      after sanitization, because it is deliberately NOT in `ENV_ALLOWLIST`
+///      (see `config_isolation` below).
 pub fn build_spawn_env(
     parent: &HashMap<String, String>,
     workspace: &str,
     runner_policy: &str,
     hooks: Option<&HookContext>,
+    config_isolation: Option<&str>,
 ) -> HashMap<String, String> {
     let sanitized = sanitize_env(parent);
     let mut env = overlay_worktree_env(sanitized, Path::new(workspace));
@@ -128,6 +175,26 @@ pub fn build_spawn_env(
             env.insert("APOHARA_WORKTREE_ID".to_string(), worktree_id.clone());
         }
     }
+    // Per-blade isolation, injected LAST and intentionally outside the
+    // allowlist:
+    //
+    // why CLAUDE_CONFIG_DIR (and NOT HOME): the `claude` CLI keeps per-process
+    // state — auth tokens, session/history files, internal file locks — under a
+    // config dir. Two blades sharing that dir contend on those locks (the 120s
+    // SIGKILL hang) and, worse, can route to the wrong logged-in account.
+    // Pointing each blade at its own CLAUDE_CONFIG_DIR isolates that state
+    // WITHOUT touching HOME. Overriding HOME is the auth/billing danger zone:
+    // a wrong HOME makes the CLI re-resolve credentials from a foreign tree and
+    // bill someone else's plan (the published "wrong-account-billed" incident).
+    // So we isolate the config dir only and leave the sanitized HOME intact.
+    //
+    // It is NOT in `ENV_ALLOWLIST` on purpose — the allowlist sanitizes the
+    // *parent* env (fail-closed), but this value is orchestrator-minted, not
+    // inherited, so we inject it here after sanitization rather than widening
+    // the inherited surface.
+    if let Some(dir) = config_isolation {
+        env.insert("CLAUDE_CONFIG_DIR".to_string(), dir.to_string());
+    }
     env
 }
 
@@ -150,6 +217,14 @@ pub struct DispatchRequest {
     pub task_id: Option<String>,
     #[serde(default)]
     pub worktree_id: Option<String>,
+    /// Per-blade isolated `CLAUDE_CONFIG_DIR` path. When `Some`, it is injected
+    /// onto the spawned CLI's env LAST (post-sanitization) so each blade keeps
+    /// its own claude state (auth/session/locks) without entering the HOME
+    /// auth/billing zone. `None` for headless/legacy callers that share the
+    /// host's default config dir. Additive + `serde(default)` → existing wire
+    /// payloads deserialize unchanged.
+    #[serde(default)]
+    pub config_isolation: Option<String>,
 }
 
 impl DispatchRequest {
@@ -187,7 +262,13 @@ impl CliDriver {
     pub async fn dispatch(req: DispatchRequest) -> Result<DispatchOutcome> {
         let parent_env: HashMap<String, String> = std::env::vars().collect();
         let hooks = req.hook_context();
-        let env = build_spawn_env(&parent_env, &req.workspace, &req.runner_policy, hooks.as_ref());
+        let env = build_spawn_env(
+            &parent_env,
+            &req.workspace,
+            &req.runner_policy,
+            hooks.as_ref(),
+            req.config_isolation.as_deref(),
+        );
 
         let start = std::time::Instant::now();
         let mut cmd = tokio::process::Command::new(&req.provider_id);
@@ -232,7 +313,13 @@ impl CliDriver {
 
         let parent_env: HashMap<String, String> = std::env::vars().collect();
         let hooks = req.hook_context();
-        let env = build_spawn_env(&parent_env, &req.workspace, &req.runner_policy, hooks.as_ref());
+        let env = build_spawn_env(
+            &parent_env,
+            &req.workspace,
+            &req.runner_policy,
+            hooks.as_ref(),
+            req.config_isolation.as_deref(),
+        );
 
         let start = std::time::Instant::now();
         let mut cmd = tokio::process::Command::new(&req.provider_id);
@@ -298,5 +385,30 @@ impl CliDriver {
             },
             duration_ms,
         })
+    }
+
+    /// Like [`CliDriver::dispatch_streaming`], but serialized per binary
+    /// (`runSerialized`): two dispatches of the SAME binary basename can never
+    /// run concurrently; DIFFERENT binaries still run in parallel.
+    ///
+    /// This is the DEFAULT invariant for any live dispatch — serialization is
+    /// not opt-in. Past incident: two concurrent `claude` children from the
+    /// same process contend on the CLI's internal `~/.claude/` session locks;
+    /// the second blocks until the 120s timeout SIGKILLs it (and can route to
+    /// the wrong account). Acquiring the per-binary [`binary_lock`] guard and
+    /// holding it for the whole inner dispatch closes that race deterministically
+    /// — the second same-binary caller queues FIFO behind the first instead of
+    /// racing it. Relaxing this (per-binary parallelism) would require a future
+    /// green non-contention proof, so there is intentionally no skip path.
+    pub async fn dispatch_streaming_serialized(
+        req: DispatchRequest,
+        on_line: impl FnMut(String) + Send + 'static,
+    ) -> Result<DispatchOutcome> {
+        let lock = binary_lock(&req.provider_id);
+        // Hold the guard for the ENTIRE dispatch: the FIFO ordering and mutual
+        // exclusion only hold while the guard is alive, so it must outlive the
+        // spawned child, not just the spawn call.
+        let _guard = lock.lock().await;
+        Self::dispatch_streaming(req, on_line).await
     }
 }
