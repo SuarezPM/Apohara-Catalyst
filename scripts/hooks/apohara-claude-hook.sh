@@ -98,8 +98,12 @@ if [ "$HOOK_EVENT_NAME" = "PreToolUse" ] && [ -n "${APOHARA_TASK_ID:-}" ]; then
         # The CLI exits 2 to block (no active claim) or 0 to allow / fail-open.
         # Block ONLY on the explicit 2; any other code falls through to exit 0
         # so an unexpected guard fault never strands the blade (fail-open).
+        # Pass the tool name so the guard can also enforce the US-S4 PLAN-phase
+        # read-only gate (a PLAN-phase mutation exits 2). Older installed hooks
+        # that omit --tool still get the FileWrite gate (the guard defaults to
+        # it, since this branch only runs for write tools).
         GUARD_RC=0
-        "$APOHARA_BIN" hooks check-claim || GUARD_RC=$?
+        "$APOHARA_BIN" hooks check-claim --tool "$TOOL_NAME" || GUARD_RC=$?
         [ "$GUARD_RC" -eq 2 ] && exit 2
       fi
       ;;

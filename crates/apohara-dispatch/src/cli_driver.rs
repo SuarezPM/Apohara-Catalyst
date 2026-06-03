@@ -131,6 +131,11 @@ pub struct HookContext {
     pub pane_key: String,
     pub task_id: Option<String>,
     pub worktree_id: Option<String>,
+    /// US-S4 — the mesh-workflow phase of this blade's node (`plan`/`exec`/
+    /// `review`), exported as `APOHARA_PHASE` so the F2.0c CLI claim-guard can
+    /// deny PLAN-phase mutations (read-only). `None` for non-mesh/bake-off
+    /// spawns → the guard adds no new denial.
+    pub phase: Option<String>,
 }
 
 /// Build the env handed to a spawned CLI subprocess.
@@ -173,6 +178,12 @@ pub fn build_spawn_env(
         }
         if let Some(worktree_id) = &h.worktree_id {
             env.insert("APOHARA_WORKTREE_ID".to_string(), worktree_id.clone());
+        }
+        // US-S4 — the blade's mesh phase, read by the F2.0c CLI claim-guard to
+        // deny PLAN-phase mutations. `APOHARA_*` so the §0.4 allowlist permits
+        // it; the blade cannot mutate its own already-spawned process env.
+        if let Some(phase) = &h.phase {
+            env.insert("APOHARA_PHASE".to_string(), phase.clone());
         }
     }
     // Per-blade isolation, injected LAST and intentionally outside the
@@ -225,6 +236,11 @@ pub struct DispatchRequest {
     /// payloads deserialize unchanged.
     #[serde(default)]
     pub config_isolation: Option<String>,
+    /// US-S4 — the mesh phase of this blade's node (`plan`/`exec`/`review`),
+    /// exported as `APOHARA_PHASE` for the CLI claim-guard's PLAN-read-only gate.
+    /// `None` for non-mesh/bake-off dispatch. Additive + `serde(default)`.
+    #[serde(default)]
+    pub phase: Option<String>,
 }
 
 impl DispatchRequest {
@@ -238,6 +254,7 @@ impl DispatchRequest {
             pane_key: self.pane_key.clone(),
             task_id: self.task_id.clone(),
             worktree_id: self.worktree_id.clone(),
+            phase: self.phase.clone(),
         })
     }
 }

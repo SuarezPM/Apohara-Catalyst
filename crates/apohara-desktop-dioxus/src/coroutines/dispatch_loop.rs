@@ -687,7 +687,10 @@ async fn spawn_blade(
     }
 
     let prompt = mesh_protocol_prompt(&ctx.objective, node_id, node_id);
-    let req = build_request(binary_path, &workspace, &prompt, node_id, &blade_config);
+    let mut req = build_request(binary_path, &workspace, &prompt, node_id, &blade_config);
+    // US-S4 — export the node's mesh phase so the CLI claim-guard denies
+    // PLAN-phase mutations (read-only). EXEC/REVIEW fall through to claim-only.
+    req.phase = Some(node_phase(node_id).to_string());
     let pid = provider_id.to_string();
     let token_thread = node_id.to_string();
     let outcome = CliDriver::dispatch_streaming_serialized(req, move |line| {
@@ -877,6 +880,27 @@ fn build_request(
         // Per-blade claude state isolation; injected onto the spawn env as
         // CLAUDE_CONFIG_DIR (NOT HOME — auth/billing zone) by `build_spawn_env`.
         config_isolation: Some(blade_config.to_string()),
+        // The bake-off carries no mesh phase; the mesh body sets it on the
+        // request after this builder (US-S4) so the CLI claim-guard can deny
+        // PLAN-phase writes.
+        phase: None,
+    }
+}
+
+/// US-S4 — map a master-plan node id to its mesh phase string (`plan`/`exec`/
+/// `review`), exported as `APOHARA_PHASE` for the CLI claim-guard. The planner
+/// knows each node's phase by id: `plan` is read-only PLAN, `impl-*`/`implement`
+/// are the write phase EXEC, and `integrate`/`verify`/`review*` are the
+/// human-gated REVIEW. An unrecognized id defaults to `exec` (the permissive
+/// write phase) so the guard never spuriously denies an unknown node.
+fn node_phase(node_id: &str) -> &'static str {
+    if node_id == "plan" {
+        "plan"
+    } else if node_id == "integrate" || node_id == "verify" || node_id.starts_with("review") {
+        "review"
+    } else {
+        // `impl-*`, `implement`, and any unknown id -> the write phase.
+        "exec"
     }
 }
 
@@ -1731,5 +1755,17 @@ mod tests {
         // Best-effort: a None sink must not panic and must be a silent no-op
         // (audit is never on the dispatch critical path).
         audit_mesh(&None, EventKind::ClaimAcquired, "p", "n");
+    }
+
+    #[test]
+    fn node_phase_maps_plan_exec_review() {
+        // US-S4 — the planner's node ids map to mesh phases for APOHARA_PHASE.
+        assert_eq!(node_phase("plan"), "plan", "the plan node is read-only PLAN");
+        assert_eq!(node_phase("impl-src-auth-rs"), "exec", "impl slices are the write phase");
+        assert_eq!(node_phase("implement"), "exec", "linear-fallback implement is EXEC");
+        assert_eq!(node_phase("integrate"), "review", "integrate is human-gated REVIEW");
+        assert_eq!(node_phase("verify"), "review", "verify is REVIEW");
+        // Unknown id defaults to the permissive write phase (no spurious deny).
+        assert_eq!(node_phase("whatever"), "exec");
     }
 }

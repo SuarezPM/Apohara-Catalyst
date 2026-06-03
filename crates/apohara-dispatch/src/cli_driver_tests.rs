@@ -90,6 +90,7 @@ fn spawn_env_exports_hook_correlation_vars_without_leaking_secrets() {
         pane_key: "pane-7".to_string(),
         task_id: Some("task-42".to_string()),
         worktree_id: Some("wt-99".to_string()),
+        phase: Some("plan".to_string()),
     };
     let env = build_spawn_env(&parent, "/tmp/wt", "{}", Some(&hooks), None);
 
@@ -98,6 +99,8 @@ fn spawn_env_exports_hook_correlation_vars_without_leaking_secrets() {
     assert_eq!(env.get("APOHARA_PANE_KEY").map(String::as_str), Some("pane-7"));
     assert_eq!(env.get("APOHARA_TASK_ID").map(String::as_str), Some("task-42"));
     assert_eq!(env.get("APOHARA_WORKTREE_ID").map(String::as_str), Some("wt-99"));
+    // US-S4 — the mesh phase rides the same hook context for the CLI claim-guard.
+    assert_eq!(env.get("APOHARA_PHASE").map(String::as_str), Some("plan"));
 }
 
 #[test]
@@ -137,6 +140,7 @@ fn dispatch_request_constructs_with_plan_shape() {
         task_id: None,
         worktree_id: None,
         config_isolation: None,
+        phase: None,
     };
     // CliDriver type exists (unit struct from impl)
     let _driver: CliDriver = CliDriver;
@@ -159,6 +163,7 @@ async fn dispatch_streaming_invokes_on_line_per_stdout_line() {
         task_id: None,
         worktree_id: None,
         config_isolation: None,
+        phase: None,
     };
 
     let lines = Arc::new(Mutex::new(Vec::<String>::new()));
@@ -223,6 +228,7 @@ async fn serialized_same_binary_does_not_deadlock() {
         task_id: None,
         worktree_id: None,
         config_isolation: None,
+        phase: None,
     };
 
     // Exclusion check: hold the basename's guard and confirm a second acquirer

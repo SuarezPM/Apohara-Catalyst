@@ -10,6 +10,8 @@ use std::process::Command;
 
 use anyhow::{Context, Result};
 use apohara_dispatch::ClaimStore;
+use apohara_safety::phase_permissions::{decide_phase, Phase, PhasePermission};
+use apohara_safety::pure_profiles::PureAction;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -65,7 +67,15 @@ enum HooksCommand {
     /// that carries `APOHARA_TASK_ID`). It is a hard backstop behind the
     /// F2.0b prompt (the primary mitigation), so it fails OPEN on any of
     /// its own faults — see [`check_claim`].
-    CheckClaim,
+    CheckClaim {
+        /// US-S4 — the incoming tool name (`Write`/`Edit`/`Bash`/…) the hook is
+        /// gating. Drives the PLAN-phase read-only gate (tool → `PureAction` →
+        /// `decide_phase`). Optional: when absent the guard assumes a file write
+        /// (the hook only invokes this for write tools), so older installed
+        /// hooks that don't pass it still get the FileWrite gate.
+        #[arg(long)]
+        tool: Option<String>,
+    },
 }
 
 #[tokio::main]
@@ -91,7 +101,7 @@ async fn main() -> Result<()> {
             prompt,
         } => run(provider, workspace, role, runner_policy, prompt).await,
         Commands::Hooks { hooks } => match hooks {
-            HooksCommand::CheckClaim => check_claim(),
+            HooksCommand::CheckClaim { tool } => check_claim(tool.as_deref()),
         },
     }
 }
@@ -224,29 +234,82 @@ enum ExitDecision {
     Block,
 }
 
-/// Pure decision core of the PreToolUse claim-guard (US-F2.0c).
+/// Pure decision core of the PreToolUse claim-guard (US-F2.0c + US-S4 phase).
 ///
 /// * `task_id == None` (or empty) → [`ExitDecision::Allow`]: this is NOT a
 ///   mesh-managed spawn, so the guard must never interfere with normal
 ///   `claude` use.
+/// * **US-S4 phase gate (deny-first overlay):** for a mesh spawn, if the node's
+///   `phase` and the incoming `action` are both known AND
+///   [`decide_phase`] says `Deny` (a PLAN-phase mutation), → [`ExitDecision::Block`]
+///   OUTRIGHT — even with an active claim (a read-only phase forbids the write
+///   regardless). `RequireHuman` (Review) / `Allow` (Exec) / an unknown-or-absent
+///   phase or tool fall through to the claim-only verdict, so non-mesh / bake-off
+///   / pre-phase callers get NO new denial.
 /// * `store_result == Ok(true)`  → [`ExitDecision::Allow`]  (active claim).
 /// * `store_result == Ok(false)` → [`ExitDecision::Block`]  (no active claim).
 /// * `store_result == Err(_)`    → [`ExitDecision::Allow`] (FAIL-OPEN): the
 ///   guard is a backstop, never the primary control. The F2.0b prompt is the
 ///   primary mitigation, so an IO/resolution fault must not strand a blade.
-fn guard_decision(task_id: Option<&str>, store_result: Result<bool, anyhow::Error>) -> ExitDecision {
+fn guard_decision(
+    task_id: Option<&str>,
+    phase: Option<Phase>,
+    action: Option<PureAction>,
+    store_result: Result<bool, anyhow::Error>,
+) -> ExitDecision {
     match task_id {
         // Not a mesh spawn — never block plain claude use.
         None | Some("") => ExitDecision::Allow,
-        Some(_) => match store_result {
-            Ok(true) => ExitDecision::Allow,
-            Ok(false) => ExitDecision::Block,
-            // Fail-open: log, but allow. Backstop, not gatekeeper.
-            Err(err) => {
-                tracing::warn!(error = %err, "claim-guard fail-open (resolution/IO error)");
-                ExitDecision::Allow
+        Some(_) => {
+            // US-S4 phase gate, deny-first: a PLAN-phase mutation is blocked
+            // outright. Only a known (phase, action) pair that `decide_phase`
+            // denies triggers it — anything unknown/absent falls through so a
+            // non-mesh / bake-off / pre-phase blade is untouched (no new denial).
+            if let (Some(p), Some(a)) = (phase, action) {
+                if matches!(decide_phase(p, a), PhasePermission::Deny { .. }) {
+                    return ExitDecision::Block;
+                }
             }
-        },
+            match store_result {
+                Ok(true) => ExitDecision::Allow,
+                Ok(false) => ExitDecision::Block,
+                // Fail-open: log, but allow. Backstop, not gatekeeper.
+                Err(err) => {
+                    tracing::warn!(error = %err, "claim-guard fail-open (resolution/IO error)");
+                    ExitDecision::Allow
+                }
+            }
+        }
+    }
+}
+
+/// US-S4 — classify a Claude Code tool name into a [`PureAction`] for the phase
+/// gate. Returns `None` for a tool we don't model, so the guard adds no new
+/// denial for it (fail-open). Mirrors the hook's write-tool set + the obvious
+/// shell/read tools.
+///
+/// Note: `PureAction::{GitCommit,NetworkEgress}` have no DISTINCT Claude Code
+/// tool name — a PLAN blade commits or hits the network via `Bash`, which maps
+/// to `ShellExec` and is already PLAN-denied. They stay in `decide_phase`'s
+/// mutating set for the day a first-class commit/network tool surfaces; until
+/// then `Bash` is the live carrier.
+fn tool_to_action(tool: &str) -> Option<PureAction> {
+    match tool {
+        "Write" | "Edit" | "MultiEdit" | "NotebookEdit" => Some(PureAction::FileWrite),
+        "Bash" => Some(PureAction::ShellExec),
+        "Read" | "Glob" | "Grep" => Some(PureAction::FileRead),
+        _ => None,
+    }
+}
+
+/// US-S4 — parse `APOHARA_PHASE` into a [`Phase`]. `None` for an unset /
+/// unrecognized value → the phase gate is skipped (fail-open, no new denial).
+fn parse_phase(s: &str) -> Option<Phase> {
+    match s {
+        "plan" => Some(Phase::Plan),
+        "exec" => Some(Phase::Exec),
+        "review" => Some(Phase::Review),
+        _ => None,
     }
 }
 
@@ -291,10 +354,21 @@ fn resolve_claims_dir() -> Result<PathBuf> {
 /// env var, a non-git cwd, an absent claims dir, or any IO error must never
 /// block a blade over the guard's own fault. The F2.0b prompt is the primary
 /// mitigation; this hook is the hard-but-tolerant backstop.
-fn check_claim() -> Result<()> {
+fn check_claim(tool: Option<&str>) -> Result<()> {
     // Empty/unset task id is handled inside guard_decision (→ Allow); we only
     // hit the store when a non-empty task id is present.
     let task_id = std::env::var("APOHARA_TASK_ID").ok();
+
+    // US-S4 — resolve the node's phase + the incoming action for the read-only
+    // PLAN gate. The hook only invokes this for write tools, so a missing
+    // `--tool` defaults to a file write (back-compat with older installed
+    // hooks); an unparseable phase / unknown tool yields `None` → no new denial.
+    let phase = std::env::var("APOHARA_PHASE")
+        .ok()
+        .as_deref()
+        .and_then(parse_phase);
+    let action = tool.map_or(Some(PureAction::FileWrite), tool_to_action);
+
     let store_result = match task_id.as_deref() {
         Some(id) if !id.is_empty() => resolve_claims_dir()
             .and_then(|dir| ClaimStore::new(dir).has_active_claim(id).map_err(Into::into)),
@@ -303,15 +377,26 @@ fn check_claim() -> Result<()> {
         _ => Ok(true),
     };
 
-    match guard_decision(task_id.as_deref(), store_result) {
+    match guard_decision(task_id.as_deref(), phase, action, store_result) {
         ExitDecision::Allow => std::process::exit(0),
         ExitDecision::Block => {
-            // The blade is mesh-managed but holds no claim. Print to STDERR so
-            // Claude Code relays the reason to the model alongside the block.
             let id = task_id.as_deref().unwrap_or_default();
-            eprintln!(
-                "Apohara mesh: you must call claim_task for \"{id}\" before writing files (no active claim)."
+            // Distinguish the phase-deny reason from the claim-miss reason so the
+            // model sees a precise message. Re-checking decide_phase is a cheap
+            // pure call used only to pick the stderr line.
+            let phase_denied = matches!(
+                (phase, action),
+                (Some(p), Some(a)) if matches!(decide_phase(p, a), PhasePermission::Deny { .. })
             );
+            if phase_denied {
+                eprintln!(
+                    "Apohara mesh: \"{id}\" is in the PLAN phase (read-only); mutating tools are denied until the EXEC phase."
+                );
+            } else {
+                eprintln!(
+                    "Apohara mesh: you must call claim_task for \"{id}\" before writing files (no active claim)."
+                );
+            }
             std::process::exit(2);
         }
     }
@@ -319,35 +404,128 @@ fn check_claim() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{guard_decision, ExitDecision};
+    use super::{guard_decision, parse_phase, tool_to_action, ExitDecision};
+    use apohara_safety::phase_permissions::Phase;
+    use apohara_safety::pure_profiles::PureAction;
+
+    // Most pre-S4 tests pass no phase/action (the claim-only path) — a helper
+    // keeps them readable and proves the phase gate is inert when absent.
+    fn claim_only(task_id: Option<&str>, store: Result<bool, anyhow::Error>) -> ExitDecision {
+        guard_decision(task_id, None, None, store)
+    }
 
     #[test]
     fn no_task_id_allows_normal_claude_use() {
         // Not a mesh spawn: even a store error must not matter — allow.
-        assert_eq!(guard_decision(None, Ok(false)), ExitDecision::Allow);
+        assert_eq!(claim_only(None, Ok(false)), ExitDecision::Allow);
         assert_eq!(
-            guard_decision(None, Err(anyhow::anyhow!("ignored"))),
+            claim_only(None, Err(anyhow::anyhow!("ignored"))),
             ExitDecision::Allow
         );
     }
 
     #[test]
     fn empty_task_id_allows() {
-        assert_eq!(guard_decision(Some(""), Ok(false)), ExitDecision::Allow);
+        assert_eq!(claim_only(Some(""), Ok(false)), ExitDecision::Allow);
     }
 
     #[test]
     fn active_claim_allows_missing_claim_blocks() {
-        assert_eq!(guard_decision(Some("t1"), Ok(true)), ExitDecision::Allow);
-        assert_eq!(guard_decision(Some("t1"), Ok(false)), ExitDecision::Block);
+        assert_eq!(claim_only(Some("t1"), Ok(true)), ExitDecision::Allow);
+        assert_eq!(claim_only(Some("t1"), Ok(false)), ExitDecision::Block);
     }
 
     #[test]
     fn store_error_fails_open() {
         // Backstop, not gatekeeper: a resolution/IO fault never blocks.
         assert_eq!(
-            guard_decision(Some("t1"), Err(anyhow::anyhow!("no git repo"))),
+            claim_only(Some("t1"), Err(anyhow::anyhow!("no git repo"))),
             ExitDecision::Allow
         );
+    }
+
+    // ---- US-S4: PLAN-phase read-only gate (deny-first overlay) ----
+
+    #[test]
+    fn plan_phase_mutation_blocks_even_with_active_claim() {
+        // THE acceptance: a PLAN-phase node attempting a mutating tool is the
+        // EXIT-2 block Claude Code honors — outright, even WITH an active claim.
+        for action in [PureAction::FileWrite, PureAction::ShellExec, PureAction::GitCommit] {
+            assert_eq!(
+                guard_decision(Some("plan"), Some(Phase::Plan), Some(action), Ok(true)),
+                ExitDecision::Block,
+                "PLAN + {action:?} must block (read-only), even with a live claim"
+            );
+        }
+    }
+
+    #[test]
+    fn plan_phase_read_falls_through_to_claim_verdict() {
+        // A non-mutating tool in PLAN is allowed by the phase rule, so the
+        // claim verdict decides: active claim → allow, missing → block.
+        assert_eq!(
+            guard_decision(Some("plan"), Some(Phase::Plan), Some(PureAction::FileRead), Ok(true)),
+            ExitDecision::Allow
+        );
+        assert_eq!(
+            guard_decision(Some("plan"), Some(Phase::Plan), Some(PureAction::FileRead), Ok(false)),
+            ExitDecision::Block,
+            "a PLAN read with no claim still hits the claim-miss block"
+        );
+    }
+
+    #[test]
+    fn exec_phase_write_is_not_phase_denied() {
+        // An EXEC (impl-*) node's mutation falls through to the claim-only
+        // verdict — the phase gate adds no denial.
+        assert_eq!(
+            guard_decision(Some("impl-x"), Some(Phase::Exec), Some(PureAction::FileWrite), Ok(true)),
+            ExitDecision::Allow
+        );
+        assert_eq!(
+            guard_decision(Some("impl-x"), Some(Phase::Exec), Some(PureAction::FileWrite), Ok(false)),
+            ExitDecision::Block,
+            "EXEC write with no claim still hits the claim-miss block, not a phase deny"
+        );
+    }
+
+    #[test]
+    fn review_phase_does_not_exit2_on_the_cli_guard() {
+        // REVIEW is human-gated by the desktop overlay, NOT the CLI guard — so
+        // the guard falls through to the claim verdict (no phase exit-2 here).
+        assert_eq!(
+            guard_decision(Some("integrate"), Some(Phase::Review), Some(PureAction::FileWrite), Ok(true)),
+            ExitDecision::Allow,
+            "REVIEW falls through to the claim verdict on the CLI guard"
+        );
+    }
+
+    #[test]
+    fn absent_or_unknown_phase_adds_no_new_denial() {
+        // No phase / no action (non-mesh, bake-off, pre-phase) → behaves exactly
+        // as the claim-only guard: a mutation with an active claim is allowed.
+        assert_eq!(
+            guard_decision(Some("t1"), None, Some(PureAction::FileWrite), Ok(true)),
+            ExitDecision::Allow
+        );
+        assert_eq!(
+            guard_decision(Some("t1"), Some(Phase::Plan), None, Ok(true)),
+            ExitDecision::Allow,
+            "an unknown tool (action None) skips the phase gate (fail-open)"
+        );
+    }
+
+    #[test]
+    fn tool_classifier_and_phase_parser() {
+        assert_eq!(tool_to_action("Write"), Some(PureAction::FileWrite));
+        assert_eq!(tool_to_action("Edit"), Some(PureAction::FileWrite));
+        assert_eq!(tool_to_action("Bash"), Some(PureAction::ShellExec));
+        assert_eq!(tool_to_action("Read"), Some(PureAction::FileRead));
+        assert_eq!(tool_to_action("Frobnicate"), None, "unknown tool -> no phase gate");
+
+        assert_eq!(parse_phase("plan"), Some(Phase::Plan));
+        assert_eq!(parse_phase("exec"), Some(Phase::Exec));
+        assert_eq!(parse_phase("review"), Some(Phase::Review));
+        assert_eq!(parse_phase("garbage"), None, "unparseable phase -> fail-open");
     }
 }
