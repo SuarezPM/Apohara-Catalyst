@@ -297,6 +297,119 @@ impl DispatchRequest {
     }
 }
 
+/// US-S2 — the fully-resolved spawn command for one provider: a `program`, its
+/// `args`, and an optional `stdin` payload. The executor (US-S3) only RUNS this;
+/// every per-provider headless dialect lives in [`build_command_spec`], so the
+/// dialect is asserted by bytes in unit tests without any real CLI on the box.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandSpec {
+    pub program: String,
+    pub args: Vec<String>,
+    /// Payload written to the child's stdin and then closed — the headless
+    /// dialect for claude (stream-json envelope) and codex (`exec … -`). `None`
+    /// when the prompt rides argv instead (legacy `--print`, opencode `run`).
+    pub stdin: Option<String>,
+}
+
+/// US-S2 — build the headless-with-write command for `kind`. PURE: no env, no
+/// spawn, no I/O — the per-provider dialect is fully determined by `kind` + the
+/// request fields, so it is unit-testable by byte-assertion without a real CLI.
+///
+/// `None` reproduces the legacy argv `--print` path BYTE-FOR-BYTE — it is both
+/// the backward-compat case and the `APOHARA_DIALECT_LEGACY` rollback target
+/// (US-S3), so the bake-off's existing behaviour is preserved exactly.
+///
+/// Dialects verified against `upstream-source` + `upstream-source`
+/// (versions: claude 2.1.159 / codex-cli 0.57.0 / opencode 1.15.13):
+///
+/// ```text
+/// claude:   -p --output-format stream-json --input-format stream-json --verbose
+///           --permission-mode bypassPermissions --disallowedTools AskUserQuestion
+///           prompt via stdin envelope. --disallowedTools AskUserQuestion avoids
+///           the headless hang where the model asks an unanswerable question.
+/// codex:    exec --skip-git-repo-check --sandbox workspace-write -
+///           prompt via stdin. ALWAYS exec (bare codex opens a TUI that hangs
+///           with no TTY); NEVER --full-auto (deprecated).
+/// opencode: run --format json --dangerously-skip-permissions --dir <ws> <prompt>
+///           prompt as the trailing positional arg.
+/// ```
+///
+/// SECURITY (US-S4/M6): the claude stdin envelope is built ONLY from
+/// `req.prompt` and the literal `"user"` role — NO environment value is ever
+/// interpolated, so a secret stripped by `build_spawn_env` cannot re-enter the
+/// child via stdin.
+pub fn build_command_spec(kind: Option<ProviderKind>, req: &DispatchRequest) -> CommandSpec {
+    fn argv(parts: &[&str]) -> Vec<String> {
+        parts.iter().map(|s| s.to_string()).collect()
+    }
+    let program = req.provider_id.clone();
+    match kind {
+        // Legacy / rollback / unknown id → byte-identical to the pre-S2 spawn.
+        None => CommandSpec {
+            program,
+            args: vec!["--print".to_string(), req.prompt.clone()],
+            stdin: None,
+        },
+        Some(ProviderKind::Claude) => {
+            // Built with serde_json so a prompt containing quotes/newlines/
+            // unicode is escaped correctly. Only prompt + the literal role go in.
+            let envelope = serde_json::json!({
+                "type": "user",
+                "message": {
+                    "role": "user",
+                    "content": [{ "type": "text", "text": req.prompt }],
+                },
+            })
+            .to_string();
+            CommandSpec {
+                program,
+                args: argv(&[
+                    "-p",
+                    "--output-format",
+                    "stream-json",
+                    "--input-format",
+                    "stream-json",
+                    "--verbose",
+                    "--permission-mode",
+                    "bypassPermissions",
+                    "--disallowedTools",
+                    "AskUserQuestion",
+                ]),
+                stdin: Some(format!("{envelope}\n")),
+            }
+        }
+        Some(ProviderKind::Codex) => CommandSpec {
+            program,
+            args: argv(&[
+                "exec",
+                "--skip-git-repo-check",
+                "--sandbox",
+                "workspace-write",
+                "-",
+            ]),
+            stdin: Some(req.prompt.clone()),
+        },
+        Some(ProviderKind::Opencode) => {
+            let mut args = argv(&[
+                "run",
+                "--format",
+                "json",
+                "--dangerously-skip-permissions",
+                "--dir",
+            ]);
+            args.push(req.workspace.clone());
+            // Prompt is the trailing POSITIONAL arg (opencode reads it from argv,
+            // not stdin). Kept last so it is unambiguously the message.
+            args.push(req.prompt.clone());
+            CommandSpec {
+                program,
+                args,
+                stdin: None,
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DispatchOutcome {
     pub success: bool,

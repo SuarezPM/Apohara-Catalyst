@@ -289,3 +289,188 @@ fn dispatch_request_without_provider_kind_deserializes_to_none() {
     let req: DispatchRequest = serde_json::from_str(json).unwrap();
     assert_eq!(req.provider_kind, None);
 }
+
+// ===================================================================
+// US-S2 — build_command_spec: per-provider headless dialect (pure, no CLIs).
+// ===================================================================
+
+/// True if `args` contains the adjacent flag pair `[a, b]` (e.g. a flag and its
+/// value). Avoids the `&[String] == [&str; N]` type mismatch by comparing
+/// element-by-element.
+fn flag_pair(args: &[String], a: &str, b: &str) -> bool {
+    args.windows(2).any(|w| w[0] == a && w[1] == b)
+}
+
+// US-S2: ProviderKind=None reproduces the legacy `--print` spawn BYTE-FOR-BYTE
+// (backward-compat + the APOHARA_DIALECT_LEGACY rollback target).
+#[test]
+fn spec_legacy_none_is_byte_identical_print() {
+    use crate::cli_driver::build_command_spec;
+    let req = DispatchRequest {
+        provider_id: "/usr/bin/claude".into(),
+        prompt: "do the thing".into(),
+        ..Default::default()
+    };
+    let spec = build_command_spec(None, &req);
+    assert_eq!(spec.program, "/usr/bin/claude");
+    assert_eq!(
+        spec.args,
+        vec!["--print".to_string(), "do the thing".to_string()]
+    );
+    assert_eq!(spec.stdin, None);
+}
+
+// US-S2: claude headless-write dialect — flags present, prompt rides the
+// stream-json stdin envelope (NOT argv), and the envelope carries the prompt.
+#[test]
+fn spec_claude_dialect_prompt_via_stdin_envelope() {
+    use crate::cli_driver::{build_command_spec, ProviderKind};
+    let req = DispatchRequest {
+        provider_id: "/usr/bin/claude".into(),
+        prompt: "improve foo".into(),
+        ..Default::default()
+    };
+    let spec = build_command_spec(Some(ProviderKind::Claude), &req);
+    // Full byte-exact dialect — blinds against any flag drift. claude REQUIRES
+    // `--verbose` together with `--output-format stream-json`, so a dropped flag
+    // would fail at runtime; the complete assert catches it at test time.
+    let expected: Vec<String> = [
+        "-p",
+        "--output-format",
+        "stream-json",
+        "--input-format",
+        "stream-json",
+        "--verbose",
+        "--permission-mode",
+        "bypassPermissions",
+        "--disallowedTools",
+        "AskUserQuestion",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+    assert_eq!(spec.args, expected);
+    // Prompt rides stdin, NEVER argv.
+    assert!(
+        !spec.args.iter().any(|a| a.contains("improve foo")),
+        "prompt must not appear in argv"
+    );
+    let stdin = spec.stdin.expect("claude dialect uses stdin");
+    let v: serde_json::Value = serde_json::from_str(stdin.trim()).unwrap();
+    assert_eq!(v["message"]["content"][0]["text"], "improve foo");
+}
+
+// US-S2: the claude stdin envelope escapes quotes / newlines / unicode correctly
+// (the reason build_command_spec uses serde_json, not string concatenation).
+// Roundtrips a hostile prompt through the envelope and back.
+#[test]
+fn spec_claude_envelope_escapes_quotes_newlines_unicode() {
+    use crate::cli_driver::{build_command_spec, ProviderKind};
+    let hostile = "say \"hi\"\nand 日本語 🎉 \\ end";
+    let req = DispatchRequest {
+        provider_id: "/usr/bin/claude".into(),
+        prompt: hostile.into(),
+        ..Default::default()
+    };
+    let spec = build_command_spec(Some(ProviderKind::Claude), &req);
+    let stdin = spec.stdin.expect("claude dialect uses stdin");
+    // Must parse as valid JSON despite the embedded quotes/newline/backslash.
+    let v: serde_json::Value = serde_json::from_str(stdin.trim()).unwrap();
+    // And the text survives the roundtrip byte-for-byte.
+    assert_eq!(v["message"]["content"][0]["text"], hostile);
+}
+
+// US-S2: codex headless-write dialect — ALWAYS `exec`, sandbox workspace-write,
+// trailing `-` (prompt via stdin), NEVER `--full-auto` (deprecated).
+#[test]
+fn spec_codex_dialect_exec_prompt_via_stdin() {
+    use crate::cli_driver::{build_command_spec, ProviderKind};
+    let req = DispatchRequest {
+        provider_id: "/home/u/.local/bin/codex".into(),
+        prompt: "add a test".into(),
+        ..Default::default()
+    };
+    let spec = build_command_spec(Some(ProviderKind::Codex), &req);
+    assert_eq!(
+        spec.args.first().map(String::as_str),
+        Some("exec"),
+        "codex must always use the exec subcommand"
+    );
+    assert!(spec.args.contains(&"--skip-git-repo-check".to_string()));
+    assert!(flag_pair(&spec.args, "--sandbox", "workspace-write"));
+    assert_eq!(
+        spec.args.last().map(String::as_str),
+        Some("-"),
+        "codex reads the prompt from stdin via the trailing -"
+    );
+    assert!(
+        !spec.args.contains(&"--full-auto".to_string()),
+        "--full-auto is deprecated"
+    );
+    assert_eq!(spec.stdin.as_deref(), Some("add a test"));
+    assert!(
+        !spec.args.iter().any(|a| a.contains("add a test")),
+        "prompt must not appear in argv"
+    );
+}
+
+// US-S2: opencode headless-write dialect — `run --format json
+// --dangerously-skip-permissions --dir <ws>`, prompt as the trailing positional.
+#[test]
+fn spec_opencode_dialect_run_prompt_positional() {
+    use crate::cli_driver::{build_command_spec, ProviderKind};
+    let req = DispatchRequest {
+        provider_id: "/usr/bin/opencode".into(),
+        workspace: "/tmp/work".into(),
+        prompt: "fix the bug".into(),
+        ..Default::default()
+    };
+    let spec = build_command_spec(Some(ProviderKind::Opencode), &req);
+    assert!(spec.args.contains(&"run".to_string()));
+    assert!(flag_pair(&spec.args, "--format", "json"));
+    assert!(spec
+        .args
+        .contains(&"--dangerously-skip-permissions".to_string()));
+    assert!(flag_pair(&spec.args, "--dir", "/tmp/work"));
+    assert_eq!(
+        spec.args.last().map(String::as_str),
+        Some("fix the bug"),
+        "prompt is the trailing positional arg"
+    );
+    assert_eq!(spec.stdin, None);
+}
+
+// US-S2 / M6 (security): build_command_spec is PURE — it never reads the
+// environment, so a secret in the process env can never reach args or stdin.
+// Pins the defense-in-depth invariant against a future regression that might
+// interpolate env into the prompt/envelope.
+#[serial_test::serial]
+#[test]
+fn spec_envelope_never_interpolates_environment() {
+    use crate::cli_driver::{build_command_spec, ProviderKind};
+    std::env::set_var("ANTHROPIC_API_KEY", "sk-secret-DO-NOT-LEAK-xyz");
+    let req = DispatchRequest {
+        provider_id: "/usr/bin/claude".into(),
+        workspace: "/tmp/ws".into(),
+        prompt: "harmless prompt".into(),
+        ..Default::default()
+    };
+    for kind in [
+        Some(ProviderKind::Claude),
+        Some(ProviderKind::Codex),
+        Some(ProviderKind::Opencode),
+        None,
+    ] {
+        let spec = build_command_spec(kind, &req);
+        let blob = format!("{} {:?} {:?}", spec.program, spec.args, spec.stdin);
+        assert!(
+            !blob.contains("sk-secret-DO-NOT-LEAK-xyz"),
+            "no env VALUE may appear in the spec ({kind:?})"
+        );
+        assert!(
+            !blob.contains("ANTHROPIC_API_KEY"),
+            "no env KEY may appear in the spec ({kind:?})"
+        );
+    }
+    std::env::remove_var("ANTHROPIC_API_KEY");
+}
