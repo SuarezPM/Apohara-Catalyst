@@ -319,7 +319,7 @@ pub struct CommandSpec {
 /// the backward-compat case and the `APOHARA_DIALECT_LEGACY` rollback target
 /// (US-S3), so the bake-off's existing behaviour is preserved exactly.
 ///
-/// Dialects verified against `upstream-source` + `upstream-source`
+/// Dialects verified against the published headless modes of each upstream CLI
 /// (versions: claude 2.1.159 / codex-cli 0.57.0 / opencode 1.15.13):
 ///
 /// ```text

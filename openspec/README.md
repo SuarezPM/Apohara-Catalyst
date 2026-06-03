@@ -1,7 +1,7 @@
 # OpenSpec changes
 
 > Spec-driven dev for Apohara. Convention lifted from chorus's
-> `openspec/` pattern (see `upstream-source/openspec/`) and adapted
+> `openspec/` pattern (an established spec-driven convention) and adapted
 > to our 3-CLI-driver world.
 
 Every non-trivial change to Apohara — adding an MCP tool, a new
@@ -136,8 +136,7 @@ one Requirement.
 
 ## Pointers
 
-- chorus reference: `upstream-source/openspec/changes/archive/`
-  has finished examples.
+- the upstream `openspec/changes/archive/` convention has finished examples.
 - Apohara's main design lives in
   `docs/superpowers/specs/2026-05-21-apohara-v1-design.md` — `openspec`
   is for incremental change proposals on top of that base.

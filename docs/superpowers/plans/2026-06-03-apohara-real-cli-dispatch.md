@@ -28,7 +28,7 @@ produjo output de un agente real**. El "bake-off verde" es **placebo**: prueba e
 plumbing de spawn/env/serialización, no que claude/codex/opencode funcionen. Por
 lo tanto **real-CLI dispatch es GREENFIELD**, no una regresión a evitar.
 
-### Dialecto correcto por provider (robado de `upstream-source`, `upstream-source`; versiones claude 2.1.159 / codex-cli 0.57.0 / opencode 1.15.13)
+### Dialecto correcto por provider (derivado de los modos headless publicados de cada CLI upstream; versiones claude 2.1.159 / codex-cli 0.57.0 / opencode 1.15.13)
 
 | Provider | Comando headless-con-escritura | Prompt |
 |---|---|---|

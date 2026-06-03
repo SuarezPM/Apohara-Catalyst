@@ -222,7 +222,7 @@ theme: {
 
 ### Top 5 features no-brainer steal (re-estilizadas)
 
-**1. AgentStateDot** (de `upstream-source/src/renderer/src/components/AgentStateDot.tsx`)
+**1. AgentStateDot** (patrón de status-dot de UIs de agentes upstream)
 
 7 estados con semantic colors en palette Catalyst:
 ```ts
@@ -233,15 +233,15 @@ type AgentState = 'idle' | 'working' | 'done' | 'blocked' | 'waiting' | 'interru
 ```
 Primitiva reusable en kanban cards, statusline, terminal headers. `React.memo` + size variant `sm | md`.
 
-**2. PixelCanvas + Pet sprite system** (de `upstream-source/src/components/pixel-canvas.tsx` + `upstream-source/src/renderer/src/components/status-bar/PetStatusSegment.tsx`)
+**2. PixelCanvas + Pet sprite system** (patrón de pixel-canvas + pet-status de UIs de agentes upstream)
 
 Canvas 256×256 escala 3×, 7 slots con estados `empty | idle | typing | celebrate | looking`. Y-sort z-order, state machine per-slot con `frameTicks`. **Sprites del Native American chief mascot** (SVG placeholders por ahora — 4 estados base: idle, working, celebrate, error). Vive en empty states, statusline footer, dialogs.
 
-**3. Kanban @hello-pangea/dnd + KanbanCardContent** (de `upstream-source/packages/ui/src/components/KanbanBoard.tsx`)
+**3. Kanban @hello-pangea/dnd + KanbanCardContent** (patrón de kanban board de UIs de agentes upstream)
 
 Library más estable que dnd-kit. `Draggable.isDragging` snapshot permite hover + selected + dragging states simultáneos. KanbanCardContent out-of-the-box con priorities, tags, PR badges, assignees. Mobile drag-handle dot. `ring-2 ring-apohara-lime ring-inset bg-apohara-lime/5` para selected.
 
-**4. Animated running border** (de `upstream-source/packages/web-core/src/app/styles/new/index.css:270-340`)
+**4. Animated running border** (patrón de running-border de UIs de agentes upstream)
 
 ```css
 @keyframes border-flash {
@@ -264,7 +264,7 @@ Library más estable que dnd-kit. `Draggable.isDragging` snapshot permite hover 
 ```
 Aplica a cards en columna "Running" + chat-box durante agent stream. Mejor que spinner clásico.
 
-**5. ConfirmationDialogProvider queue-based** (de `upstream-source/src/renderer/src/components/confirmation-dialog.tsx`)
+**5. ConfirmationDialogProvider queue-based** (patrón de confirmation-dialog en cola de UIs de agentes upstream)
 
 Provider con cola de requests, returns `Promise<boolean>`:
 ```ts

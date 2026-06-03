@@ -131,7 +131,7 @@ Each rule below cost real time / money / trust to find. Treat them as load-beari
 
 **Why:** The pre-T2.4 `mcpInjection.ts::injectOpenCode` wrote `<workspace>/.opencode/settings.json` because that's where Apohara's `agent-config.ts::hookConfigPath` (also wrong) pointed. opencode 1.15+ doesn't look at that path. Our MCP injection landed in `/dev/null` for the entire opencode-go provider.
 
-**The rule:** Provider config paths come from the UPSTREAM CLI's source, not from convention. Verify against the reference repo each release: `upstream-source/packages/opencode/src/config/config.ts:340` for opencode, `upstream-source/src/main/agent-trust-presets.ts` for cursor / copilot / codex. When the CLI changes its config discovery, our injection must follow.
+**The rule:** Provider config paths come from the UPSTREAM CLI's source, not from convention. Verify against each CLI's own published source every release (the opencode config loader for opencode; the trust-preset logic of comparable agent runners for cursor / copilot / codex). When the CLI changes its config discovery, our injection must follow.
 
 ### **Generated bindings MUST come back through `cargo run -p apohara-types --bin generate_types --features ts-export` after every Rust schema change**
 
