@@ -210,3 +210,67 @@ async fn pre_tool_use_returns_mailbox_push_context() {
 
     server.shutdown().await;
 }
+
+/// US-S5: the F2.3 push fires under the live mesh body's SINGLE IDENTITY (D5) —
+/// the recipient and the PreToolUse `pane_key` are both the DAG NODE ID (e.g.
+/// `impl-src-auth-rs`), not `{provider}-{seq}`. A message addressed to the node
+/// id comes back as `additionalContext` on that node's PreToolUse, and a lost
+/// push (peek, no ack) still drains via `check_inbox` (poll fallback).
+#[tokio::test]
+async fn mesh_push_delivered_under_node_id_identity() {
+    let dir = tempfile::tempdir().unwrap();
+    // The mesh layout: the mailbox lives at `<repo>/.apohara/mailbox`, the SAME
+    // root the dispatch loop + FsMeshBackend use (hooks_bridge.rs convention).
+    let mailbox_root = dir.path().join(".apohara").join("mailbox");
+    // The single identity: a real master-plan DAG node id.
+    let node_id = "impl-src-auth-rs";
+
+    let mailbox = apohara_dispatch::Mailbox::new(&mailbox_root);
+    mailbox
+        .send(apohara_dispatch::Message {
+            id: String::new(),
+            from: "integrate".to_string(),
+            to: node_id.to_string(),
+            body: "the shared types landed; rebase your slice".to_string(),
+            ts: 7,
+        })
+        .unwrap();
+
+    let config = ServerConfig {
+        bearer_token: "t".to_string(),
+        bind_addr: "127.0.0.1:0".parse().unwrap(),
+        mailbox_root: Some(mailbox_root.clone()),
+    };
+    let server = HooksServer::start(Arc::new(config)).await.unwrap();
+    let url = format!("http://{}/event", server.bound_addr());
+
+    // PreToolUse with pane_key == the DAG node id (what spawn_blade sets).
+    let body = serde_json::json!({
+        "type": "pre_tool_use",
+        "pane_key": node_id,
+        "payload": { "tool_name": "Edit", "tool_input": {} }
+    });
+    let resp = reqwest::Client::new()
+        .post(&url)
+        .header("Authorization", "Bearer t")
+        .json(&body)
+        .send().await.unwrap();
+    assert_eq!(resp.status(), 200);
+    let resp_body: serde_json::Value = resp.json().await.unwrap();
+    let ctx = resp_body["additionalContext"]
+        .as_str()
+        .expect("push additionalContext present under the node-id identity");
+    assert!(ctx.contains("rebase your slice"), "the node's message must be pushed");
+    assert_eq!(
+        resp_body["pendingMessageIds"].as_array().unwrap().len(),
+        1,
+        "exactly one pending message id for this node"
+    );
+
+    // Lost push (peek, no ack) → check_inbox still drains it (poll fallback).
+    let drained = mailbox.check_inbox(node_id).unwrap();
+    assert_eq!(drained.len(), 1, "a lost push is recovered by the poll fallback");
+    assert_eq!(drained[0].body, "the shared types landed; rebase your slice");
+
+    server.shutdown().await;
+}

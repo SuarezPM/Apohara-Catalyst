@@ -353,6 +353,39 @@ mod tests {
         assert!(found, "a MessageSent record must be written from within apohara-mcp");
     }
 
+    /// US-S5 — the SINGLE IDENTITY (D5): one DAG node id is the claim key, the
+    /// `get_tasks` id, AND the mailbox recipient, all over the SAME on-disk
+    /// stores. A blade working `impl-src-auth-rs` claims, is reported by
+    /// `get_tasks`, and receives inbox messages under that one id.
+    #[tokio::test]
+    async fn single_identity_across_claim_get_tasks_and_inbox() {
+        let tmp = TempDir::new().unwrap();
+        let b = backend(&tmp);
+        let node_id = "impl-src-auth-rs";
+        seed_node(&b, node_id, "Implement: src/auth.rs", &[]);
+
+        // The loop claims the node id.
+        assert!(b.claim_task(node_id, "claude-code-cli").await.unwrap().is_some());
+
+        // get_tasks reports the SAME id, now `claimed` (identity claim<->tasks).
+        let tasks = b.get_tasks().await.unwrap();
+        let t = tasks.iter().find(|t| t.id == node_id).expect("node id in get_tasks");
+        assert_eq!(t.state, "claimed", "the claimed node shows as claimed in get_tasks");
+
+        // A peer addresses the SAME id; the blade drains it (identity tasks<->inbox).
+        b.send_message(MeshMessage {
+            from: "integrate".into(),
+            to: node_id.into(),
+            body: "shared types ready".into(),
+            ts: 3,
+        })
+        .await
+        .unwrap();
+        let inbox = b.check_inbox(node_id).await.unwrap();
+        assert_eq!(inbox.len(), 1, "the message is delivered under the node-id identity");
+        assert_eq!(inbox[0].body, "shared types ready");
+    }
+
     /// US-S3 — a send with NO audit sink (default) must still succeed: audit is
     /// strictly additive and never on the critical path of a blade send.
     #[tokio::test]
