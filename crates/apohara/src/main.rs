@@ -288,11 +288,14 @@ fn guard_decision(
 /// denial for it (fail-open). Mirrors the hook's write-tool set + the obvious
 /// shell/read tools.
 ///
-/// Note: `PureAction::{GitCommit,NetworkEgress}` have no DISTINCT Claude Code
-/// tool name — a PLAN blade commits or hits the network via `Bash`, which maps
-/// to `ShellExec` and is already PLAN-denied. They stay in `decide_phase`'s
-/// mutating set for the day a first-class commit/network tool surfaces; until
-/// then `Bash` is the live carrier.
+/// Scope note (live coverage): the installed hook only invokes `check-claim`
+/// for the four native write tools (`Write`/`Edit`/`MultiEdit`/`NotebookEdit`),
+/// so today the PLAN gate fires only for `FileWrite`. `Bash`→`ShellExec` (and
+/// the `GitCommit`/`NetworkEgress` mutations, which have no distinct CC tool
+/// name) are classified here and denied by `decide_phase`, but a PLAN blade's
+/// `Bash` is NOT yet reached by the guard — expanding the hook's tool case to
+/// include `Bash` is the documented follow-up. The classifier stays ahead of
+/// the hook so that expansion needs no guard change.
 fn tool_to_action(tool: &str) -> Option<PureAction> {
     match tool {
         "Write" | "Edit" | "MultiEdit" | "NotebookEdit" => Some(PureAction::FileWrite),
