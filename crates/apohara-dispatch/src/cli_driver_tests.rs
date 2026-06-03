@@ -141,6 +141,7 @@ fn dispatch_request_constructs_with_plan_shape() {
         worktree_id: None,
         config_isolation: None,
         phase: None,
+        provider_kind: None,
     };
     // CliDriver type exists (unit struct from impl)
     let _driver: CliDriver = CliDriver;
@@ -164,6 +165,7 @@ async fn dispatch_streaming_invokes_on_line_per_stdout_line() {
         worktree_id: None,
         config_isolation: None,
         phase: None,
+        provider_kind: None,
     };
 
     let lines = Arc::new(Mutex::new(Vec::<String>::new()));
@@ -229,6 +231,7 @@ async fn serialized_same_binary_does_not_deadlock() {
         worktree_id: None,
         config_isolation: None,
         phase: None,
+        provider_kind: None,
     };
 
     // Exclusion check: hold the basename's guard and confirm a second acquirer
@@ -253,4 +256,36 @@ async fn serialized_same_binary_does_not_deadlock() {
     assert!(r2.is_ok(), "second serialized dispatch failed: {r2:?}");
     assert!(r1.unwrap().success);
     assert!(r2.unwrap().success);
+}
+
+// US-S1: ProviderKind maps the three canonical roster ids and rejects unknowns.
+// The roster id (ActiveProvider.id) is the authoritative source — never the
+// binary basename.
+#[test]
+fn provider_kind_from_roster_id_maps_active_providers() {
+    use crate::cli_driver::ProviderKind;
+    assert_eq!(
+        ProviderKind::from_roster_id("claude-code-cli"),
+        Some(ProviderKind::Claude)
+    );
+    assert_eq!(
+        ProviderKind::from_roster_id("codex-cli"),
+        Some(ProviderKind::Codex)
+    );
+    assert_eq!(
+        ProviderKind::from_roster_id("opencode-go"),
+        Some(ProviderKind::Opencode)
+    );
+    assert_eq!(ProviderKind::from_roster_id("gemini"), None);
+    assert_eq!(ProviderKind::from_roster_id(""), None);
+}
+
+// US-S1: `provider_kind` is additive — a wire payload WITHOUT the field
+// deserializes to `None` (backward-compatible). Pins that existing serialized
+// DispatchRequests keep working after the field was added.
+#[test]
+fn dispatch_request_without_provider_kind_deserializes_to_none() {
+    let json = r#"{"provider_id":"claude","workspace":"/tmp","prompt":"hi","role":"impl","runner_policy":"{}"}"#;
+    let req: DispatchRequest = serde_json::from_str(json).unwrap();
+    assert_eq!(req.provider_kind, None);
 }

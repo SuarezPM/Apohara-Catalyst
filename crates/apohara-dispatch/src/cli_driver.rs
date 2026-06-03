@@ -209,6 +209,37 @@ pub fn build_spawn_env(
     env
 }
 
+/// Which provider CLI a [`DispatchRequest`] targets — the canonical roster id
+/// resolved to a closed enum so the command-builder can pick the right headless
+/// dialect (US-S1). Resolved from `ActiveProvider.id` at the call-site, NOT from
+/// the binary basename (symlinks / wrappers / `paru`-shims make basename
+/// inference fragile — the roster id is the authoritative source).
+///
+/// Defined HERE in `apohara-dispatch`, deliberately NOT reusing
+/// `apohara_mcp::ProviderId`: the dep-graph is `apohara-mcp → apohara-dispatch`
+/// (never the reverse), so importing the mcp enum would create a cycle.
+/// Duplicating the three canonical ids is the necessary cost of staying acyclic.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ProviderKind {
+    Claude,
+    Codex,
+    Opencode,
+}
+
+impl ProviderKind {
+    /// Map a roster id (`ActiveProvider.id`) to its kind. `None` for an
+    /// unknown/legacy id → the dispatch falls back to the legacy argv `--print`
+    /// path (backward-compatible).
+    pub fn from_roster_id(id: &str) -> Option<Self> {
+        match id {
+            "claude-code-cli" => Some(Self::Claude),
+            "codex-cli" => Some(Self::Codex),
+            "opencode-go" => Some(Self::Opencode),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DispatchRequest {
     pub provider_id: String,
@@ -241,6 +272,13 @@ pub struct DispatchRequest {
     /// `None` for non-mesh/bake-off dispatch. Additive + `serde(default)`.
     #[serde(default)]
     pub phase: Option<String>,
+    /// US-S1 — which provider CLI this targets, resolved from the roster id at
+    /// the call-site (NOT the binary basename). Drives the per-provider headless
+    /// dialect in the command-builder (US-S2/S3). `None` → the legacy argv
+    /// `--print` path (backward-compatible). Additive + `serde(default)` → existing
+    /// wire payloads deserialize unchanged.
+    #[serde(default)]
+    pub provider_kind: Option<ProviderKind>,
 }
 
 impl DispatchRequest {

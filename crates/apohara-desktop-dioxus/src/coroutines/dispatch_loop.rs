@@ -1030,6 +1030,9 @@ fn build_request(
         // request after this builder (US-S4) so the CLI claim-guard can deny
         // PLAN-phase writes.
         phase: None,
+        // US-S1 placeholder — wired to ProviderKind::from_roster_id(&p.id) in
+        // US-S5. `None` keeps the legacy argv `--print` path until then.
+        provider_kind: None,
     }
 }
 
