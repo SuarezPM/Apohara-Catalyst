@@ -673,6 +673,20 @@ async fn run_dispatch_mesh(objective: String) {
     set_status(RunStatus::Idle);
 }
 
+/// Upsert the mesh `DagTask` for `node_id` with `status` (US-S1). Collapses the
+/// per-phase board updates in [`spawn_blade`] — the id/title/provider are
+/// constant for a node, only the status changes as it moves `Dispatched` ->
+/// `InVerification` -> `Done`/`Failed`.
+fn upsert_mesh_task(node_id: &str, objective: &str, provider_id: &str, status: TaskStatus) {
+    upsert_task(DagTask {
+        id: node_id.to_string(),
+        title: objective.to_string(),
+        status,
+        provider_id: Some(provider_id.to_string()),
+        ..Default::default()
+    });
+}
+
 /// Run ONE mesh blade for `node_id` on `provider_id`/`binary_path` (US-S1). The
 /// single spawn site: claim the DAG node id (D5 single identity) -> upsert the
 /// `DagTask` -> worktree -> inject mesh MCP config -> augment the prompt ->
@@ -704,13 +718,7 @@ async fn spawn_blade(
         }
     };
 
-    upsert_task(DagTask {
-        id: node_id.to_string(),
-        title: ctx.objective.clone(),
-        status: TaskStatus::Dispatched,
-        provider_id: Some(provider_id.to_string()),
-        ..Default::default()
-    });
+    upsert_mesh_task(node_id, &ctx.objective, provider_id, TaskStatus::Dispatched);
 
     // R3: per-node git worktree before spawning; fall back to the repo root.
     let workspace = match lifecycle::create(node_id, &ctx.repo).await {
@@ -761,17 +769,12 @@ async fn spawn_blade(
     });
     let gates_passed = gate.blocks.is_empty() && outcome.as_ref().map(|o| o.success).unwrap_or(false);
 
-    upsert_task(DagTask {
-        id: node_id.to_string(),
-        title: ctx.objective.clone(),
-        status: if gates_passed {
-            TaskStatus::InVerification
-        } else {
-            TaskStatus::Failed
-        },
-        provider_id: Some(provider_id.to_string()),
-        ..Default::default()
-    });
+    let gate_status = if gates_passed {
+        TaskStatus::InVerification
+    } else {
+        TaskStatus::Failed
+    };
+    upsert_mesh_task(node_id, &ctx.objective, provider_id, gate_status);
 
     // Release the claim now the result is in hand (StaleToken => a reaper
     // re-claimed the slot; our result is no longer authoritative).
@@ -796,24 +799,12 @@ async fn spawn_blade(
                     // US-S3 — audit the integration (best-effort; node id as
                     // target, no diff content in the payload).
                     audit_mesh(&ctx.audit, EventKind::MergeCompleted, provider_id, node_id);
-                    upsert_task(DagTask {
-                        id: node_id.to_string(),
-                        title: ctx.objective.clone(),
-                        status: TaskStatus::Done,
-                        provider_id: Some(provider_id.to_string()),
-                        ..Default::default()
-                    });
+                    upsert_mesh_task(node_id, &ctx.objective, provider_id, TaskStatus::Done);
                 }
                 Ok(MergeResult::Conflict { files }) => {
                     tracing::warn!(node_id, ?files, "merge conflict; preserving branch, node failed");
                     let _ = lifecycle::preserve_on_fail(node_id, FailureReason::MergeConflict, &ctx.repo).await;
-                    upsert_task(DagTask {
-                        id: node_id.to_string(),
-                        title: ctx.objective.clone(),
-                        status: TaskStatus::Failed,
-                        provider_id: Some(provider_id.to_string()),
-                        ..Default::default()
-                    });
+                    upsert_mesh_task(node_id, &ctx.objective, provider_id, TaskStatus::Failed);
                 }
                 Err(e) => {
                     tracing::warn!(node_id, "integrate merge failed (non-fatal): {e}");
