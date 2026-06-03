@@ -747,9 +747,25 @@ async fn spawn_blade(
     req.phase = Some(node_phase(node_id).to_string());
     let pid = provider_id.to_string();
     let token_thread = node_id.to_string();
+    // US-S4 — route usage parsing by the provider's stream dialect; capture a
+    // terminal claude `is_error` so a dispatch that exits 0 but reports an error
+    // result still counts as a failure.
+    let dialect = apohara_token_accounting::StreamDialect::from_roster_id(provider_id);
+    let saw_error = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let saw_error_w = std::sync::Arc::clone(&saw_error);
     let outcome = CliDriver::dispatch_streaming_serialized(req, move |line| {
-        if let Some(snap) = apohara_token_accounting::parse_usage_snapshot(&line) {
+        let parsed = match dialect {
+            Some(d) => apohara_token_accounting::parse_line(d, &line),
+            None => apohara_token_accounting::ParsedLine {
+                usage: apohara_token_accounting::parse_usage_snapshot(&line),
+                ..Default::default()
+            },
+        };
+        if let Some(snap) = parsed.usage {
             apohara_token_accounting::api::record_absolute(&pid, &token_thread, snap);
+        }
+        if parsed.terminal_success == Some(false) {
+            saw_error_w.store(true, std::sync::atomic::Ordering::Relaxed);
         }
         push_event(SseEvent {
             kind: format!("stream:{pid}"),
@@ -767,7 +783,10 @@ async fn spawn_blade(
         diff: unified.clone(),
         output,
     });
-    let gates_passed = gate.blocks.is_empty() && outcome.as_ref().map(|o| o.success).unwrap_or(false);
+    // US-S4 — success = gates clean AND process exit 0 AND no terminal is_error.
+    let gates_passed = gate.blocks.is_empty()
+        && outcome.as_ref().map(|o| o.success).unwrap_or(false)
+        && !saw_error.load(std::sync::atomic::Ordering::Relaxed);
 
     let gate_status = if gates_passed {
         TaskStatus::InVerification

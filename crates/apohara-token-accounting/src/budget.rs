@@ -16,24 +16,19 @@ use serde::{Deserialize, Serialize};
 
 use crate::counter::TokenSnapshot;
 
-/// Parse a single CLI stream line for a cumulative usage snapshot.
+/// Pull a cumulative [`TokenSnapshot`] out of an already-parsed JSON value.
+/// `usage` may be nested (claude `{"usage":{...}}`) or the object itself may
+/// carry the fields (flat codex/opencode variants). Requires at least one of
+/// `input_tokens`/`output_tokens` — otherwise `None`.
 ///
-/// Recognizes the Anthropic/Claude `stream-json` shape
-/// `{"usage":{"input_tokens":N,"output_tokens":M,...}}` as well as a flat
-/// top-level `{"input_tokens":N,...}` (codex/opencode variants). A line with
-/// no `input_tokens`/`output_tokens` (plain text, control frames) yields
-/// `None`, so the caller can blindly try every streamed line. Cache fields are
-/// optional and default to 0.
-///
-/// Snapshots are CUMULATIVE per the provider contract, so the caller feeds
-/// them to `record_absolute` (replace, not add) — matching §0.14.
-pub fn parse_usage_snapshot(line: &str) -> Option<TokenSnapshot> {
-    let v: serde_json::Value = serde_json::from_str(line.trim()).ok()?;
-    // `usage` may be nested (claude) or the object itself may carry the fields.
-    let u = v.get("usage").unwrap_or(&v);
+/// ASSUMES the counts are CUMULATIVE (the caller `record_absolute`s = replace).
+/// Verified for claude (message_delta/result). codex/opencode are assumed
+/// cumulative too — verify per upstream release; if either emits INCREMENTAL
+/// usage, that provider would need an accumulator instead of replace.
+fn snapshot_from_value(v: &serde_json::Value) -> Option<TokenSnapshot> {
+    let u = v.get("usage").unwrap_or(v);
     let input = u.get("input_tokens").and_then(serde_json::Value::as_u64);
     let output = u.get("output_tokens").and_then(serde_json::Value::as_u64);
-    // Require at least one token field to treat this as a usage line.
     if input.is_none() && output.is_none() {
         return None;
     }
@@ -49,6 +44,109 @@ pub fn parse_usage_snapshot(line: &str) -> Option<TokenSnapshot> {
             .and_then(serde_json::Value::as_u64)
             .unwrap_or(0),
     })
+}
+
+/// Parse a single CLI stream line for a cumulative usage snapshot.
+///
+/// Recognizes the Anthropic/Claude `stream-json` shape
+/// `{"usage":{"input_tokens":N,"output_tokens":M,...}}` as well as a flat
+/// top-level `{"input_tokens":N,...}` (codex/opencode variants). A line with
+/// no `input_tokens`/`output_tokens` (plain text, control frames) yields
+/// `None`, so the caller can blindly try every streamed line. Cache fields are
+/// optional and default to 0.
+///
+/// Snapshots are CUMULATIVE per the provider contract, so the caller feeds
+/// them to `record_absolute` (replace, not add) — matching §0.14.
+pub fn parse_usage_snapshot(line: &str) -> Option<TokenSnapshot> {
+    let v: serde_json::Value = serde_json::from_str(line.trim()).ok()?;
+    snapshot_from_value(&v)
+}
+
+/// US-S4 — which provider's stream a line belongs to, for [`parse_line`].
+///
+/// This is an OWN enum, deliberately NOT `apohara_dispatch::ProviderKind`:
+/// `apohara-token-accounting` is a LEAF crate (zero `apohara-*` deps) imported
+/// by dispatch / desktop / verification / tui. Importing `apohara-dispatch`
+/// here would INVERT the dep-graph (dispatch → token-accounting, never the
+/// reverse) and cycle. The caller (apohara-dispatch / desktop) maps its
+/// `ProviderKind` → this discriminant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StreamDialect {
+    Claude,
+    Codex,
+    Opencode,
+}
+
+impl StreamDialect {
+    /// Map a roster id to its stream dialect. `None` for an unknown/legacy id.
+    pub fn from_roster_id(id: &str) -> Option<Self> {
+        match id {
+            "claude-code-cli" => Some(Self::Claude),
+            "codex-cli" => Some(Self::Codex),
+            "opencode-go" => Some(Self::Opencode),
+            _ => None,
+        }
+    }
+}
+
+/// US-S4 — a parsed CLI stream line. Every field is optional: a line that does
+/// not match (plain text, control frame, non-JSON) yields an all-`None`
+/// `ParsedLine` and NEVER panics, so the caller can blindly feed every line.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ParsedLine {
+    /// Cumulative usage snapshot, if this line carried token counts.
+    pub usage: Option<TokenSnapshot>,
+    /// Terminal turn outcome: `Some(true)` = success result, `Some(false)` =
+    /// error result (claude `{"type":"result","is_error":true}`). `None` when
+    /// the line is not a terminal marker — dispatch success then rests on the
+    /// process exit code (US-S3).
+    pub terminal_success: Option<bool>,
+    /// Session id announced by the line (claude `system`/`result`), if any.
+    /// Scaffolding for resume/reconnect (a future story); not consumed by the
+    /// dispatch loop yet.
+    pub session_id: Option<String>,
+}
+
+/// US-S4 — parse one CLI stream line per the provider `dialect`. PURE and TOTAL:
+/// any line that isn't recognized (non-JSON, plain text, control frame) yields
+/// `ParsedLine::default()` — never a panic. `success` for the whole dispatch is
+/// the process exit code (US-S3) AND the absence of a terminal `is_error`.
+pub fn parse_line(dialect: StreamDialect, line: &str) -> ParsedLine {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(line.trim()) else {
+        return ParsedLine::default();
+    };
+    match dialect {
+        StreamDialect::Claude => {
+            let ty = v.get("type").and_then(serde_json::Value::as_str);
+            let terminal_success = if ty == Some("result") {
+                // A `result` is the terminal marker. FAIL-CLOSED: `is_error`
+                // absent → success; present-and-literal-`false` → success;
+                // anything else (true, or a mistyped string/number) → failure.
+                // A mistyped is_error must NOT pass as success.
+                let is_error = match v.get("is_error") {
+                    None => false,
+                    Some(e) => e.as_bool() != Some(false),
+                };
+                Some(!is_error)
+            } else {
+                None
+            };
+            ParsedLine {
+                usage: snapshot_from_value(&v),
+                terminal_success,
+                session_id: v
+                    .get("session_id")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string),
+            }
+        }
+        // codex/opencode emit JSON events; usage (when present) rides the same
+        // nested/flat shape. No claude-style terminal marker — exit code decides.
+        StreamDialect::Codex | StreamDialect::Opencode => ParsedLine {
+            usage: snapshot_from_value(&v),
+            ..Default::default()
+        },
+    }
 }
 
 /// Per-run token aggregation: the run dimension [`crate::counter::TokenCounter`]
@@ -188,5 +286,105 @@ mod tests {
             d2,
             ThrottleDecision::Throttle { spent_usd: 12.5, budget_usd: 10.0 }
         );
+    }
+
+    // ===== US-S4 — per-provider line parsing =====
+
+    #[test]
+    fn stream_dialect_from_roster_id_maps_active_providers() {
+        assert_eq!(
+            StreamDialect::from_roster_id("claude-code-cli"),
+            Some(StreamDialect::Claude)
+        );
+        assert_eq!(
+            StreamDialect::from_roster_id("codex-cli"),
+            Some(StreamDialect::Codex)
+        );
+        assert_eq!(
+            StreamDialect::from_roster_id("opencode-go"),
+            Some(StreamDialect::Opencode)
+        );
+        assert_eq!(StreamDialect::from_roster_id("gemini"), None);
+    }
+
+    #[test]
+    fn parse_line_claude_result_is_error_is_terminal_failure() {
+        // Fixture: a claude stream-json terminal `result` frame with is_error.
+        let line = r#"{"type":"result","subtype":"error","is_error":true,"session_id":"sess-9"}"#;
+        let p = parse_line(StreamDialect::Claude, line);
+        assert_eq!(p.terminal_success, Some(false));
+        assert_eq!(p.session_id.as_deref(), Some("sess-9"));
+    }
+
+    #[test]
+    fn parse_line_claude_result_ok_is_terminal_success_with_usage() {
+        let line = r#"{"type":"result","is_error":false,"usage":{"input_tokens":12,"output_tokens":3}}"#;
+        let p = parse_line(StreamDialect::Claude, line);
+        assert_eq!(p.terminal_success, Some(true));
+        let u = p.usage.expect("result carried usage");
+        assert_eq!(u.input, 12);
+        assert_eq!(u.output, 3);
+    }
+
+    #[test]
+    fn parse_line_claude_system_announces_session() {
+        let line = r#"{"type":"system","subtype":"init","session_id":"sess-1"}"#;
+        let p = parse_line(StreamDialect::Claude, line);
+        assert_eq!(p.session_id.as_deref(), Some("sess-1"));
+        // A system init is not a terminal marker.
+        assert_eq!(p.terminal_success, None);
+    }
+
+    #[test]
+    fn parse_line_claude_assistant_usage_no_terminal() {
+        let line = r#"{"type":"assistant","message":{"usage":{"input_tokens":100,"output_tokens":40}}}"#;
+        let p = parse_line(StreamDialect::Claude, line);
+        // usage nested under message is NOT at the top-level `usage` key, so a
+        // bare assistant frame without a top-level usage yields no snapshot here
+        // — the cumulative usage rides the message_delta/result frames.
+        assert_eq!(p.terminal_success, None);
+        assert_eq!(p.usage, None);
+    }
+
+    // US-S4 (robustness): a mistyped `is_error` (string/number instead of bool)
+    // in a terminal result must FAIL-CLOSED — never silently pass as success.
+    #[test]
+    fn parse_line_claude_result_mistyped_is_error_fails_closed() {
+        let p = parse_line(
+            StreamDialect::Claude,
+            r#"{"type":"result","is_error":"true"}"#,
+        );
+        assert_eq!(p.terminal_success, Some(false), "string is_error → failure");
+        let p2 = parse_line(StreamDialect::Claude, r#"{"type":"result","is_error":1}"#);
+        assert_eq!(p2.terminal_success, Some(false), "numeric is_error → failure");
+        // Literal false is still a success result.
+        let p3 = parse_line(StreamDialect::Claude, r#"{"type":"result","is_error":false}"#);
+        assert_eq!(p3.terminal_success, Some(true));
+    }
+
+    #[test]
+    fn parse_line_codex_flat_usage() {
+        let line = r#"{"type":"token_count","input_tokens":50,"output_tokens":10}"#;
+        let p = parse_line(StreamDialect::Codex, line);
+        let u = p.usage.expect("flat usage present");
+        assert_eq!(u.input, 50);
+        assert_eq!(u.output, 10);
+        // codex has no claude-style terminal marker.
+        assert_eq!(p.terminal_success, None);
+    }
+
+    #[test]
+    fn parse_line_non_json_or_text_is_all_none() {
+        for d in [
+            StreamDialect::Claude,
+            StreamDialect::Codex,
+            StreamDialect::Opencode,
+        ] {
+            assert_eq!(parse_line(d, "not json at all"), ParsedLine::default());
+            assert_eq!(
+                parse_line(d, r#"{"type":"text","text":"hello"}"#),
+                ParsedLine::default()
+            );
+        }
     }
 }
