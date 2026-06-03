@@ -27,7 +27,7 @@ use apohara_dispatch::api::{detect_providers, ProviderStatus};
 use apohara_dispatch::{ClaimStore, DispatchSchedulerStore, RunState, TaskGraph};
 use apohara_token_accounting::api::current_totals;
 
-use crate::coroutines::dispatch_loop::mesh_enabled;
+use crate::coroutines::dispatch_loop::{mesh_enabled, newest_run_tasks_dir};
 use crate::state::utilization::{compute_utilization, set_utilization};
 
 /// The reaper TTL the background poll passes — mirrors the coordinator's 5-min
@@ -115,24 +115,6 @@ fn mesh_ready_count_and_reap(repo: &Path, mesh_on: bool) -> usize {
     }
 
     store.ready_tasks().map(|r| r.len()).unwrap_or(0)
-}
-
-/// Newest per-run DAG subdir under `<repo>/.apohara/tasks/` (the `run-*` dirs
-/// US-S1 writes), by last-modified time — the active run during a dispatch, the
-/// most-recent run between dispatches. `None` when the tasks dir is absent or
-/// holds no subdirectories (a fresh repo / pre-mesh state).
-fn newest_run_tasks_dir(repo: &Path) -> Option<PathBuf> {
-    let tasks_root = repo.join(".apohara").join("tasks");
-    let entries = std::fs::read_dir(&tasks_root).ok()?;
-    entries
-        .filter_map(Result::ok)
-        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
-        .filter_map(|e| {
-            let mtime = e.metadata().and_then(|m| m.modified()).ok()?;
-            Some((e.path(), mtime))
-        })
-        .max_by_key(|(_, mtime)| *mtime)
-        .map(|(path, _)| path)
 }
 
 #[cfg(test)]
@@ -224,18 +206,5 @@ mod tests {
             claims.has_active_claim("live").unwrap(),
             "a live-PID claim within TTL must survive the background reap"
         );
-    }
-
-    #[test]
-    fn newest_run_tasks_dir_picks_a_subdir_or_none() {
-        let dir = TempDir::new().unwrap();
-        let repo = dir.path();
-        // No tasks dir yet -> None.
-        assert!(newest_run_tasks_dir(repo).is_none());
-        // One run subdir -> it is picked.
-        let g = TaskGraph::new(repo.join(".apohara").join("tasks").join("run-7"));
-        build_master_plan(&g, "x", &[]).unwrap();
-        let picked = newest_run_tasks_dir(repo).expect("a run subdir exists");
-        assert!(picked.ends_with("run-7"));
     }
 }

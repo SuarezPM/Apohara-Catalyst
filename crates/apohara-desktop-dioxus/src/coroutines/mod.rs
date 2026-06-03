@@ -9,6 +9,7 @@
 //! never spin these loops.
 
 pub mod claim_watcher;
+pub mod coordinator_tick;
 pub mod dispatch_loop;
 pub mod git_apply_handler;
 pub mod hooks_bridge;
@@ -21,6 +22,7 @@ pub mod utilization_watcher;
 /// the hook order stays stable.
 pub fn mount_coroutines() {
     claim_watcher::mount();
+    coordinator_tick::mount();
     dispatch_loop::mount();
     git_apply_handler::mount();
     hooks_bridge::mount();

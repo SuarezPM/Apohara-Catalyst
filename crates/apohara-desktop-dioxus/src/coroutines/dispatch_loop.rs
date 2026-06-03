@@ -13,13 +13,14 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::LazyLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use dioxus::prelude::*;
 use futures_util::StreamExt;
 
 use apohara_audit::{AuditEvent, AuditSink, EventKind};
-use apohara_coordinator::{assign, Blade, Coordinator, DistributionPolicy, ReadyTask, TickOutcome};
+use apohara_coordinator::{assign, Assignment, Blade, Coordinator, DistributionPolicy, ReadyTask, TickOutcome};
 use apohara_dispatch::api::{is_enabled, list_active_providers};
 use apohara_dispatch::{
     build_master_plan, ClaimOutcome, ClaimRecord, ClaimStore, CliDriver, DispatchRequest,
@@ -365,6 +366,17 @@ async fn run_dispatch(objective: String) {
 // structurally parallel to the bake-off's `for p in providers`, with ONE spawn
 // site (`spawn_blade`). Default OFF (`mesh_enabled`).
 
+/// US-S6 — the SINGLE-DRIVER lock for the mesh DAG. Both the foreground
+/// on-demand loop ([`run_dispatch_mesh`]) and the background coordinator
+/// coroutine ([`drive_background_tick`]) acquire it before driving the shared
+/// per-run store, so the two spawn drivers are MUTUALLY EXCLUSIVE — there is
+/// never a concurrent `mark_done` / worktree / tick on one store, and the
+/// claim lock makes a double-spawn structurally impossible on top of that. The
+/// foreground run holds it for its whole duration (`.lock().await`); the
+/// background tick `try_lock`s and skips when a run owns it.
+static MESH_DRIVE_LOCK: LazyLock<tokio::sync::Mutex<()>> =
+    LazyLock::new(|| tokio::sync::Mutex::new(()));
+
 /// Opt-IN mesh gate (US-S1) — the OPPOSITE default of [`is_enabled`]
 /// (`APOHARA_RUST_DISPATCH`, opt-out). The mesh path is experimental, so it is
 /// off unless explicitly `=1`. `Some("true")`/`Some("yes")` are NOT enabled —
@@ -374,6 +386,73 @@ async fn run_dispatch(objective: String) {
 /// — the mesh ready_count + background reaping must gate on the same flag.
 pub(crate) fn mesh_enabled(env_value: Option<&str>) -> bool {
     env_value == Some("1")
+}
+
+/// US-S2/S6 — newest per-run DAG subdir under `<repo>/.apohara/tasks/` (the
+/// `run-*` dirs the mesh writes), by last-modified time: the active run during a
+/// dispatch, the most-recent run between dispatches. `None` when the tasks dir
+/// is absent or holds no subdirectories. Shared by the `utilization_watcher`
+/// (ready_count + reaping) and the background coordinator coroutine.
+pub(crate) fn newest_run_tasks_dir(repo: &Path) -> Option<PathBuf> {
+    let tasks_root = repo.join(".apohara").join("tasks");
+    let entries = std::fs::read_dir(&tasks_root).ok()?;
+    entries
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+        .filter_map(|e| {
+            let mtime = e.metadata().and_then(|m| m.modified()).ok()?;
+            Some((e.path(), mtime))
+        })
+        .max_by_key(|(_, mtime)| *mtime)
+        .map(|(path, _)| path)
+}
+
+/// Build the available-blade roster + the `provider_id -> binary_path` map from
+/// the active providers (US-S1/S6, shared by the foreground loop and the
+/// background coroutine).
+fn mesh_roster() -> (Vec<Blade>, HashMap<String, String>) {
+    let providers: Vec<_> = list_active_providers()
+        .into_iter()
+        .filter(|p| p.available)
+        .collect();
+    let roster = providers
+        .iter()
+        .map(|p| Blade::new(p.id.clone(), binary_key_of(&p.binary_path)))
+        .collect();
+    let provider_bin = providers
+        .iter()
+        .map(|p| (p.id.clone(), p.binary_path.clone()))
+        .collect();
+    (roster, provider_bin)
+}
+
+/// Build the per-run [`MeshSpawnCtx`] (US-S1/S6, shared). Resolves the live mesh
+/// endpoint (idempotent F0.1), this build's `apohara` binary, and the
+/// best-effort audit sink. All wiring is best-effort — a missing endpoint/sink
+/// degrades to no-MCP/no-audit, never aborts.
+async fn build_mesh_ctx(repo: PathBuf, objective: String) -> MeshSpawnCtx {
+    let mesh_endpoint: Option<(EndpointPorts, String)> = match mcp_bootstrap_servers_inner().await {
+        Ok(descriptor) => Some((descriptor_to_ports(&descriptor), descriptor.token)),
+        Err(e) => {
+            tracing::warn!("mesh endpoint unavailable (non-fatal): {e}; blades run without MCP mesh config");
+            None
+        }
+    };
+    let apohara_bin = std::env::current_exe()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| "apohara".to_string());
+    let audit = AuditSink::new(repo.join(".apohara").join("audit"), "mesh-desktop")
+        .await
+        .ok();
+    let claims = ClaimStore::new(repo.join(".apohara").join("claims"));
+    MeshSpawnCtx {
+        repo,
+        claims,
+        objective,
+        apohara_bin,
+        mesh_endpoint,
+        audit,
+    }
 }
 
 /// Hard iteration cap for the on-demand drive loop (US-S1, M1.2). Default 600
@@ -482,57 +561,24 @@ async fn run_dispatch_mesh(objective: String) {
         return;
     }
 
-    // Roster: the available active providers become blades. `binary_key` keys
-    // the no-same-binary-parallel budget (matches the runtime per-binary lock).
-    let providers: Vec<_> = list_active_providers()
-        .into_iter()
-        .filter(|p| p.available)
-        .collect();
-    let roster: Vec<Blade> = providers
-        .iter()
-        .map(|p| Blade::new(p.id.clone(), binary_key_of(&p.binary_path)))
-        .collect();
-    let provider_bin: HashMap<String, String> = providers
-        .iter()
-        .map(|p| (p.id.clone(), p.binary_path.clone()))
-        .collect();
-
+    // Roster + per-binary map; distribution policy; loop bound.
+    let (roster, provider_bin) = mesh_roster();
     let env: HashMap<String, String> = std::env::vars().collect();
     let policy = DistributionPolicy::from_env(&env);
     let max_ticks = mesh_max_ticks(std::env::var("APOHARA_MESH_MAX_TICKS").ok().as_deref());
 
-    // Resolve the live mesh endpoint ONCE (idempotent F0.1 OnceCell). Best-effort
-    // (bus down -> blades still get the augmented prompt, only MCP wiring skips).
-    let mesh_endpoint: Option<(EndpointPorts, String)> = match mcp_bootstrap_servers_inner().await {
-        Ok(descriptor) => Some((descriptor_to_ports(&descriptor), descriptor.token)),
-        Err(e) => {
-            tracing::warn!("mesh endpoint unavailable (non-fatal): {e}; blades run without MCP mesh config");
-            None
-        }
-    };
-    let apohara_bin = std::env::current_exe()
-        .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_else(|_| "apohara".to_string());
-
-    // US-S3 — mesh audit sink for the in-process ClaimAcquired / MergeCompleted
-    // records. Best-effort: a sink that can't open degrades to no trail.
-    let audit = AuditSink::new(repo.join(".apohara").join("audit"), "mesh-desktop")
-        .await
-        .ok();
-
-    let ctx = MeshSpawnCtx {
-        repo: repo.clone(),
-        claims: claims.clone(),
-        objective: objective.clone(),
-        apohara_bin,
-        mesh_endpoint,
-        audit,
-    };
+    // Per-run spawn context (endpoint + apohara bin + audit sink), shared with
+    // the background coordinator coroutine (US-S6).
+    let ctx = build_mesh_ctx(repo.clone(), objective.clone()).await;
 
     // `base` is HEAD before any merge so the post-run mesh diff is the
     // integrated `git diff <base> HEAD` (US-F1.6, reused).
     let base = git_rev_parse_head(&repo);
     let mut any_integrated = false;
+
+    // US-S6 — hold the single-driver lock for the WHOLE foreground run so the
+    // background coordinator coroutine never drives this store concurrently.
+    let _drive = MESH_DRIVE_LOCK.lock().await;
 
     let mut coordinator =
         Coordinator::new(DispatchSchedulerStore::from_parts(graph.clone(), claims.clone()));
@@ -780,6 +826,115 @@ async fn spawn_blade(
 
     let _ = lifecycle::cleanup(node_id, CleanupReason::Completed, &ctx.repo).await;
     integrated
+}
+
+// ===================================================================
+// US-S6 — Continuous coordinator coroutine (D4-A): active background DISPATCH
+// ===================================================================
+//
+// An OPTIONAL enhancement over the D4-B on-demand loop: drive ready work
+// continuously (1s poll) even with NO foreground `run_dispatch` — so a node a
+// reaper freed between runs gets re-dispatched without a human re-Run. It is
+// the SECOND spawn driver, made safe by [`MESH_DRIVE_LOCK`] (single driver at a
+// time) on top of the per-node claim lock (no double-spawn). Reaper LIVENESS is
+// NOT here (Story #1 reaps-on-exit, Story #2's watcher reaps between runs); this
+// is purely the active-dispatch win.
+
+/// Compute the assignments the background driver would dispatch THIS tick: the
+/// deps-gated claimable set (which STRUCTURALLY excludes any already-claimed
+/// node — the no-double-spawn guarantee) placed by [`assign`]. Pure over the
+/// stores (no spawn); the caller spawns. A store error degrades to "nothing
+/// ready", never a panic.
+fn mesh_ready_assignments(
+    graph: &TaskGraph,
+    claims: &ClaimStore,
+    roster: &[Blade],
+    policy: &DistributionPolicy,
+) -> Vec<Assignment> {
+    let ready_ids = match graph.claimable(claims) {
+        Ok(ids) => ids,
+        Err(e) => {
+            tracing::warn!("mesh background: claimable failed (non-fatal): {e}");
+            return Vec::new();
+        }
+    };
+    let ready: Vec<ReadyTask> = ready_ids
+        .into_iter()
+        .map(|id| ReadyTask::new(id, Intent::Implement))
+        .collect();
+    // No in-flight seed needed: the background driver runs ONLY when the
+    // foreground is locked out (single-driver), so every prior claim is settled
+    // and a still-held one is already excluded from `ready` by `claimable`.
+    assign(&ready, roster, policy, &HashMap::new())
+}
+
+/// Recover the run objective from the per-run DAG's `plan` node title
+/// (`build_master_plan` writes `"Plan: <objective>"`) for the background driver,
+/// which has no inbound objective string. Falls back to a generic label.
+fn recover_objective(graph: &TaskGraph) -> String {
+    graph
+        .nodes()
+        .ok()
+        .and_then(|ns| ns.into_iter().find(|n| n.id == "plan"))
+        .map(|n| {
+            n.title
+                .strip_prefix("Plan: ")
+                .unwrap_or(&n.title)
+                .to_string()
+        })
+        .unwrap_or_else(|| "mesh background continuation".to_string())
+}
+
+/// US-S6 — drive ONE background tick of the newest per-run DAG. Returns the
+/// number of nodes dispatched this tick (0 when a foreground run owns the drive,
+/// there's no per-run DAG, no roster, or nothing is ready). Reuses the SINGLE
+/// [`spawn_blade`] site, so the foreground and background drivers can never
+/// drift. Best-effort throughout.
+pub(crate) async fn drive_background_tick(repo: &Path) -> usize {
+    // Single-driver: a foreground run holds MESH_DRIVE_LOCK for its whole
+    // duration. If we can't get it, a run is active and owns the drive — skip
+    // this tick (no concurrent mark_done / worktree / spawn on the store).
+    let Ok(_drive) = MESH_DRIVE_LOCK.try_lock() else {
+        return 0;
+    };
+    let Some(tasks_dir) = newest_run_tasks_dir(repo) else {
+        return 0;
+    };
+    let graph = TaskGraph::new(tasks_dir);
+    let claims = ClaimStore::new(repo.join(".apohara").join("claims"));
+    let (roster, provider_bin) = mesh_roster();
+    if roster.is_empty() {
+        return 0;
+    }
+    let env: HashMap<String, String> = std::env::vars().collect();
+    let policy = DistributionPolicy::from_env(&env);
+
+    let assignments = mesh_ready_assignments(&graph, &claims, &roster, &policy);
+    if assignments.is_empty() {
+        return 0;
+    }
+
+    // Background re-dispatch is coarser-grained than the foreground: the
+    // objective is recovered from the plan node title (the per-node sub-context
+    // of the original Run is gone), so a re-spawned slice is guided by its node
+    // id + the whole objective. Acceptable for a freed-node continuation.
+    let objective = recover_objective(&graph);
+    let ctx = build_mesh_ctx(repo.to_path_buf(), objective).await;
+    let mut dispatched = 0;
+    for a in assignments {
+        let Some(binary_path) = provider_bin.get(&a.provider_id).cloned() else {
+            let _ = graph.mark_done(&a.task_id);
+            continue;
+        };
+        let _ = spawn_blade(&ctx, &a.task_id, &a.provider_id, &binary_path).await;
+        // Mark done here (single driver under the lock) — no concurrent
+        // graph.json write with the foreground loop (it holds the same lock).
+        if let Err(e) = graph.mark_done(&a.task_id) {
+            tracing::warn!(task_id = %a.task_id, "mesh background mark_done failed (non-fatal): {e}");
+        }
+        dispatched += 1;
+    }
+    dispatched
 }
 
 /// Recall past episodes for `objective` and push a `memory:recall` SSE event so
@@ -1767,5 +1922,69 @@ mod tests {
         assert_eq!(node_phase("verify"), "review", "verify is REVIEW");
         // Unknown id defaults to the permissive write phase (no spurious deny).
         assert_eq!(node_phase("whatever"), "exec");
+    }
+
+    // ---- US-S6: background coordinator coroutine (D4-A) ----
+
+    #[test]
+    fn newest_run_tasks_dir_picks_subdir_or_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        assert!(newest_run_tasks_dir(repo).is_none(), "no tasks dir yet -> None");
+        let g = TaskGraph::new(repo.join(".apohara").join("tasks").join("run-7"));
+        build_master_plan(&g, "x", &[]).unwrap();
+        let picked = newest_run_tasks_dir(repo).expect("a run subdir exists");
+        assert!(picked.ends_with("run-7"));
+    }
+
+    #[test]
+    fn background_dispatches_ready_node() {
+        // US-S6 acceptance: the background driver WOULD dispatch a ready node
+        // (the D4-A win — active dispatch with no foreground run). Asserted on
+        // the pure assignment step (no real CLI spawn).
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        let graph = TaskGraph::new(repo.join(".apohara").join("tasks").join("run-1"));
+        build_master_plan(&graph, "improve the thing", &[]).unwrap();
+        let claims = ClaimStore::new(repo.join(".apohara").join("claims"));
+        let roster = vec![Blade::new("claude-code-cli", "claude")];
+
+        let out = mesh_ready_assignments(&graph, &claims, &roster, &DistributionPolicy::default());
+        assert_eq!(out.len(), 1, "the ready `plan` node is dispatched by the background driver");
+        assert_eq!(out[0].task_id, "plan");
+    }
+
+    #[test]
+    fn background_never_double_spawns_a_claimed_node() {
+        // US-S6 acceptance: a node already CLAIMED (by the on-demand loop) is
+        // structurally excluded from the background driver's ready set — the
+        // no-double-spawn guarantee (claimable() drops claimed slots).
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        let graph = TaskGraph::new(repo.join(".apohara").join("tasks").join("run-1"));
+        build_master_plan(&graph, "improve the thing", &[]).unwrap();
+        let claims = ClaimStore::new(repo.join(".apohara").join("claims"));
+        // The foreground loop claims `plan`.
+        assert!(matches!(
+            claims.try_claim("plan").unwrap(),
+            ClaimOutcome::Acquired { .. }
+        ));
+        let roster = vec![Blade::new("claude-code-cli", "claude")];
+        let out = mesh_ready_assignments(&graph, &claims, &roster, &DistributionPolicy::default());
+        assert!(
+            out.is_empty(),
+            "a claimed node must NOT be re-dispatched by the background driver (no double-spawn)"
+        );
+    }
+
+    #[test]
+    fn recover_objective_strips_plan_prefix() {
+        let dir = tempfile::tempdir().unwrap();
+        let graph = TaskGraph::new(dir.path().join("tasks"));
+        build_master_plan(&graph, "make it faster", &[]).unwrap();
+        assert_eq!(recover_objective(&graph), "make it faster");
+        // A graph with no `plan` node falls back to a generic label.
+        let empty = TaskGraph::new(dir.path().join("empty"));
+        assert_eq!(recover_objective(&empty), "mesh background continuation");
     }
 }
