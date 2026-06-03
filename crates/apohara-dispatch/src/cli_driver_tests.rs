@@ -380,6 +380,204 @@ fn spec_claude_envelope_escapes_quotes_newlines_unicode() {
     assert_eq!(v["message"]["content"][0]["text"], hostile);
 }
 
+// ===================================================================
+// US-S3 — dispatch_streaming_inner: stdin-aware, deadlock-safe, timeout.
+// ===================================================================
+
+// US-S3: stdin is actually written to the child. /bin/cat echoes stdin→stdout,
+// so the payload must come back in the captured output.
+#[tokio::test]
+async fn dispatch_streaming_inner_writes_stdin_to_child() {
+    use crate::cli_driver::{CliDriver, CommandSpec};
+    use std::time::Duration;
+    let req = DispatchRequest {
+        provider_id: "/bin/cat".into(),
+        workspace: "/tmp".into(),
+        ..Default::default()
+    };
+    let spec = CommandSpec {
+        program: "/bin/cat".into(),
+        args: vec![],
+        stdin: Some("hello-stdin\n".into()),
+    };
+    let outcome = CliDriver::dispatch_streaming_inner(req, |_| {}, spec, Duration::from_secs(10))
+        .await
+        .unwrap();
+    assert!(outcome.success, "cat should exit 0");
+    assert!(
+        outcome.output.contains("hello-stdin"),
+        "cat must echo stdin to stdout; got {:?}",
+        outcome.output
+    );
+}
+
+// US-S3/E4 (pipe deadlock): the child READS stdin AND emits >128KB to stdout
+// concurrently. /bin/cat fed 200KB echoes 200KB — its 64KB stdout pipe fills
+// while it is still reading stdin. A write-stdin-then-drain implementation would
+// deadlock here; the concurrent stdin task makes it complete. `echo`/`yes` would
+// be INVALID (they ignore stdin → no backpressure).
+#[tokio::test]
+async fn dispatch_streaming_inner_no_deadlock_on_large_stdin_and_stdout() {
+    use crate::cli_driver::{CliDriver, CommandSpec};
+    use std::time::Duration;
+    let big = "x".repeat(200_000); // > 128KB, > 2x the 64KB Linux pipe buffer
+    let req = DispatchRequest {
+        provider_id: "/bin/cat".into(),
+        workspace: "/tmp".into(),
+        ..Default::default()
+    };
+    let spec = CommandSpec {
+        program: "/bin/cat".into(),
+        args: vec![],
+        stdin: Some(big),
+    };
+    let started = std::time::Instant::now();
+    let outcome = CliDriver::dispatch_streaming_inner(req, |_| {}, spec, Duration::from_secs(20))
+        .await
+        .unwrap();
+    assert!(
+        outcome.success,
+        "cat with 200KB stdin must exit 0, not deadlock"
+    );
+    assert!(
+        outcome.output.len() >= 200_000,
+        "all of stdin must echo to stdout; got {} bytes",
+        outcome.output.len()
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(10),
+        "must complete promptly, not hang near the timeout: {:?}",
+        started.elapsed()
+    );
+}
+
+// US-S3/E5 (hard timeout): a hung child is killed when the timeout fires, the
+// dispatch returns a FAILURE promptly (not after the child's own lifetime).
+#[tokio::test]
+async fn dispatch_streaming_inner_hard_timeout_kills_hung_child() {
+    use crate::cli_driver::{CliDriver, CommandSpec};
+    use std::time::Duration;
+    let req = DispatchRequest {
+        provider_id: "/bin/sleep".into(),
+        workspace: "/tmp".into(),
+        ..Default::default()
+    };
+    let spec = CommandSpec {
+        program: "/bin/sleep".into(),
+        args: vec!["30".into()],
+        stdin: None,
+    };
+    let started = std::time::Instant::now();
+    let outcome =
+        CliDriver::dispatch_streaming_inner(req, |_| {}, spec, Duration::from_millis(200))
+            .await
+            .unwrap();
+    let elapsed = started.elapsed();
+    assert!(!outcome.success, "a timed-out dispatch must be a failure");
+    assert!(
+        outcome.error.unwrap_or_default().contains("timed out"),
+        "error must mention the timeout"
+    );
+    assert!(
+        elapsed < Duration::from_secs(5),
+        "timeout must fire fast, not wait the 30s child: {elapsed:?}"
+    );
+}
+
+// US-S3/E5 (anti-wedge of the FIFO lock): a hung dispatch holding the per-binary
+// guard is timed out and RELEASES the lock, so the next same-binary dispatch
+// proceeds instead of wedging the queue. Mirrors the guard scope of
+// `dispatch_streaming_serialized` (which can't take a custom hanging spec).
+#[tokio::test]
+async fn timeout_releases_fifo_lock_for_next_same_binary() {
+    use crate::cli_driver::{binary_lock, CliDriver, CommandSpec};
+    use std::time::Duration;
+    let mk_req = || DispatchRequest {
+        provider_id: "/bin/sleep".into(),
+        workspace: "/tmp".into(),
+        ..Default::default()
+    };
+    let started = std::time::Instant::now();
+    // First: hold the sleep FIFO lock and run a hanging dispatch (short timeout).
+    {
+        let lock = binary_lock("/bin/sleep");
+        let _g = lock.lock().await;
+        let hang = CommandSpec {
+            program: "/bin/sleep".into(),
+            args: vec!["30".into()],
+            stdin: None,
+        };
+        let o1 = CliDriver::dispatch_streaming_inner(mk_req(), |_| {}, hang, Duration::from_millis(200))
+            .await
+            .unwrap();
+        assert!(!o1.success, "first (hung) dispatch must time out");
+    } // guard dropped here → FIFO free
+      // Second same-binary dispatch must proceed (not wedged behind the first).
+    {
+        let lock = binary_lock("/bin/sleep");
+        let _g = lock.lock().await;
+        let fast = CommandSpec {
+            program: "/bin/sleep".into(),
+            args: vec!["0".into()],
+            stdin: None,
+        };
+        let o2 = CliDriver::dispatch_streaming_inner(mk_req(), |_| {}, fast, Duration::from_secs(5))
+            .await
+            .unwrap();
+        assert!(o2.success, "second dispatch must proceed after the first timed out");
+    }
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "the timeout must free the lock promptly: {:?}",
+        started.elapsed()
+    );
+}
+
+// US-S3: the APOHARA_DIALECT_LEGACY=1 rollback kill-switch forces the legacy
+// argv --print path even when provider_kind is set. /bin/echo prints its args,
+// so the literal "--print" appears in the output.
+#[serial_test::serial]
+#[tokio::test]
+async fn dialect_legacy_kill_switch_forces_print() {
+    use crate::cli_driver::{CliDriver, ProviderKind};
+    std::env::set_var("APOHARA_DIALECT_LEGACY", "1");
+    let req = DispatchRequest {
+        provider_id: "/bin/echo".into(),
+        prompt: "kill-switch-test".into(),
+        workspace: "/tmp".into(),
+        provider_kind: Some(ProviderKind::Claude),
+        ..Default::default()
+    };
+    let outcome = CliDriver::dispatch_streaming(req, |_| {}).await.unwrap();
+    std::env::remove_var("APOHARA_DIALECT_LEGACY");
+    assert!(
+        outcome.output.contains("--print"),
+        "kill-switch must force legacy --print; got {:?}",
+        outcome.output
+    );
+    assert!(outcome.output.contains("kill-switch-test"));
+}
+
+// US-S3: the non-streaming `dispatch` is INTENTIONALLY left on legacy --print
+// (it never drives a real agent — legacy-until-S19). provider_kind is ignored.
+#[tokio::test]
+async fn dispatch_no_streaming_stays_legacy_print() {
+    use crate::cli_driver::{CliDriver, ProviderKind};
+    let req = DispatchRequest {
+        provider_id: "/bin/echo".into(),
+        prompt: "non-streaming-test".into(),
+        workspace: "/tmp".into(),
+        provider_kind: Some(ProviderKind::Claude),
+        ..Default::default()
+    };
+    let outcome = CliDriver::dispatch(req).await.unwrap();
+    assert!(
+        outcome.output.contains("--print"),
+        "non-streaming dispatch must stay legacy --print; got {:?}",
+        outcome.output
+    );
+}
+
 // US-S2: codex headless-write dialect — ALWAYS `exec`, sandbox workspace-write,
 // trailing `-` (prompt via stdin), NEVER `--full-auto` (deprecated).
 #[test]

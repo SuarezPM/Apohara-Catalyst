@@ -409,6 +409,7 @@ dependencies = [
  "criterion",
  "fs2",
  "insta",
+ "libc",
  "proptest",
  "serde",
  "serde_json",

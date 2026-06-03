@@ -14,6 +14,7 @@ async-trait = { workspace = true }
 uuid = { workspace = true }
 fs2 = "0.4"
 tempfile = "3"
+libc = "0.2"
 apohara-types = { path = "../apohara-types" }
 apohara-coordinator = { path = "../apohara-coordinator" }
 apohara-secrets = { path = "../apohara-secrets" }

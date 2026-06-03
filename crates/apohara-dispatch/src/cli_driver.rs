@@ -410,6 +410,53 @@ pub fn build_command_spec(kind: Option<ProviderKind>, req: &DispatchRequest) -> 
     }
 }
 
+/// US-S3 — resolve the dialect kind for a dispatch, honoring the
+/// `APOHARA_DIALECT_LEGACY=1` ROLLBACK kill-switch (NOT a feature gate): when
+/// set, it forces the legacy argv `--print` path regardless of `provider_kind`,
+/// with a loud `tracing::warn!` so a degraded run is visible. To be removed
+/// alongside the S19 legacy cleanup.
+fn dialect_for(req: &DispatchRequest) -> Option<ProviderKind> {
+    if std::env::var("APOHARA_DIALECT_LEGACY").as_deref() == Ok("1") {
+        tracing::warn!(
+            "APOHARA_DIALECT_LEGACY=1 — forcing the legacy argv --print path (rollback, degraded)"
+        );
+        return None;
+    }
+    req.provider_kind
+}
+
+/// US-S3 — the hard per-dispatch timeout. A hung CLI holds the per-binary FIFO
+/// lock for the WHOLE dispatch (`dispatch_streaming_serialized`), so without this
+/// bound a single hang would wedge the entire FIFO queue of that binary (E5).
+/// `APOHARA_DISPATCH_TIMEOUT_SECS` overrides; default 900s (15 min). 0 /
+/// unparseable → default.
+fn dispatch_timeout() -> std::time::Duration {
+    std::env::var("APOHARA_DISPATCH_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|&n| n > 0)
+        .map(std::time::Duration::from_secs)
+        .unwrap_or(std::time::Duration::from_secs(900))
+}
+
+/// Last `n` lines of `s` — surfaces why a CLI failed/timed out without dumping
+/// its whole stderr into the outcome. Also bounded by bytes so a single huge
+/// line (e.g. a multi-MB JSON error with no newline) can't blow up the outcome.
+fn stderr_tail(s: &str, n: usize) -> String {
+    const MAX_BYTES: usize = 4000;
+    let lines: Vec<&str> = s.lines().collect();
+    let start = lines.len().saturating_sub(n);
+    let tail = lines[start..].join("\n");
+    if tail.len() <= MAX_BYTES {
+        return tail;
+    }
+    let mut cut = MAX_BYTES;
+    while !tail.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    format!("{}…", &tail[..cut])
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DispatchOutcome {
     pub success: bool,
@@ -442,6 +489,13 @@ impl CliDriver {
         let mut cmd = tokio::process::Command::new(&req.provider_id);
         cmd.env_clear();
         cmd.envs(&env);
+        // US-S3: this non-streaming path is INTENTIONALLY left on the legacy
+        // argv `--print` dialect. Its only caller is the `apohara` CLI's
+        // `rust_dispatch_inner` (apohara-dispatch/src/api.rs), a legacy path kept
+        // until the Phase 2 S19 delete (crates/apohara/src/main.rs) — it never
+        // drives a real agent in a user flow, so converting it to the
+        // per-provider dialect is YAGNI over code already condemned. The LIVE
+        // real-CLI path is `dispatch_streaming` below.
         cmd.arg("--print").arg(&req.prompt);
         cmd.current_dir(&req.workspace);
 
@@ -473,14 +527,39 @@ impl CliDriver {
     /// goal — never block the producer — holds either way.)
     pub async fn dispatch_streaming(
         req: DispatchRequest,
+        on_line: impl FnMut(String) + Send + 'static,
+    ) -> Result<DispatchOutcome> {
+        let kind = dialect_for(&req);
+        let spec = build_command_spec(kind, &req);
+        let timeout = dispatch_timeout();
+        Self::dispatch_streaming_inner(req, on_line, spec, timeout).await
+    }
+
+    /// US-S3 — the streaming dispatch body, parameterized by the prebuilt
+    /// `spec` and a hard `timeout` so BOTH are injectable from tests (deadlock +
+    /// anti-wedge) without touching process env or waiting the real default.
+    ///
+    /// Deadlock safety (E4): the per-provider stdin payload is written in its OWN
+    /// `tokio::spawn` task that closes the pipe when done, CONCURRENT with the
+    /// stdout/stderr readers — never written-then-drained sequentially, which
+    /// would deadlock once the child emits >~64KB of stdout while still reading
+    /// stdin. Anti-wedge (E5): forward+wait runs under `timeout`; on expiry the
+    /// child AND its process group are killed and the call returns a failure, so
+    /// the serialized guard releases the per-binary FIFO lock.
+    pub(crate) async fn dispatch_streaming_inner(
+        req: DispatchRequest,
         mut on_line: impl FnMut(String) + Send + 'static,
+        spec: CommandSpec,
+        timeout: std::time::Duration,
     ) -> Result<DispatchOutcome> {
         use std::process::Stdio;
-        use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+        use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
         use tokio::sync::mpsc::{self, error::TrySendError};
 
         let parent_env: HashMap<String, String> = std::env::vars().collect();
         let hooks = req.hook_context();
+        // `build_spawn_env` is NOT touched — the env path stays orthogonal to the
+        // command path (E2: no secret can re-enter via the dialect change).
         let env = build_spawn_env(
             &parent_env,
             &req.workspace,
@@ -490,17 +569,47 @@ impl CliDriver {
         );
 
         let start = std::time::Instant::now();
-        let mut cmd = tokio::process::Command::new(&req.provider_id);
+        let mut cmd = tokio::process::Command::new(&spec.program);
         cmd.env_clear();
         cmd.envs(&env);
-        cmd.arg("--print").arg(&req.prompt);
+        cmd.args(&spec.args);
         cmd.current_dir(&req.workspace);
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
+        // Kill the child if THIS future is dropped (caller cancel / panic).
+        cmd.kill_on_drop(true);
+        // Own process group so the timeout path can kill the whole tree via
+        // killpg (anti-orphan — e.g. opencode spawns children).
+        #[cfg(unix)]
+        cmd.process_group(0);
+        if spec.stdin.is_some() {
+            cmd.stdin(Stdio::piped());
+        }
 
         let mut child = cmd.spawn().context("spawn provider CLI")?;
+        let child_pid = child.id();
         let stdout = child.stdout.take().context("capture child stdout")?;
         let stderr = child.stderr.take().context("capture child stderr")?;
+
+        // US-S3/E4: write stdin in its OWN task, CONCURRENT with the readers
+        // below — never sequentially before draining stdout. Dropping `si` after
+        // `shutdown` closes the pipe (EOF) so the CLI stops reading.
+        if let Some(payload) = spec.stdin {
+            if let Some(mut si) = child.stdin.take() {
+                tokio::spawn(async move {
+                    if let Err(e) = si.write_all(payload.as_bytes()).await {
+                        // BrokenPipe is legitimate — a CLI may close stdin before
+                        // consuming the whole payload; only louder for real errors.
+                        if e.kind() == std::io::ErrorKind::BrokenPipe {
+                            tracing::debug!("dispatch_streaming: child closed stdin early: {e}");
+                        } else {
+                            tracing::warn!("dispatch_streaming: stdin write failed: {e}");
+                        }
+                    }
+                    let _ = si.shutdown().await;
+                });
+            }
+        }
 
         let (tx, mut rx) = mpsc::channel::<String>(1024);
 
@@ -533,26 +642,70 @@ impl CliDriver {
             buf
         });
 
-        // Forward streamed lines to the caller as they arrive.
-        while let Some(line) = rx.recv().await {
-            on_line(line);
-        }
-
-        let full_output = stdout_reader.await.context("stdout reader task")?;
-        let err_output = stderr_reader.await.context("stderr reader task")?;
-        let status = child.wait().await.context("await provider CLI exit")?;
+        // US-S3/E5: forward streamed lines and await exit under a HARD timeout.
+        // `child` is BORROWED (block not `move`) so it stays killable on timeout.
+        let waited = tokio::time::timeout(timeout, async {
+            while let Some(line) = rx.recv().await {
+                on_line(line);
+            }
+            child.wait().await
+        })
+        .await;
         let duration_ms = start.elapsed().as_millis() as u64;
 
-        Ok(DispatchOutcome {
-            success: status.success(),
-            output: full_output,
-            error: if status.success() {
-                None
-            } else {
-                Some(err_output)
-            },
-            duration_ms,
-        })
+        match waited {
+            Ok(Ok(status)) => {
+                let full_output = stdout_reader.await.context("stdout reader task")?;
+                let err_output = stderr_reader.await.context("stderr reader task")?;
+                Ok(DispatchOutcome {
+                    success: status.success(),
+                    output: full_output,
+                    error: if status.success() {
+                        None
+                    } else {
+                        Some(err_output)
+                    },
+                    duration_ms,
+                })
+            }
+            Ok(Err(e)) => {
+                // wait() failed (rare: ECHILD). Reap the detached readers so they
+                // don't linger; kill_on_drop also fires when `child` drops.
+                stdout_reader.abort();
+                stderr_reader.abort();
+                Err(e).context("await provider CLI exit")
+            }
+            Err(_elapsed) => {
+                // Hard timeout. Kill the whole process group (anti-orphan), then
+                // the child, reap it, and return a FAILURE so the serialized
+                // guard releases the per-binary FIFO lock (E5).
+                #[cfg(unix)]
+                if let Some(pid) = child_pid {
+                    // process_group(0) set the child's pgid == its pid.
+                    unsafe {
+                        libc::killpg(pid as libc::pid_t, libc::SIGKILL);
+                    }
+                }
+                let _ = child.start_kill();
+                let _ = child.wait().await;
+                let full_output = stdout_reader.await.unwrap_or_default();
+                let err_output = stderr_reader.await.unwrap_or_default();
+                tracing::warn!(
+                    timeout_secs = timeout.as_secs(),
+                    "dispatch timed out; killed child + process group, releasing FIFO lock"
+                );
+                Ok(DispatchOutcome {
+                    success: false,
+                    output: full_output,
+                    error: Some(format!(
+                        "dispatch timed out after {}s; stderr tail:\n{}",
+                        timeout.as_secs(),
+                        stderr_tail(&err_output, 20)
+                    )),
+                    duration_ms,
+                })
+            }
+        }
     }
 
     /// Like [`CliDriver::dispatch_streaming`], but serialized per binary
