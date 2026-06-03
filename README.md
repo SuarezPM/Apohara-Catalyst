@@ -30,7 +30,11 @@
 
 You already pay for one or more AI coding CLIs. Today you run them one at a time, babysit them, and hope the first answer is the good one.
 
-**Apohara Catalyst sits between you and your CLIs.** You type a goal; it dispatches the three CLIs you already have in parallel — each in its own isolated git worktree — runs every result through a quality-gate verification mesh, and surfaces only the **winning diff** for a one-click Accept (a real `git apply`). It adds no tokens, opens no OAuth flow, phones no home. It is a single native Rust binary on your machine.
+**Apohara Catalyst sits between you and your CLIs.** It is **Bring-Your-Own-CLI**: you stay logged into `claude` / `codex` / `opencode` yourself, and Catalyst only *invokes* them — it never sees your tokens, opens no OAuth flow, phones no home, and is a single native Rust binary on your machine. You type a goal; it dispatches the CLIs you already have in parallel — each in its own isolated git worktree — runs every result through a quality-gate verification mesh, and surfaces only the **winning diff** for a one-click Accept (a real `git apply`).
+
+### The vision — collaboration, not just competition
+
+The race above is today's default mode. The north star — already wired behind `APOHARA_MESH` and in active validation — is a **collaborative mesh**: instead of N CLIs redoing the *same* goal and discarding the losers, a **zero-token planner** decomposes your goal into a **file-disjoint DAG**, hands each CLI a *different* slice, and lets them coordinate live (atomic cross-process claims, a mailbox bus, a single incremental integrator). Every token is spent **once, not N times**; the CLIs stop competing and start dividing the work — heterogeneous agents (Claude + Codex + OpenCode) cooperating on one repo, with the same BYOC contract and the same human-gated Accept. That's the shape Apohara is converging on: **your CLIs, as a coordinated swarm.**
 
 ---
 
@@ -123,7 +127,7 @@ Every provider runs through the same Rust crates — `apohara_dispatch::api::lis
 - **Storage in one SQLite file.** Code chunks + embeddings live in a `sqlite-vec` `vec0` virtual table (`embedding float[384]`); `rusqlite` is statically `bundled`. KNN is a single SQL `WHERE embedding MATCH ?1 AND k = ?2 ORDER BY distance` — no external vector DB, no network service.
 - **Real structure extraction.** `tree-sitter` 0.24 (Rust + TypeScript grammars) pulls function/method/trait signatures with params and return types, plus full import/export graphs.
 
-> Reported **unique** among comparable local orchestrators.
+> Not something we found in any comparable local-first orchestrator we surveyed.
 
 </details>
 
@@ -225,6 +229,7 @@ Make sure at least one of `claude`, `codex`, or `opencode` is installed and logg
 - ✅ **3 active providers by design:** `claude-code-cli`, `codex-cli`, `opencode-go`. Others are LEGACY behind `APOHARA_LEGACY_PROVIDERS=1`.
 - ⚠️ **Cross-platform installers are wired but not yet published.** The `scripts/install.sh` one-liner (Linux/macOS, x86_64/aarch64) and the AUR/Homebrew/Scoop manifests all target the same `apohara-<triple>.{tar.gz,zip}` release assets the build matrix produces; assets publish on tag. No published release exists yet — the tag cut is a Pablo-gated manual step.
 - ⚠️ **Daemon mode, SSH remote workers, smart router, and reactions ship OFF by default** and are not production-validated.
+- ⚠️ **The collaborative mesh (`APOHARA_MESH`) ships OFF by default.** The bake-off is the validated default path; the mesh — zero-token planner, atomic cross-process claims, mailbox bus, single incremental integrator — is wired and hermetically tested, with real-CLI dogfooding in progress. The per-provider headless CLI dispatch it relies on was recently completed and verified; the next step is propagating each CLI's existing login into the per-blade run.
 - ⚠️ **Opt-in model-judge tier** (`APOHARA_MODEL_JUDGE=1`) is OFF by default and is the *only* token-spending path in the verification crate; the 7 quality gates stay pure-regex / zero-token. The flag currently assembles the judge prompt only — actual model dispatch is a deferred follow-up.
 - ⚠️ The seccomp/namespace sandbox is **Linux-only** and requires `kernel.unprivileged_userns_clone=1`; on macOS/Windows it falls back to no enforcement.
 
