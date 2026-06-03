@@ -214,7 +214,7 @@ async fn run_dispatch(objective: String) {
         // is TOLD to claim before touching files, check its inbox, hand off, and
         // report its result. The blade id is the task id (one blade per task).
         let prompt = mesh_protocol_prompt(&objective, &task_id, &task_id);
-        let req = build_request(&p.binary_path, &workspace, &prompt, &task_id, &blade_config);
+        let req = build_request(&p.binary_path, &p.id, &workspace, &prompt, &task_id, &blade_config);
         let pid = p.id.clone();
         let token_thread = task_id.clone();
         // Serialized per-binary spawn (runSerialized): two dispatches of the
@@ -741,7 +741,7 @@ async fn spawn_blade(
     }
 
     let prompt = mesh_protocol_prompt(&ctx.objective, node_id, node_id);
-    let mut req = build_request(binary_path, &workspace, &prompt, node_id, &blade_config);
+    let mut req = build_request(binary_path, provider_id, &workspace, &prompt, node_id, &blade_config);
     // US-S4 — export the node's mesh phase so the CLI claim-guard denies
     // PLAN-phase mutations (read-only). EXEC/REVIEW fall through to claim-only.
     req.phase = Some(node_phase(node_id).to_string());
@@ -1026,6 +1026,7 @@ fn build_episode(
 /// (US-F1.4) so concurrent blades never share claude auth/session/lock state.
 fn build_request(
     provider_binary: &str,
+    roster_id: &str,
     workspace: &str,
     prompt: &str,
     task_id: &str,
@@ -1049,9 +1050,11 @@ fn build_request(
         // request after this builder (US-S4) so the CLI claim-guard can deny
         // PLAN-phase writes.
         phase: None,
-        // US-S1 placeholder — wired to ProviderKind::from_roster_id(&p.id) in
-        // US-S5. `None` keeps the legacy argv `--print` path until then.
-        provider_kind: None,
+        // US-S5 — resolve the per-provider headless dialect from the ROSTER id
+        // (e.g. "claude-code-cli"), NOT the binary path. Both the mesh and the
+        // bake-off share build_request, so both inherit the dialect. An unknown
+        // id → `None` → the legacy argv `--print` path.
+        provider_kind: apohara_dispatch::cli_driver::ProviderKind::from_roster_id(roster_id),
     }
 }
 
@@ -1330,12 +1333,18 @@ mod tests {
         let augmented = mesh_protocol_prompt("build a thing", "claude-1", "claude-1");
         let req = build_request(
             "/usr/bin/claude",
+            "claude-code-cli",
             "/tmp/wt",
             &augmented,
             "claude-1",
             "/repo/.apohara/blades/claude-1/.claude",
         );
         assert_eq!(req.provider_id, "/usr/bin/claude");
+        // US-S5: the dialect is resolved from the ROSTER id, not the binary path.
+        assert_eq!(
+            req.provider_kind,
+            Some(apohara_dispatch::cli_driver::ProviderKind::Claude)
+        );
         assert_eq!(req.workspace, "/tmp/wt");
         assert_eq!(req.prompt, augmented);
         assert!(req.prompt.contains("build a thing"));
