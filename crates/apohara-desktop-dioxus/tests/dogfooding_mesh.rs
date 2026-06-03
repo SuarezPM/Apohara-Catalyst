@@ -28,8 +28,14 @@
 //! composition*, so same-process tasks over the same filesystem stores are the
 //! right granularity (the stores are path-only handles by design).
 
-use apohara_dispatch::{ClaimOutcome, ClaimStore, Mailbox, Message, TaskGraph, TaskNode};
+use apohara_coordinator::{assign, Blade, Coordinator, DistributionPolicy, ReadyTask, TickOutcome};
+use apohara_dispatch::{
+    build_master_plan, ClaimOutcome, ClaimStore, DispatchSchedulerStore, Mailbox, Message,
+    TaskGraph, TaskNode,
+};
+use apohara_types::intent::Intent;
 use apohara_worktree::lifecycle::{self, MergeResult};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tempfile::TempDir;
@@ -318,4 +324,135 @@ async fn mesh_two_blades_claim_communicate_integrate_green() {
     // worktree, so nothing contends. In production, `cli_driver::runSerialized`
     // (FIFO per binary) + this per-blade worktree isolation are what keep the
     // real heterogeneous blades from reproducing that hang.
+}
+
+/// US-S7 — the DOGFOODING MASTER GATE (hermetic): drive the FULL mesh pipeline
+/// the way `run_dispatch_mesh` does — **plan → coordinator-tick → assign →
+/// claim → integrate → mesh-diff** — to a non-empty integrated diff with ≥2
+/// disjoint slices, gates green. NO real CLIs: the blade is a fake that produces
+/// a disjoint file per `impl-*` node (the real-CLI variant is the manual gate,
+/// `docs/superpowers/runbooks/2026-06-02-s7-mesh-dogfooding-manual-gate.md`).
+///
+/// This is the proof the F0–F4 primitives compose into one live loop: the
+/// planner's DAG drives the F2.1 coordinator, the F2.2 distribution places the
+/// slices on distinct binaries, the F1.6 serialized integrator merges them, and
+/// the mesh diff a human reviews is real.
+#[tokio::test]
+async fn mesh_pipeline_plan_assign_integrate_to_green_diff() {
+    let repo_dir = TempDir::new().expect("tempdir");
+    let repo = repo_dir.path().to_path_buf();
+    init_repo(&repo);
+    let base = git_stdout(&repo, &["rev-parse", "HEAD"]);
+
+    // ---- PLAN: own-logic DAG from an objective with 2 path tokens. ----
+    // Per-run subdir (Change 2) — the same namespacing run_dispatch_mesh uses.
+    let graph = TaskGraph::new(repo.join(".apohara").join("tasks").join("run-1"));
+    let ids = build_master_plan(&graph, "update src/auth.rs and src/db.rs", &[]).expect("plan");
+    assert_eq!(ids.len(), 4, "plan + 2 impl-* + integrate");
+
+    let store = ClaimStore::new(repo.join(".apohara").join("claims"));
+    let mut coord =
+        Coordinator::new(DispatchSchedulerStore::from_parts(graph.clone(), store.clone()));
+    let roster = vec![
+        Blade::new("claude-code-cli", "claude"),
+        Blade::new("codex-cli", "codex"),
+    ];
+    let policy = DistributionPolicy::default();
+
+    // ---- DRIVE: tick → assign → fake-blade → integrate → mark_done. ----
+    let mut order: Vec<Vec<String>> = Vec::new();
+    let mut integrated_slices = 0usize;
+    loop {
+        match coord.tick().await {
+            TickOutcome::Dispatched { task_ids, .. } => {
+                order.push(task_ids.clone());
+                let ready: Vec<ReadyTask> = task_ids
+                    .iter()
+                    .map(|id| ReadyTask::new(id.clone(), Intent::Implement))
+                    .collect();
+                let assignments = assign(&ready, &roster, &policy, &HashMap::new());
+                assert_eq!(
+                    assignments.len(),
+                    ready.len(),
+                    "the 2-binary roster places every ready slice this tick (no idle work)"
+                );
+                for a in &assignments {
+                    let token = match store.try_claim(&a.task_id).expect("claim") {
+                        ClaimOutcome::Acquired { token } => token,
+                        other => panic!("expected to claim {}, got {other:?}", a.task_id),
+                    };
+                    // The fake blade produces a DISJOINT file only for the write
+                    // (`impl-*`) slices, then integrates through the single
+                    // serialized merger — plan/integrate nodes are no-op drivers.
+                    if a.task_id.starts_with("impl-") {
+                        let wt = lifecycle::create(&a.task_id, &repo).await.expect("worktree");
+                        let file = format!("{}.txt", a.task_id);
+                        std::fs::write(wt.join(&file), format!("from {}\n", a.provider_id))
+                            .expect("write slice file");
+                        git(&wt, &["add", "-A"]);
+                        git(&wt, &["commit", "-m", &format!("work {}", a.task_id)]);
+                        let merged = lifecycle::merge(&a.task_id, &repo).await.expect("merge");
+                        assert!(
+                            matches!(merged, MergeResult::Success),
+                            "disjoint slice {} must integrate green: {merged:?}",
+                            a.task_id
+                        );
+                        integrated_slices += 1;
+                    }
+                    store.report_result(&a.task_id, &token).expect("report");
+                    graph.mark_done(&a.task_id).expect("mark_done");
+                }
+            }
+            TickOutcome::StallDetected { .. } => continue,
+            TickOutcome::NoOp => break,
+            TickOutcome::BlockedByCareful { .. } => panic!("careful mode unused"),
+        }
+    }
+
+    // ---- ORDER: plan first, both impl-* in parallel, integrate last. ----
+    assert_eq!(order.first().unwrap(), &vec!["plan".to_string()], "plan dispatches first");
+    assert_eq!(
+        order.last().unwrap(),
+        &vec!["integrate".to_string()],
+        "integrate dispatches last (after both slices)"
+    );
+    let impl_tick = order.iter().find(|t| t.iter().all(|id| id.starts_with("impl-"))).unwrap();
+    assert_eq!(impl_tick.len(), 2, "both disjoint slices dispatch together after plan");
+
+    // ---- MESH DIFF: non-empty, ≥2 disjoint slices integrated, HEAD clean. ----
+    let head = git_stdout(&repo, &["rev-parse", "HEAD"]);
+    assert_ne!(base, head, "integration advanced HEAD");
+    let diff_files: Vec<String> = git_stdout(&repo, &["diff", "--name-only", &base, "HEAD"])
+        .lines()
+        .map(str::to_string)
+        .collect();
+    assert!(
+        diff_files.len() >= 2,
+        "the mesh diff must integrate ≥2 disjoint slices, got {diff_files:?}"
+    );
+    assert_eq!(integrated_slices, 2, "exactly the 2 impl slices integrated");
+    assert!(
+        git_stdout(&repo, &["status", "--porcelain"]).is_empty(),
+        "repo clean after the full pipeline"
+    );
+    assert!(
+        git(&repo, &["fsck", "--full"]).status.success(),
+        "git fsck clean after integration"
+    );
+}
+
+/// US-S7 — the REAL-CLI dogfooding gate is MANUAL (heavy: real heterogeneous
+/// CLIs + the Dioxus desktop runtime + a human accepting the diff), so it is NOT
+/// in CI. `#[ignore]`d; the procedure lives in the runbook this test pins so the
+/// gate and its doc never drift. Pablo runs it on a clone with `APOHARA_MESH=1`.
+#[test]
+#[ignore = "heavy: real CLIs + desktop runtime + human accept — run the S7 mesh dogfooding runbook"]
+fn mesh_real_cli_dogfooding_is_manual() {
+    let runbook = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../docs/superpowers/runbooks/2026-06-02-s7-mesh-dogfooding-manual-gate.md");
+    assert!(
+        runbook.exists(),
+        "the S7 manual mesh-dogfooding runbook must exist at {}",
+        runbook.display()
+    );
 }
